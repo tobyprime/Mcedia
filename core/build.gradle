@@ -1,0 +1,45 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+
+}
+
+group = 'org.example'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}"
+    implementation "org.bytedeco:javacv:${project.javacv_version}"
+    implementation "org.lwjgl:lwjgl:${project.lwjgl_version}"
+    implementation "org.slf4j:slf4j-api:${project.sl4j_version}"
+    implementation "org.lwjgl:lwjgl-opengl:${project.lwjgl_version}"
+    implementation "org.lwjgl:lwjgl-openal:${project.lwjgl_version}"
+
+    implementation "org.bytedeco:javacv:${project.javacv_version}"
+    implementation "org.bytedeco:javacpp:${project.javacpp_version}:windows-x86_64"
+    implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}:windows-x86_64"
+}
+shadowJar {
+    archiveClassifier.set('all') // 会生成 xxx-all.jar
+    mergeServiceFiles() // 处理 META-INF/services 文件合并（如 SLF4J）
+
+    // 可选：只打包你关心的依赖
+    dependencies {
+        include(dependency("org.bytedeco:javacv"))
+        include(dependency("org.bytedeco:javacpp"))
+        include(dependency("org.bytedeco:ffmpeg"))
+    }
+}
+test {
+//    useJUnitPlatform()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
