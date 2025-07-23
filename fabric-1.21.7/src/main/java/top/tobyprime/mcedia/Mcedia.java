@@ -48,6 +48,7 @@ public class Mcedia implements ModInitializer {
                 if (pair.getKey().isRemoved()) {
                     pair.getValue().stop();
                     entityToPlayer.remove(pair.getKey());
+                    return;
                 }
                 pair.getValue().tick();
             }

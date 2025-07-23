@@ -91,7 +91,7 @@ public class FfmpegDecoder implements Closeable {
         }
     }
 
-    public void start() {
+    public void start() throws FFmpegFrameGrabber.Exception {
         if (grabber == null) throw new IllegalStateException("Grabber not loaded");
         if (running) {
             LOGGER.warn("[{}] 已经启动", this.hashCode());
@@ -100,10 +100,10 @@ public class FfmpegDecoder implements Closeable {
         running = true;
 
         // 启动grabber线程 - 负责从媒体源获取帧并直接创建TimedFrame
+        grabber.start();
         grabberThread = new Thread(() -> {
             try {
                 LOGGER.info("[{}] Grabber 线程启动", this.hashCode());
-                grabber.start();
                 final int maxNullTries = 100;      // 放宽 null 尝试次数
                 final long nullRetryInterval = 10; // 每次等待间隔
                 final long nullWaitTimeMs = maxNullTries * nullRetryInterval;

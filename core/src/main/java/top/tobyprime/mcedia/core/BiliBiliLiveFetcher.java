@@ -15,42 +15,44 @@ public class BiliBiliLiveFetcher {
             "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/87.0.4280.163 Mobile/15E148 Safari/604.1";
 
 
-    public static String fetchLiveStreamUrl(String liveUrl) {
+    public static String fetch(String liveUrl) {
         try {
             String roomId = extractRoomId(liveUrl);
             if (roomId == null) throw new IllegalArgumentException("无法从链接中提取房间号");
 
-            HttpClient client = HttpClient.newHttpClient();
+            HttpResponse<String> playResponse;
+            try (HttpClient client = HttpClient.newHttpClient()) {
 
-            // Step 1: 获取真实房间 ID 和直播状态
-            String initUrl = "https://api.live.bilibili.com/room/v1/Room/room_init?id=" + roomId;
-            HttpRequest initRequest = HttpRequest.newBuilder()
-                    .uri(URI.create(initUrl))
-                    .header("User-Agent", USER_AGENT)
-                    .GET()
-                    .build();
-            HttpResponse<String> initResponse = client.send(initRequest, HttpResponse.BodyHandlers.ofString());
-            JSONObject initJson = new JSONObject(initResponse.body());
-            if ("直播间不存在".equals(initJson.getString("msg")))
-                throw new RuntimeException("直播间不存在");
+                // Step 1: 获取真实房间 ID 和直播状态
+                String initUrl = "https://api.live.bilibili.com/room/v1/Room/room_init?id=" + roomId;
+                HttpRequest initRequest = HttpRequest.newBuilder()
+                        .uri(URI.create(initUrl))
+                        .header("User-Agent", USER_AGENT)
+                        .GET()
+                        .build();
+                HttpResponse<String> initResponse = client.send(initRequest, HttpResponse.BodyHandlers.ofString());
+                JSONObject initJson = new JSONObject(initResponse.body());
+                if ("直播间不存在".equals(initJson.getString("msg")))
+                    throw new RuntimeException("直播间不存在");
 
-            JSONObject initData = initJson.getJSONObject("data");
-            if (initData.getInt("live_status") != 1)
-                throw new RuntimeException("直播未开启");
+                JSONObject initData = initJson.getJSONObject("data");
+                if (initData.getInt("live_status") != 1)
+                    throw new RuntimeException("直播未开启");
 
-            String realRoomId = String.valueOf(initData.getInt("room_id"));
+                String realRoomId = String.valueOf(initData.getInt("room_id"));
 
-            // Step 2: 获取直播播放地址
-            int qn = 10000;
-            String playUrl = String.format("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo" +
-                    "?room_id=%s&protocol=0,1&format=0,1,2&codec=0,1&qn=%d&platform=h5&ptype=8", realRoomId, qn);
+                // Step 2: 获取直播播放地址
+                int qn = 10000;
+                String playUrl = String.format("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo" +
+                        "?room_id=%s&protocol=0,1&format=0,1,2&codec=0,1&qn=%d&platform=h5&ptype=8", realRoomId, qn);
 
-            HttpRequest playRequest = HttpRequest.newBuilder()
-                    .uri(URI.create(playUrl))
-                    .header("User-Agent", USER_AGENT)
-                    .GET()
-                    .build();
-            HttpResponse<String> playResponse = client.send(playRequest, HttpResponse.BodyHandlers.ofString());
+                HttpRequest playRequest = HttpRequest.newBuilder()
+                        .uri(URI.create(playUrl))
+                        .header("User-Agent", USER_AGENT)
+                        .GET()
+                        .build();
+                playResponse = client.send(playRequest, HttpResponse.BodyHandlers.ofString());
+            }
             JSONObject playJson = new JSONObject(playResponse.body());
 
             JSONObject playurl = playJson.getJSONObject("data")

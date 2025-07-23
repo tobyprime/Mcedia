@@ -1,5 +1,6 @@
 package top.tobyprime.mcedia.core;
 
+import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.internal.*;
@@ -39,7 +40,11 @@ public abstract class MediaDecoder {
 
         if (playing) return;
         playing = true;
-        decoder.start();
+        try {
+            decoder.start();
+        } catch (FFmpegFrameGrabber.Exception e) {
+            throw new RuntimeException(e);
+        }
         startAudioThread();
     }
 
@@ -68,7 +73,6 @@ public abstract class MediaDecoder {
     public synchronized void seekTo(long positionUs) {
         LOGGER.info("[{}] 设置位置到 {}", hashCode(), positionUs);
         syncManager.reset();
-        if (!playing) play();
     }
 
     public synchronized long getCurrentPositionUs() {
