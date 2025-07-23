@@ -18,6 +18,7 @@ dependencies {
     implementation "org.slf4j:slf4j-api:${project.sl4j_version}"
     implementation "org.lwjgl:lwjgl-opengl:${project.lwjgl_version}"
     implementation "org.lwjgl:lwjgl-openal:${project.lwjgl_version}"
+    implementation "org.json:json:${project.json_version}"
 
     implementation "org.bytedeco:javacv:${project.javacv_version}"
     implementation "org.bytedeco:javacpp:${project.javacpp_version}:windows-x86_64"
@@ -29,6 +30,8 @@ shadowJar {
 
     // 可选：只打包你关心的依赖
     dependencies {
+        include(dependency("org.json:json"))
+
         include(dependency("org.bytedeco:javacv"))
         include(dependency("org.bytedeco:javacpp"))
         include(dependency("org.bytedeco:ffmpeg"))

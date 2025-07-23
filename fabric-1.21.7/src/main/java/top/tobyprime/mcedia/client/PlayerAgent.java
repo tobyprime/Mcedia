@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Quaternionf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.core.BiliBiliLiveFetcher;
 import top.tobyprime.mcedia.core.InputHelper;
 import top.tobyprime.mcedia.core.McediaDecoder;
 import top.tobyprime.mcedia.core.PlayConfiguration;
@@ -36,18 +37,7 @@ public class PlayerAgent {
         return (index >= 0 && index < list.size()) ? list.get(index) : null;
     }
 
-    public void updateInputUrl(String url) {
-        if (url == null) {
-            play(null);
-            return;
-        }
-        if (url.startsWith("https://www.bilibili.com/")) {
-            play(InputHelper.resolveBilibili(url));
-        } else if (url.equals("CCTV")) {
-            play("http://120.196.232.124:8088/rrs03.hw.gmcc.net/PLTV/651/224/3221226635/1.m3u8");
-        }
-
-    }
+    public String playingUrl;
 
     public void tick() {
         var item = entity.getItemInHand(InteractionHand.MAIN_HAND);
@@ -97,8 +87,14 @@ public class PlayerAgent {
         // 将GL中的texture写入rendered.png以测试
     }
 
-    private final Object playerLock = new Object();
-    private volatile String playingUrl = null;
+    public void updateInputUrl(String url) {
+        if (url == null) {
+            play(null);
+            return;
+        }
+        play(url);
+
+    }
 
     public void play(@Nullable String mediaUrl) {
         synchronized (this) {
@@ -107,15 +103,34 @@ public class PlayerAgent {
                 return;
             }
             if (player != null) {
-                if (player.getConfig().getInputUrl().equals(mediaUrl)) return;
+                if (playingUrl.equals(mediaUrl)) return;
                 stop();
             }
+            playingUrl = mediaUrl;
             LOGGER.info("准备播放 {}", mediaUrl);
             player = new McediaDecoder();
         }
         try (var executor = Executors.newSingleThreadScheduledExecutor()) {
             executor.submit(()->{
-                player.load(new PlayConfiguration(mediaUrl));
+                if (mediaUrl.startsWith("https://media.zenoxs.cn/")) {
+                    player.load(new PlayConfiguration(mediaUrl));
+                }
+                else if (mediaUrl.startsWith("https://live.bilibili.com/")) {
+                    var realUrl = BiliBiliLiveFetcher.fetchLiveStreamUrl(mediaUrl);
+                    if (realUrl == null) {
+                        realUrl = "未开播";
+                    }
+                    player.load(new PlayConfiguration(realUrl));
+                }
+                else if (mediaUrl.startsWith("https://www.bilibili.com/")) {
+                    player.load(new PlayConfiguration(InputHelper.resolveBilibili(mediaUrl)));
+                }
+                else if (mediaUrl.equals("CCTV")) {
+                    player.load(new PlayConfiguration("http://120.196.232.124:8088/rrs03.hw.gmcc.net/PLTV/651/224/3221226635/1.m3u8"));
+                } else {
+                    stop();
+                    return;
+                }
                 player.play();
             });
         }
@@ -123,7 +138,9 @@ public class PlayerAgent {
 
     public void stop() {
         var pre = player;
-        if (player ==null) return;
+        playingUrl = null;
+        if (player == null)
+            return;
 
         synchronized (this){
             LOGGER.info("停止播放");
