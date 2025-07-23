@@ -1,11 +1,15 @@
 package top.tobyprime.mcedia.core;
 
-import okhttp3.*;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.*;
+import java.net.http.HttpClient.Redirect;
+import java.net.http.HttpResponse.BodyHandlers;
+import java.time.Duration;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -13,28 +17,34 @@ public class DouyinVideoFetcher {
 
     private static final Logger logger = LoggerFactory.getLogger(DouyinVideoFetcher.class);
 
-    private static final OkHttpClient client = new OkHttpClient.Builder()
-            .followRedirects(true)
-            .build();
-
     private static final String USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) " +
             "AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
 
     public static String fetch(String shareUrl) {
         try {
-            // 第一次请求，拿到重定向后的真实URL
-            Request firstRequest = new Request.Builder()
-                    .url(shareUrl)
-                    .header("User-Agent", USER_AGENT)
+            HttpClient client = HttpClient.newBuilder()
+                    .followRedirects(Redirect.ALWAYS) // 自动重定向
+                    .connectTimeout(Duration.ofSeconds(5))
                     .build();
 
-            Response firstResponse = client.newCall(firstRequest).execute();
-            if (!firstResponse.isSuccessful()) {
-                logger.error("请求分享链接失败，code: {}, url: {}", firstResponse.code(), shareUrl);
+            // 第一次请求，拿到重定向后的真实URL
+            HttpRequest firstRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(shareUrl))
+                    .timeout(Duration.ofSeconds(5))
+                    .header("User-Agent", USER_AGENT)
+                    .GET()
+                    .build();
+
+            HttpResponse<Void> firstResponse = client.send(firstRequest, HttpResponse.BodyHandlers.discarding());
+
+            if (firstResponse.statusCode() / 100 != 2) {
+                logger.error("请求分享链接失败，code: {}, url: {}", firstResponse.statusCode(), shareUrl);
                 return null;
             }
-            String finalUrl = firstResponse.request().url().toString();
-            logger.debug("最终跳转链接: {}", finalUrl);
+
+            // 获取重定向后的最终URL
+            URI finalUri = firstResponse.uri();
+            String finalUrl = finalUri.toString();
 
             // 提取视频ID
             String videoId = extractVideoId(finalUrl);
@@ -46,17 +56,21 @@ public class DouyinVideoFetcher {
             String videoPageUrl = "https://www.iesdouyin.com/share/video/" + videoId;
 
             // 请求视频详情页
-            Request videoPageRequest = new Request.Builder()
-                    .url(videoPageUrl)
+            HttpRequest videoPageRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(videoPageUrl))
+                    .timeout(Duration.ofSeconds(5))
                     .header("User-Agent", USER_AGENT)
+                    .GET()
                     .build();
 
-            Response videoPageResponse = client.newCall(videoPageRequest).execute();
-            if (!videoPageResponse.isSuccessful()) {
-                logger.error("请求视频详情页失败，code: {}, url: {}", videoPageResponse.code(), videoPageUrl);
+            HttpResponse<String> videoPageResponse = client.send(videoPageRequest, BodyHandlers.ofString());
+
+            if (videoPageResponse.statusCode() / 100 != 2) {
+                logger.error("请求视频详情页失败，code: {}, url: {}", videoPageResponse.statusCode(), videoPageUrl);
                 return null;
             }
-            String html = videoPageResponse.body().string();
+
+            String html = videoPageResponse.body();
 
             // 提取 JSON 数据
             String routerDataJsonStr = extractRouterDataJson(html);
@@ -68,7 +82,7 @@ public class DouyinVideoFetcher {
             // 解析并返回无水印视频地址
             return parseVideoUrl(routerDataJsonStr);
 
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException e) {
             logger.error("网络请求异常", e);
             return null;
         } catch (Exception e) {
@@ -118,17 +132,6 @@ public class DouyinVideoFetcher {
         } catch (Exception e) {
             logger.error("解析视频URL异常", e);
             return null;
-        }
-    }
-
-    // 仅测试用
-    public static void main(String[] args) {
-        String testUrl = "https://v.douyin.com/4xrQAmlpYYs/";
-        String videoUrl = fetch(testUrl);
-        if (videoUrl != null) {
-            System.out.println("无水印视频地址: " + videoUrl);
-        } else {
-            System.out.println("未能获取视频地址");
         }
     }
 }
