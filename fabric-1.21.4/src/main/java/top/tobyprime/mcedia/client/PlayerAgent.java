@@ -17,10 +17,7 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.core.BiliBiliLiveFetcher;
-import top.tobyprime.mcedia.core.BiliBiliVideoFetcher;
-import top.tobyprime.mcedia.core.McediaDecoder;
-import top.tobyprime.mcedia.core.PlayConfiguration;
+import top.tobyprime.mcedia.core.*;
 
 import java.util.concurrent.Executors;
 
@@ -138,7 +135,7 @@ public class PlayerAgent {
         poseStack.pushPose();
 
         poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
-        poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.getX()), (float) Math.toRadians(-state.headPose.getY()), (float) Math.toRadians(-state.headPose.getZ())));
+        poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.getY()), (float) Math.toRadians(-state.headPose.getY()), (float) Math.toRadians(-state.headPose.getZ())));
         poseStack.translate(offsetX, offsetY + 1 * state.scale, offsetZ + 0.6 * state.scale);
         poseStack.scale(size, size, size);
         VertexConsumer consumer = player.createBuffer(bufferSource);
@@ -181,7 +178,6 @@ public class PlayerAgent {
                 if (mcplayer == null) { return; }
 
                 if (mediaUrl.startsWith("https://media.zenoxs.cn/")) {
-                    mcplayer.displayClientMessage(Component.literal("正在播放: " + mediaUrl), false);
                     player.load(new PlayConfiguration(mediaUrl));
                 }
                 else if (mediaUrl.startsWith("https://live.bilibili.com/")) {
@@ -189,9 +185,7 @@ public class PlayerAgent {
                     if (realUrl == null) {
                         mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
                         return;
-                    }
-                    mcplayer.displayClientMessage(Component.literal("正在播放: " + mediaUrl), false);
-                    player.load(new PlayConfiguration(realUrl));
+                    }player.load(new PlayConfiguration(realUrl));
                 }
                 else if (mediaUrl.startsWith("https://www.bilibili.com/")) {
                     var realUrl = BiliBiliVideoFetcher.fetch(mediaUrl);
@@ -200,13 +194,22 @@ public class PlayerAgent {
                         return;
                     }
                     player.load(new PlayConfiguration(realUrl));
-                    mcplayer.displayClientMessage(Component.literal("正在播放: " + mediaUrl), false);
 
-                } else {
+                }else if (mediaUrl.startsWith("https://v.douyin.com/")) {
+                    var realUrl = DouyinVideoFetcher.fetch(mediaUrl);
+                    if (realUrl == null) {
+                        mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
+                        return;
+                    }
+                    player.load(new PlayConfiguration(realUrl));
+                }
+
+                else {
                     mcplayer.displayClientMessage(Component.literal("不支持的视频: "+ mediaUrl), false);
                     return;
                 }
                 try{
+                    mcplayer.displayClientMessage(Component.literal("正在播放: " + mediaUrl), false);
                     player.play();
                 }
                 catch (Exception e){
