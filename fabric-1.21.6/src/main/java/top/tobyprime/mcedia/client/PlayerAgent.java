@@ -97,7 +97,6 @@ public class PlayerAgent {
     public String playingUrl;
 
     public void play(@Nullable String mediaUrl) {
-        synchronized (this) {
             if (mediaUrl == null) {
                 stop();
                 return;
@@ -106,10 +105,10 @@ public class PlayerAgent {
                 if (playingUrl.equals(mediaUrl)) return;
                 stop();
             }
-            playingUrl = mediaUrl;
+
+        playingUrl = mediaUrl;
             LOGGER.info("准备播放 {}", mediaUrl);
             player = new McediaDecoder();
-        }
         try (var executor = Executors.newSingleThreadScheduledExecutor()) {
             executor.submit(()->{
                 if (mediaUrl.startsWith("https://media.zenoxs.cn/")) {

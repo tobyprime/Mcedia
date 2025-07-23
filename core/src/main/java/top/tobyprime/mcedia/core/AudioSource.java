@@ -125,7 +125,7 @@ public class AudioSource {
             alCleanupBuffers();
             Integer bufferId = availableBuffers.poll();
             if (bufferId == null) {
-                LOGGER.warn("buffer 不足");
+//                LOGGER.warn("buffer 不足");
                 return;
             }
             int format = frame.channels == 1 ? AL10.AL_FORMAT_MONO16 : AL10.AL_FORMAT_STEREO16;

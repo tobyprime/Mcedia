@@ -15,7 +15,7 @@ import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Mcedia implements ModInitializer {
-    private static final int MAX_PLAYER_COUNT = 2;
+    private static final int MAX_PLAYER_COUNT = 5;
     private static final Logger LOGGER = LoggerFactory.getLogger(Mcedia.class);
 
     private static Mcedia INSTANCE;
