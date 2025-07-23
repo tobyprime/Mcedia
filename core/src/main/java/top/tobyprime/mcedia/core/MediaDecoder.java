@@ -5,12 +5,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.internal.*;
 
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public abstract class MediaDecoder {
+    public static ScheduledExecutorService LoaderExecutor = Executors.newSingleThreadScheduledExecutor();
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
     private final FfmpegDecoder decoder;
     private final AVSyncManager syncManager;

@@ -150,6 +150,7 @@ public class PlayerAgent {
         consumer.addVertex(matrix, -halfW, 1, 0).setLight(i).setUv(0, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
 
         poseStack.popPose();
+
     }
 
     public boolean isPlaying() {
@@ -170,55 +171,56 @@ public class PlayerAgent {
         }
         playingUrl = mediaUrl;
         LOGGER.info("准备播放 {}", mediaUrl);
+
+
         player = new McediaDecoder();
 
-        try (var executor = Executors.newSingleThreadScheduledExecutor()) {
-            executor.submit(()->{
-                var mcplayer =Minecraft.getInstance().player;
-                if (mcplayer == null) { return; }
+        McediaDecoder.LoaderExecutor.submit(()->{
+            var mcplayer =Minecraft.getInstance().player;
+            if (mcplayer == null) { return; }
 
-                if (mediaUrl.startsWith("https://media.zenoxs.cn/")) {
-                    player.load(new PlayConfiguration(mediaUrl));
-                }
-                else if (mediaUrl.startsWith("https://live.bilibili.com/")) {
-                    var realUrl = BiliBiliLiveFetcher.fetch(mediaUrl);
-                    if (realUrl == null) {
-                        mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                        return;
-                    }player.load(new PlayConfiguration(realUrl));
-                }
-                else if (mediaUrl.startsWith("https://www.bilibili.com/")) {
-                    var realUrl = BiliBiliVideoFetcher.fetch(mediaUrl);
-                    if (realUrl == null) {
-                        mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                        return;
-                    }
-                    player.load(new PlayConfiguration(realUrl));
-
-                }else if (mediaUrl.startsWith("https://v.douyin.com/")) {
-                    var realUrl = DouyinVideoFetcher.fetch(mediaUrl);
-                    if (realUrl == null) {
-                        mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                        return;
-                    }
-                    player.load(new PlayConfiguration(realUrl));
-                }
-
-                else {
-                    mcplayer.displayClientMessage(Component.literal("不支持的视频: "+ mediaUrl), false);
+            if (mediaUrl.startsWith("https://media.zenoxs.cn/")) {
+                player.load(new PlayConfiguration(mediaUrl));
+            }
+            else if (mediaUrl.startsWith("https://live.bilibili.com/")) {
+                var realUrl = BiliBiliLiveFetcher.fetch(mediaUrl);
+                if (realUrl == null) {
+                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
+                    return;
+                }player.load(new PlayConfiguration(realUrl));
+            }
+            else if (mediaUrl.startsWith("https://www.bilibili.com/")) {
+                var realUrl = BiliBiliVideoFetcher.fetch(mediaUrl);
+                if (realUrl == null) {
+                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
                     return;
                 }
-                try{
-                    mcplayer.displayClientMessage(Component.literal("正在播放: " + mediaUrl), false);
-                    player.play();
-                }
-                catch (Exception e){
-                    LOGGER.warn("播放失败", e);
-                    mcplayer.displayClientMessage(Component.literal("播放失败"), false);
-                }
+                player.load(new PlayConfiguration(realUrl));
 
-            });
-        }
+            }else if (mediaUrl.startsWith("https://v.douyin.com/")) {
+                var realUrl = DouyinVideoFetcher.fetch(mediaUrl);
+                if (realUrl == null) {
+                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
+                    return;
+                }
+                player.load(new PlayConfiguration(realUrl));
+            }
+
+            else {
+                mcplayer.displayClientMessage(Component.literal("不支持的视频: "+ mediaUrl), false);
+                return;
+            }
+            try{
+                mcplayer.displayClientMessage(Component.literal("正在播放: " + mediaUrl), false);
+                player.play();
+            }
+            catch (Exception e){
+                LOGGER.warn("播放失败", e);
+                mcplayer.displayClientMessage(Component.literal("播放失败"), false);
+            }
+
+        });
+        long end = System.nanoTime();
     }
 
     public void stop() {
@@ -230,9 +232,8 @@ public class PlayerAgent {
         LOGGER.info("停止播放");
         this.player = null;
 
-        try (var executor = Executors.newSingleThreadScheduledExecutor()) {
-            executor.submit(pre::close);
-        }
+        McediaDecoder.LoaderExecutor.submit(pre::close);
+
     }
 
 }
