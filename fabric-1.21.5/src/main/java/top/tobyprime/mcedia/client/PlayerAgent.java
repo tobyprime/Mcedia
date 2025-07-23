@@ -123,7 +123,7 @@ public class PlayerAgent {
             return;
         }
         var size = state.scale;
-        var volume = Math.abs(state.leftArmPose.getX() / 60);
+        var volume = Math.abs(state.leftArmPose.x() / 60);
         var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
 
         player.setAudioVolume(volume);
@@ -135,7 +135,7 @@ public class PlayerAgent {
         poseStack.pushPose();
 
         poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
-        poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.getX()), (float) Math.toRadians(-state.headPose.getY()), (float) Math.toRadians(-state.headPose.getZ())));
+        poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.x()), (float) Math.toRadians(-state.headPose.y()), (float) Math.toRadians(-state.headPose.z())));
         poseStack.translate(offsetX, offsetY + 1 * state.scale, offsetZ + 0.6 * state.scale);
         poseStack.scale(size, size, size);
         VertexConsumer consumer = player.createBuffer(bufferSource);
