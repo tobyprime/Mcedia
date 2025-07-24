@@ -24,6 +24,13 @@ public class BiliBiliVideoFetcher {
         }
         String bvid = matcher.group(1);
 
+        Pattern pagePattern = Pattern.compile("[?&]p=(\\d+)");
+        Matcher pageMatcher = pagePattern.matcher(videoUrl);
+        int page = 1;
+        if (pageMatcher.find()) {
+            page = Integer.parseInt(pageMatcher.group(1));
+        }
+
         // 2. 获取 CID
         String pagelistApi = "https://api.bilibili.com/x/player/pagelist?bvid=" + bvid + "&jsonp=jsonp";
         HttpRequest pagelistRequest = HttpRequest.newBuilder()
@@ -43,7 +50,9 @@ public class BiliBiliVideoFetcher {
             throw new RuntimeException("获取 CID 失败: " + pagelistJson);
         }
         JSONArray pages = pagelistJson.getJSONArray("data");
-        String cid = pages.getJSONObject(0).get("cid").toString();
+
+        String cid = pages.getJSONObject(page-1).get("cid").toString();
+
 
         System.out.println("[INFO] BV号: " + bvid + " | CID: " + cid);
 

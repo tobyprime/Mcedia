@@ -20,6 +20,19 @@ public class DouyinVideoFetcher {
     private static final String USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) " +
             "AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
 
+    public static String getSharedUrl(String share){
+        String regex = "(https://v\\.douyin\\.com/[A-Za-z0-9_]+/?)";
+
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(share);
+
+        if (matcher.find()) {
+            return matcher.group(1);
+        } else {
+            return null;
+        }
+    }
+
     public static String fetch(String shareUrl) {
         try {
             HttpClient client = HttpClient.newBuilder()

@@ -197,8 +197,13 @@ public class PlayerAgent {
                 }
                 player.load(new PlayConfiguration(realUrl));
 
-            }else if (mediaUrl.startsWith("https://v.douyin.com/")) {
-                var realUrl = DouyinVideoFetcher.fetch(mediaUrl);
+            }else if (mediaUrl.contains("https://v.douyin.com/")) {
+                var url = DouyinVideoFetcher.getSharedUrl(mediaUrl);
+                if (url == null) {
+                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
+                    return;
+                }
+                var realUrl = DouyinVideoFetcher.fetch(url);
                 if (realUrl == null) {
                     mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
                     return;
@@ -220,7 +225,6 @@ public class PlayerAgent {
             }
 
         });
-        long end = System.nanoTime();
     }
 
     public void stop() {
