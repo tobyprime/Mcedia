@@ -212,6 +212,14 @@ public class PlayerAgent {
                     return;
                 }
                 player.load(new PlayConfiguration(realUrl));
+            } else if (mediaUrl.startsWith("https://live.douyin.com/")) {
+                var realUrl = DouyinLiveFetcher.fetch(mediaUrl);
+                if (realUrl == null) {
+                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
+                    return;
+                }
+                player.load(new PlayConfiguration(realUrl));
+
             }
 
             else {
