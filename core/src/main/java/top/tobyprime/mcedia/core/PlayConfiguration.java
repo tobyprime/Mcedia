@@ -5,8 +5,6 @@ public class PlayConfiguration implements Cloneable {
     private final boolean enableVideo;
     private final boolean enableAudio;
 
-    private final int videoBufferSize;
-    private final int audioBufferSize;
     private final int maxVideoQueueLength;
     private final int maxAudioQueueLength;
 
@@ -16,12 +14,10 @@ public class PlayConfiguration implements Cloneable {
     private final boolean audioDualChannel;
 
 
-    public PlayConfiguration(String inputUrl, boolean enableVideo, boolean enableAudio, int videoBufferSize, int audioBufferSize, int maxVideoQueueLength, int maxAudioQueueLength, boolean separateDecodeThreads, boolean useHardwareDecoding, boolean videoAlpha, int audioSampleRate, boolean audioDualChannel) {
+    public PlayConfiguration(String inputUrl, boolean enableVideo, boolean enableAudio, int maxVideoQueueLength, int maxAudioQueueLength, boolean separateDecodeThreads, boolean useHardwareDecoding, boolean videoAlpha, int audioSampleRate, boolean audioDualChannel) {
         this.inputUrl = inputUrl;
         this.enableVideo = enableVideo;
         this.enableAudio = enableAudio;
-        this.videoBufferSize = videoBufferSize;
-        this.audioBufferSize = audioBufferSize;
         this.maxVideoQueueLength = maxVideoQueueLength;
         this.maxAudioQueueLength = maxAudioQueueLength;
         this.useHardwareDecoding = useHardwareDecoding;
@@ -31,15 +27,7 @@ public class PlayConfiguration implements Cloneable {
     }
 
     public PlayConfiguration(String inputUrl) {
-        this(inputUrl, true, true, 30, 30, 100, 1000, false, false, false, 44100, false);
-    }
-
-    public PlayConfiguration(String inputUrl, boolean enableVideo, boolean enableAudio) {
-        this(inputUrl, enableVideo, enableAudio, 30, 30, 100, 1000, false, false, false, 44100, false);
-    }
-
-    public PlayConfiguration(String inputUrl, boolean videoAlpha, int audioSampleRate, boolean audioDualChannel) {
-        this(inputUrl, true, true, 30, 30, 100, 1000, false, false, videoAlpha, audioSampleRate, audioDualChannel);
+        this(inputUrl, true, true, 100, 1000, false, false, false, 44100, false);
     }
 
     public int getAudioSampleRate() {
@@ -56,14 +44,6 @@ public class PlayConfiguration implements Cloneable {
 
     public boolean isEnableAudio() {
         return enableAudio;
-    }
-
-    public int getVideoBufferSize() {
-        return videoBufferSize;
-    }
-
-    public int getAudioBufferSize() {
-        return audioBufferSize;
     }
 
     public int getMaxVideoQueueLength() {

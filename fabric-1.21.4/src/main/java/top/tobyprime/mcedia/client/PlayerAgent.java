@@ -28,9 +28,10 @@ public class PlayerAgent {
     public String playingUrl;
     WritableBookContent preOffHandBookComponent = null;
     private float offsetX = 0, offsetY = 0, offsetZ = 0;
-    private final float audioOffsetX = 0;
-    private final float audioOffsetY = 0;
-    private final float audioOffsetZ = 0;
+    private float scale = 1;
+    private float audioOffsetX = 0;
+    private float audioOffsetY = 0;
+    private float audioOffsetZ = 0;
 
     public PlayerAgent(ArmorStand entity) {
         LOGGER.info("在 {} 新增了一个 Mcdia Player", entity.position());
@@ -50,14 +51,15 @@ public class PlayerAgent {
         this.offsetX = 0;
         this.offsetY = 0;
         this.offsetZ = 0;
+        this.scale = 1;
     }
 
 
     public void resetAudioOffset() {
+        this.audioOffsetX = 0;
+        this.audioOffsetY = 0;
+        this.audioOffsetZ = 0;
         this.audioRange = 500;
-        this.offsetX = 0;
-        this.offsetY = 0;
-        this.offsetZ = 0;
     }
 
     public void updateOffset(String offset) {
@@ -66,6 +68,7 @@ public class PlayerAgent {
             offsetX = Float.parseFloat(vars[0]);
             offsetY = Float.parseFloat(vars[1]);
             offsetZ = Float.parseFloat(vars[2]);
+            scale = Float.parseFloat(vars[3]);
         } catch (Exception ignored) {
             resetOffset();
         }
@@ -75,9 +78,9 @@ public class PlayerAgent {
         try {
             var vars = config.split("\n");
             audioRange = Float.parseFloat(vars[0]);
-            offsetX = Float.parseFloat(vars[1]);
-            offsetY = Float.parseFloat(vars[2]);
-            offsetZ = Float.parseFloat(vars[3]);
+            audioOffsetX = Float.parseFloat(vars[1]);
+            audioOffsetY = Float.parseFloat(vars[2]);
+            audioOffsetZ = Float.parseFloat(vars[3]);
         } catch (Exception ignored) {
             resetAudioOffset();
         }
@@ -122,7 +125,7 @@ public class PlayerAgent {
         if (!isPlaying()) {
             return;
         }
-        var size = state.scale;
+        var size = state.scale * scale;
         var volume = Math.abs(state.leftArmPose.getX() / 60);
         var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
 

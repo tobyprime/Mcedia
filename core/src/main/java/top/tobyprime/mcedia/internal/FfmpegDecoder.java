@@ -36,20 +36,14 @@ public class FfmpegDecoder implements Closeable {
         grabber.setOption("reconnect", "1");
         grabber.setOption("reconnect_streamed", "1");
         grabber.setOption("reconnect_delay_max", "5");
+        grabber.setOption("flush_packets", "1");
 
         grabber.setOption("timeout", "5000000"); // 连接超时 5s
         grabber.setOption("rw_timeout", "5000000"); // 读写超时
+        grabber.setOption("max_delay", "500000"); // 最大延迟 0.5s
 
         grabber.setOption("buffer_size", "1048576"); // 1MB 缓冲
-//         不设置max_delay，避免最后一秒丢帧
-        grabber.setOption("max_delay", "500000"); // 最大延迟 0.5s
-        grabber.setOption("flags", "low_delay");
-        grabber.setOption("flush_packets", "1");
 
-        int videoBufferSizeBytes = Math.max(config.getVideoBufferSize() * 1024 * 1024, 4 * 1024 * 1024); // 至少4MB
-
-        grabber.setVideoOption("buffer_size", String.valueOf(videoBufferSizeBytes));
-        grabber.setAudioOption("buffer_size", String.valueOf(config.getAudioBufferSize() * 1024 * 1024));
         grabber.setSampleRate(config.getAudioSampleRate());
         grabber.setAudioChannels(config.isAudioDualChannel() ? 2 : 1);
         // 硬件解码可选项
