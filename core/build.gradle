@@ -4,9 +4,6 @@ plugins {
 
 }
 
-group = 'top.tobyprime'
-version = '0.2'
-
 repositories {
     mavenCentral()
 }
