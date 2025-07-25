@@ -1,13 +1,14 @@
-package top.tobyprime.mcedia.client;
+package top.tobyprime.mcedia;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.state.ArmorStandRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.item.WritableBookItem;
@@ -17,14 +18,14 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.core.*;
-
-import java.util.concurrent.Executors;
+import top.tobyprime.mcedia.core.AudioSource;
+import top.tobyprime.mcedia.core.DecoderConfiguration;
+import top.tobyprime.mcedia.core.MediaPlayer;
+import top.tobyprime.mcedia.video_fetcher.VideoUrlProcessor;
 
 public class PlayerAgent {
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
     private final ArmorStand entity;
-    private @Nullable McediaDecoder player;
     public String playingUrl;
     WritableBookContent preOffHandBookComponent = null;
     private float offsetX = 0, offsetY = 0, offsetZ = 0;
@@ -33,18 +34,31 @@ public class PlayerAgent {
     private float audioOffsetY = 0;
     private float audioOffsetZ = 0;
 
+    private float audioMaxVolume = 5f;
+    private final MediaPlayer player;
+    private final AudioSource audioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
+    private final VideoTexture texture  = new VideoTexture(ResourceLocation.fromNamespaceAndPath("mcedia","player_"+hashCode()));
+
+
     public PlayerAgent(ArmorStand entity) {
         LOGGER.info("在 {} 新增了一个 Mcdia Player", entity.position());
         this.entity = entity;
+        player = new MediaPlayer();
+        player.setDecoderConfiguration(new DecoderConfiguration(new DecoderConfiguration.Builder()));
+        player.bindTexture(texture);
+        player.bindAudioSource(audioSource);
     }
-    private float audioRange = 500;
+
+    private float audioRangeMin = 2;
+    private float audioRangeMax = 500;
 
     public void updateInputUrl(String url) {
+        if (url == playingUrl) {return;}
         if (url == null) {
-            play(null);
+            open(null);
             return;
         }
-        play(url);
+        open(url);
     }
 
     public void resetOffset() {
@@ -59,7 +73,9 @@ public class PlayerAgent {
         this.audioOffsetX = 0;
         this.audioOffsetY = 0;
         this.audioOffsetZ = 0;
-        this.audioRange = 500;
+        this.audioMaxVolume = 5;
+        this.audioRangeMin = 2;
+        this.audioRangeMax = 500;
     }
 
     public void updateOffset(String offset) {
@@ -70,19 +86,20 @@ public class PlayerAgent {
             offsetZ = Float.parseFloat(vars[2]);
             scale = Float.parseFloat(vars[3]);
         } catch (Exception ignored) {
-            resetOffset();
         }
     }
 
     public void updateAudioOffset(String config) {
         try {
             var vars = config.split("\n");
-            audioRange = Float.parseFloat(vars[0]);
-            audioOffsetX = Float.parseFloat(vars[1]);
-            audioOffsetY = Float.parseFloat(vars[2]);
-            audioOffsetZ = Float.parseFloat(vars[3]);
+            audioOffsetX = Float.parseFloat(vars[0]);
+            audioOffsetY = Float.parseFloat(vars[1]);
+            audioOffsetZ = Float.parseFloat(vars[2]);
+            audioMaxVolume = Float.parseFloat(vars[3]);
+            audioRangeMin = Float.parseFloat(vars[4]);
+            audioRangeMax = Float.parseFloat(vars[5]);
+
         } catch (Exception ignored) {
-            resetAudioOffset();
         }
     }
 
@@ -95,10 +112,10 @@ public class PlayerAgent {
             if (components != null) {
                 updateInputUrl(components.getPages(Minecraft.getInstance().isTextFilteringEnabled()).findFirst().orElse(null));
             } else {
-                this.play(null);
+                this.open(null);
             }
         } else {
-            this.play(null);
+            this.open(null);
         }
         var offHandBook = entity.getItemInHand(InteractionHand.OFF_HAND);
 
@@ -120,32 +137,41 @@ public class PlayerAgent {
         }
     }
 
+    private float halfW = 1.777f;
 
     public void render(ArmorStandRenderState state, MultiBufferSource bufferSource, PoseStack poseStack, int i) {
-        if (!isPlaying()) {
-            return;
-        }
         var size = state.scale * scale;
-        var volume = Math.abs(state.leftArmPose.x() / 60);
         var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
+        var volumeFactor = 1f;
+        if (state.leftArmPose.x() < 0) {
+            volumeFactor = (360.0f + state.leftArmPose.x()) / 360;
+        } else {
+            volumeFactor = (state.leftArmPose.x()) / 360;
+        }
+        var volume = volumeFactor * audioMaxVolume;
 
-        player.setAudioVolume(volume);
-        player.setAudioMaxDistance(audioRange);
+        synchronized (player){
+            if (player.getMedia() != null) {
+                this.player.getMedia().uploadVideo();
+                halfW = player.getMedia().getAspectRatio();
+            }
+        }
+
+        audioSource.setVolume(volume);
+        audioSource.setRange(audioRangeMin, audioRangeMax);
         if (i < 0) {
             i = 5;
         }
-        player.setAudioPos(((float) state.x + audioOffsetRotated.x), ((float) state.y + audioOffsetRotated.y), ((float) state.z + audioOffsetRotated.z));
+        audioSource.setPos(((float) state.x + audioOffsetRotated.x), ((float) state.y + audioOffsetRotated.y), ((float) state.z + audioOffsetRotated.z));
         poseStack.pushPose();
 
         poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
         poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.x()), (float) Math.toRadians(-state.headPose.y()), (float) Math.toRadians(-state.headPose.z())));
         poseStack.translate(offsetX, offsetY + 1 * state.scale, offsetZ + 0.6 * state.scale);
         poseStack.scale(size, size, size);
-        VertexConsumer consumer = player.createBuffer(bufferSource);
+        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(this.texture.getResourceLocation()));
 
         var matrix = poseStack.last().pose();
-
-        float halfW = (float) (player.getAspect());
 
         consumer.addVertex(matrix, -halfW, -1, 0).setLight(i).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
         consumer.addVertex(matrix, halfW, -1, 0).setLight(i).setUv(1, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
@@ -156,99 +182,25 @@ public class PlayerAgent {
 
     }
 
-    public boolean isPlaying() {
-        if (player == null) {
-            return false;
-        }
-        return player.isPlaying();
-    }
-
-    public void play(@Nullable String mediaUrl) {
+    public void open(@Nullable String mediaUrl) {
         if (mediaUrl == null) {
-            stop();
+            close();
             return;
         }
-        if (player != null) {
-            if (playingUrl.equals(mediaUrl)) return;
-            stop();
-        }
+        Mcedia.msgToPlayer("开始播放: " + mediaUrl);
+
         playingUrl = mediaUrl;
         LOGGER.info("准备播放 {}", mediaUrl);
 
-
-        player = new McediaDecoder();
-
-        McediaDecoder.LoaderExecutor.submit(()->{
-            var mcplayer =Minecraft.getInstance().player;
-            if (mcplayer == null) { return; }
-
-            if (mediaUrl.startsWith("https://media.zenoxs.cn/")) {
-                player.load(new PlayConfiguration(mediaUrl));
-            }
-            else if (mediaUrl.startsWith("https://live.bilibili.com/")) {
-                var realUrl = BiliBiliLiveFetcher.fetch(mediaUrl);
-                if (realUrl == null) {
-                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                    return;
-                }player.load(new PlayConfiguration(realUrl));
-            }
-            else if (mediaUrl.startsWith("https://www.bilibili.com/")) {
-                var realUrl = BiliBiliVideoFetcher.fetch(mediaUrl);
-                if (realUrl == null) {
-                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                    return;
-                }
-                player.load(new PlayConfiguration(realUrl));
-
-            }else if (mediaUrl.contains("https://v.douyin.com/")) {
-                var url = DouyinVideoFetcher.getSharedUrl(mediaUrl);
-                if (url == null) {
-                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                    return;
-                }
-                var realUrl = DouyinVideoFetcher.fetch(url);
-                if (realUrl == null) {
-                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                    return;
-                }
-                player.load(new PlayConfiguration(realUrl));
-            }else if (mediaUrl.startsWith("https://live.douyin.com/")) {
-                var realUrl = DouyinLiveFetcher.fetch(mediaUrl);
-                if (realUrl == null) {
-                    mcplayer.displayClientMessage(Component.literal("无法解析: " + mediaUrl), false);
-                    return;
-                }
-                player.load(new PlayConfiguration(realUrl));
-
-            }
-
-            else {
-                mcplayer.displayClientMessage(Component.literal("不支持的视频: "+ mediaUrl), false);
-                return;
-            }
-            try{
-                mcplayer.displayClientMessage(Component.literal("正在播放: " + mediaUrl), false);
-                player.play();
-            }
-            catch (Exception e){
-                LOGGER.warn("播放失败", e);
-                mcplayer.displayClientMessage(Component.literal("播放失败"), false);
-            }
-
-        });
+        player.openAsync(()-> VideoUrlProcessor.Process(mediaUrl)).exceptionally((e)->{
+            LOGGER.warn("打开视频失败", e);
+            Mcedia.msgToPlayer("无法解析或播放: " + mediaUrl);
+            throw new RuntimeException(e);
+        }).thenRun(player::play);
     }
 
-    public void stop() {
-        var pre = player;
-        playingUrl = null;
-        if (player == null)
-            return;
-
-        LOGGER.info("停止播放");
-        this.player = null;
-
-        McediaDecoder.LoaderExecutor.submit(pre::close);
-
+    public void close() {
+        player.closeAsync();
     }
 
 }

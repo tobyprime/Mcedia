@@ -1,30 +1,30 @@
 package top.tobyprime.mcedia.core;
 
-import top.tobyprime.mcedia.internal.AudioFrame;
+import org.jetbrains.annotations.Nullable;
 import org.lwjgl.openal.AL10;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.interfaces.IAudioSource;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.FloatBuffer;
+import java.nio.ShortBuffer;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 
-public class AudioSource {
+public class AudioSource implements IAudioSource {
     private static final Logger LOGGER = LoggerFactory.getLogger(AudioSource.class);
-    private static final int BUFFER_COUNT = 8; // 预分配的缓冲区数量
-    private Consumer<Runnable> alThreadExecutor;
-
+    private static final int BUFFER_COUNT = 4; // 预分配的缓冲区数量
+    private final Consumer<Runnable> alThreadExecutor;
 
     private final Queue<Integer> availableBuffers = new ConcurrentLinkedQueue<>();
-//    private final SoundEngineExecutor executor;
 
     public boolean requireInit = true;
     private int[] alBuffers = null;
     private volatile int alSource = -1;
-    private float volume = 1.0f;
-    private float maxDistance = 32.0f;
-    private double posX, posY, posZ;
+
     private boolean isClosed = false;
     private final Object alLock = new Object();
 
@@ -59,14 +59,15 @@ public class AudioSource {
                 LOGGER.error("创建的 Source 无效: {}", alSource);
                 return;
             }
-            AL10.alSourcef(alSource, AL10.AL_GAIN, volume);
-            AL10.alSourcef(alSource, AL10.AL_MAX_DISTANCE, maxDistance);
+            AL10.alSourcef(alSource, AL10.AL_GAIN, 1);
+            AL10.alSourcef(alSource, AL10.AL_MAX_DISTANCE, 500);
             AL10.alSourcef(alSource, AL10.AL_REFERENCE_DISTANCE, 1.0f);
             AL10.alSourcef(alSource, AL10.AL_ROLLOFF_FACTOR, 1.0f);
             AL10.alSourcei(alSource, AL10.AL_SOURCE_RELATIVE, AL10.AL_FALSE);
             AL10.alSourcei(alSource, AL10.AL_LOOPING, AL10.AL_FALSE);
             AL10.alDistanceModel(AL10.AL_INVERSE_DISTANCE_CLAMPED);
-            AL10.alSource3f(alSource, AL10.AL_POSITION, (float) posX, (float) posY, (float) posZ);
+            AL10.alSource3f(alSource, AL10.AL_POSITION, 0, 0, 0);
+
             error = AL10.alGetError();
             if (error != AL10.AL_NO_ERROR) {
                 LOGGER.error("配置属性失败: {}", error);
@@ -117,7 +118,7 @@ public class AudioSource {
             AL10.alSourcePlay(alSource);
         }
     }
-    private void alUpload(AudioFrame frame) {
+    private void alUpload(AudioBufferData bufferData) {
         synchronized (alLock) {
             if (isClosed) return;
             alInitIfNeed();
@@ -125,17 +126,24 @@ public class AudioSource {
             alCleanupBuffers();
             Integer bufferId = availableBuffers.poll();
             if (bufferId == null) {
-//                LOGGER.warn("buffer 不足");
                 return;
             }
-            int format = frame.channels == 1 ? AL10.AL_FORMAT_MONO16 : AL10.AL_FORMAT_STEREO16;
-            AL10.alBufferData(bufferId, format, frame.pcm, frame.sampleRate);
+
+            switch (bufferData.pcm) {
+                case ByteBuffer bb -> AL10.alBufferData(bufferId,  AL10.AL_FORMAT_MONO16, bb, bufferData.sampleRate);
+                case ShortBuffer sb -> AL10.alBufferData(bufferId,  AL10.AL_FORMAT_MONO16, sb, bufferData.sampleRate);
+                case FloatBuffer fb -> AL10.alBufferData(bufferId,  AL10.AL_FORMAT_MONO16, fb, bufferData.sampleRate);
+                case null, default ->
+                        throw new IllegalArgumentException("Unsupported Buffer type: " + bufferData.pcm.getClass());
+            }
+            bufferData.close();
             int error = AL10.alGetError();
             if (error != AL10.AL_NO_ERROR) {
                 LOGGER.error("上传失败: {}", error);
                 availableBuffers.offer(bufferId);
                 return;
             }
+
             AL10.alSourceQueueBuffers(alSource, bufferId);
             error = AL10.alGetError();
             if (error != AL10.AL_NO_ERROR) {
@@ -143,6 +151,7 @@ public class AudioSource {
                 availableBuffers.offer(bufferId);
                 return;
             }
+
             int state = AL10.alGetSourcei(alSource, AL10.AL_SOURCE_STATE);
             if (state != AL10.AL_PLAYING && state != AL10.AL_PAUSED) {
                 AL10.alSourcePlay(alSource);
@@ -152,10 +161,6 @@ public class AudioSource {
 
     private void alSetPos(float x, float y, float z) {
         alInitIfNeed();
-
-        this.posX = x;
-        this.posY = y;
-        this.posZ = z;
         try {
             AL10.alSource3f(alSource, AL10.AL_POSITION, x, y, z);
         } catch (Exception e) {
@@ -174,8 +179,6 @@ public class AudioSource {
 
     private void alSetVolume(float volume) {
         alInitIfNeed();
-
-        this.volume = volume;
         try {
             AL10.alSourcef(alSource, AL10.AL_GAIN, volume);
         } catch (Exception e) {
@@ -185,7 +188,6 @@ public class AudioSource {
 
     private void alSetMaxDistance(float maxDistance) {
         alInitIfNeed();
-        this.maxDistance = maxDistance;
         try {
             AL10.alSourcef(alSource, AL10.AL_MAX_DISTANCE, maxDistance);
         } catch (Exception e) {
@@ -193,14 +195,48 @@ public class AudioSource {
         }
     }
 
-    public void uploadAudioFrame(AudioFrame audioFrame) {
+    public void upload(@Nullable AudioBufferData audioFrame) {
         if (isClosed) return;
+        if (audioFrame == null) {return;}
 
         try {
             alThreadExecutor.accept(() -> alUpload(audioFrame));
         } catch (Exception e) {
             LOGGER.error("Failed to schedule audio frame upload", e);
         }
+    }
+
+    @Override
+    public void clearBuffer() {
+        alThreadExecutor.accept(() -> {
+            synchronized (alLock) {
+                if (isClosed || requireInit || alSource == -1) return;
+
+                try {
+                    // 停止播放
+                    AL10.alSourceStop(alSource);
+
+                    // 查询已排队的缓冲数量
+                    int queuedCount = AL10.alGetSourcei(alSource, AL10.AL_BUFFERS_QUEUED);
+                    while (queuedCount-- > 0) {
+                        int bufferId = AL10.alSourceUnqueueBuffers(alSource);
+                        int error = AL10.alGetError();
+                        if (error != AL10.AL_NO_ERROR) {
+                            LOGGER.error("clearBuffer: unqueue 失败: {}", error);
+                            break;
+                        }
+                        if (bufferId > 0) {
+                            availableBuffers.offer(bufferId);
+                        }
+                    }
+
+                    LOGGER.info("清空音频缓冲完成，缓冲池大小: {}", availableBuffers.size());
+
+                } catch (Exception e) {
+                    LOGGER.error("clearBuffer 异常", e);
+                }
+            }
+        });
     }
 
     public void setPos(float x, float y, float z) {
@@ -212,8 +248,11 @@ public class AudioSource {
         alThreadExecutor.accept(() -> alSetVolume(volume));
     }
 
-    public void setMaxDistance(float maxDistance) {
-        alThreadExecutor.accept(() -> alSetMaxDistance(maxDistance));
+    public void setRange(float min,float max) {
+        alThreadExecutor.accept(() -> {
+            alSetMaxDistance(min);
+            alSetMaxDistance(max);
+        });
     }
 
     public void alClose() {
@@ -252,4 +291,5 @@ public class AudioSource {
             alThreadExecutor.accept(this::alClose);
         }
     }
+
 }

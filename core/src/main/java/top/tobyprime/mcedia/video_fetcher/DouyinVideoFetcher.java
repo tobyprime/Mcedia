@@ -1,4 +1,4 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.video_fetcher;
 
 import org.json.JSONObject;
 import org.slf4j.Logger;
@@ -21,6 +21,7 @@ public class DouyinVideoFetcher {
             "AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
 
     public static String getSharedUrl(String share){
+        if (share == null){return null;}
         String regex = "(https://v\\.douyin\\.com/[A-Za-z0-9_]+/?)";
 
         Pattern pattern = Pattern.compile(regex);

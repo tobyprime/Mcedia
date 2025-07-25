@@ -1,4 +1,4 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.video_fetcher;
 
 import java.net.URI;
 import java.net.http.HttpClient;

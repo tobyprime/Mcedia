@@ -9,6 +9,8 @@ repositories {
 }
 
 dependencies {
+    implementation "org.jetbrains:annotations:${project.annotations_version}"
+
     implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}"
     implementation "org.bytedeco:javacv:${project.javacv_version}"
     implementation "org.lwjgl:lwjgl:${project.lwjgl_version}"

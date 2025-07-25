@@ -4,11 +4,11 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.SoundEngineExecutor;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.client.PlayerAgent;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 
@@ -42,7 +42,7 @@ public class Mcedia implements ModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             for (var pair : entityToPlayer.entrySet()) {
                 if (pair.getKey().isRemoved()) {
-                    pair.getValue().stop();
+                    pair.getValue().close();
                     entityToPlayer.remove(pair.getKey());
                     return;
                 }
@@ -52,12 +52,18 @@ public class Mcedia implements ModInitializer {
     }
 
     public void HandleMcdiaPlayerEntity(ArmorStand entity) {
-        boolean isMcdiaPlayer = entity.getName().toString().contains("mcdia_player");
+        boolean isMcdiaPlayer = entity.getName().toString().contains("mcdia_player") || entity.getName().toString().contains("mcedia_player");
         if (!entityToPlayer.containsKey(entity) && isMcdiaPlayer) {
             if (getEntityToPlayerMap().size() >= MAX_PLAYER_COUNT) {
                 return;
             }
             getEntityToPlayerMap().put(entity, new PlayerAgent(entity));
+        }
+    }
+    public static void msgToPlayer(String msg) {
+        var player = Minecraft.getInstance().player;
+        if (player != null) {
+            player.displayClientMessage(Component.literal(msg), false);
         }
     }
 }

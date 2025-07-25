@@ -1,9 +1,8 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.video_fetcher;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;

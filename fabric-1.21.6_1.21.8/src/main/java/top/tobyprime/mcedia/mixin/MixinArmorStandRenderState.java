@@ -3,7 +3,7 @@ package top.tobyprime.mcedia.mixin;
 import net.minecraft.client.renderer.entity.state.ArmorStandRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
-import top.tobyprime.mcedia.client.PlayerAgent;
+import top.tobyprime.mcedia.PlayerAgent;
 import top.tobyprime.mcedia.mixin_bridge.IArmorStandRenderStateBridge;
 
 

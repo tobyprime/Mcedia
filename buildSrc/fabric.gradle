@@ -1,4 +1,4 @@
-version = "${project(":core").version}-${project.mod_version}"
+version = "${project.mod_version}-${project(":core").version}"
 group = project.maven_group
 
 base {
