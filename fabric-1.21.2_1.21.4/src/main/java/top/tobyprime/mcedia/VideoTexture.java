@@ -28,7 +28,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         super();
         this.resourceLocation = id;
         Minecraft.getInstance().getTextureManager().register(id, this);
-        setSize(100,100);
+        setSize(1920,1080);
     }
 
     public void setSize(int width,int height) {
@@ -50,21 +50,6 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         GlStateManager._texParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         GlStateManager._texImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, null);
         this.setFilter(true, false);
-        // 初始化为纯白色
-        ByteBuffer whiteBuffer = MemoryUtil.memAlloc(width * height * 4);
-        for (int i = 0; i < width * height; i++) {
-            whiteBuffer.put((byte) 0xFF); // R
-            whiteBuffer.put((byte) 0xFF); // G
-            whiteBuffer.put((byte) 0xFF); // B
-            whiteBuffer.put((byte) 0xFF); // A
-        }
-        whiteBuffer.rewind();
-        GlStateManager._pixelStore(GL_UNPACK_ALIGNMENT, 1);     // 每行像素对齐方式
-        GlStateManager._pixelStore(GL_UNPACK_ROW_LENGTH, 0);    // 行长度（0 = 紧密排列）
-        GlStateManager._pixelStore(GL_UNPACK_SKIP_ROWS, 0);     // 跳过的行数
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
-                GL_RGBA, GL_UNSIGNED_BYTE, whiteBuffer);
-        MemoryUtil.memFree(whiteBuffer);
     }
     public ResourceLocation getResourceLocation(){
         return this.resourceLocation;

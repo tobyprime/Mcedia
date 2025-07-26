@@ -24,6 +24,7 @@ import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.video_fetcher.VideoUrlProcessor;
 
 public class PlayerAgent {
+    private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
     private final ArmorStand entity;
     public String playingUrl;
@@ -139,6 +140,46 @@ public class PlayerAgent {
 
     private float halfW = 1.777f;
 
+    public void renderScreen(PoseStack poseStack, MultiBufferSource bufferSource, int i) {
+        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull((player.getMedia() != null) ? this.texture.getResourceLocation() : idleScreen));
+
+        var matrix = poseStack.last().pose();
+
+        consumer.addVertex(matrix, -halfW, -1, 0).setLight(i).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+        consumer.addVertex(matrix, halfW, -1, 0).setLight(i).setUv(1, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+        consumer.addVertex(matrix, halfW, 1, 0).setLight(i).setUv(1, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+        consumer.addVertex(matrix, -halfW, 1, 0).setLight(i).setUv(0, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+    }
+
+    public void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i) {
+        // 绘制进度条，黑色为底，白色为进度
+        // 进度条参数
+        float barHeight = (float) 1 / 50;
+        float barY = -1;
+        float barLeft = -halfW;
+        float barRight = halfW;
+        float barBottom = barY - barHeight;
+
+        // 画底色（黑色）
+        VertexConsumer black = bufferSource.getBuffer(RenderType.debugQuads());
+        int blackColor = 0xFF000000;
+        black.addVertex(poseStack.last().pose(), barLeft, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+        black.addVertex(poseStack.last().pose(), barRight, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+        black.addVertex(poseStack.last().pose(), barRight, barY, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+        black.addVertex(poseStack.last().pose(), barLeft, barY, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+
+        // 画进度（白色）
+        float progressRight = barLeft + (barRight - barLeft) * Math.max(0, Math.min(progress, 1));
+        int whiteColor = 0xFFFFFFFF;
+        if (progress > 0) {
+            VertexConsumer white = bufferSource.getBuffer(RenderType.debugQuads());
+            white.addVertex(poseStack.last().pose(), barLeft, barBottom, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+            white.addVertex(poseStack.last().pose(), progressRight, barBottom, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+            white.addVertex(poseStack.last().pose(), progressRight, barY, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+            white.addVertex(poseStack.last().pose(), barLeft, barY, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+        }
+    }
+
     public void render(ArmorStandRenderState state, MultiBufferSource bufferSource, PoseStack poseStack, int i) {
         var size = state.scale * scale;
         var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
@@ -154,6 +195,8 @@ public class PlayerAgent {
             if (player.getMedia() != null) {
                 this.player.getMedia().uploadVideo();
                 halfW = player.getMedia().getAspectRatio();
+            } else {
+                halfW = 1.777f;
             }
         }
 
@@ -167,17 +210,11 @@ public class PlayerAgent {
 
         poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
         poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.x()), (float) Math.toRadians(-state.headPose.y()), (float) Math.toRadians(-state.headPose.z())));
-        poseStack.translate(offsetX, offsetY + 1 * state.scale, offsetZ + 0.6 * state.scale);
+        poseStack.translate(offsetX, offsetY + 1.02 * state.scale, offsetZ + 0.6 * state.scale);
         poseStack.scale(size, size, size);
-        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(this.texture.getResourceLocation()));
 
-        var matrix = poseStack.last().pose();
-
-        consumer.addVertex(matrix, -halfW, -1, 0).setLight(i).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, halfW, -1, 0).setLight(i).setUv(1, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, halfW, 1, 0).setLight(i).setUv(1, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, -halfW, 1, 0).setLight(i).setUv(0, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-
+        renderScreen(poseStack, bufferSource, i);
+        renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
         poseStack.popPose();
 
     }

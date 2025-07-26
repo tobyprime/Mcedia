@@ -37,7 +37,6 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST;
         this.texture = gpuDevice.createTexture(this.resourceLocation::toString, usage, TextureFormat.RGBA8, width, height, 1, 1);
         this.textureView = gpuDevice.createTextureView(this.texture);
-        gpuDevice.createCommandEncoder().clearColorTexture(this.getTexture(), -1);
         this.setClamp(true);
         this.setFilter(true, false);
     }

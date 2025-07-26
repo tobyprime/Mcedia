@@ -179,6 +179,9 @@ public class AudioSource implements IAudioSource {
 
     private void alSetVolume(float volume) {
         alInitIfNeed();
+        if (volume < 0) {
+            volume = 0;
+        }
         try {
             AL10.alSourcef(alSource, AL10.AL_GAIN, volume);
         } catch (Exception e) {
@@ -188,8 +191,23 @@ public class AudioSource implements IAudioSource {
 
     private void alSetMaxDistance(float maxDistance) {
         alInitIfNeed();
+        if (maxDistance < 0) {
+            maxDistance = 0;
+        }
         try {
             AL10.alSourcef(alSource, AL10.AL_MAX_DISTANCE, maxDistance);
+        } catch (Exception e) {
+            LOGGER.error("设置最大距离失败", e);
+        }
+    }
+
+    private void alSetMinDistance(float minDistance) {
+        alInitIfNeed();
+        if (minDistance < 0) {
+            minDistance = 0;
+        }
+        try {
+            AL10.alSourcef(alSource, AL10.AL_REFERENCE_DISTANCE, minDistance);
         } catch (Exception e) {
             LOGGER.error("设置最大距离失败", e);
         }
@@ -250,8 +268,8 @@ public class AudioSource implements IAudioSource {
 
     public void setRange(float min,float max) {
         alThreadExecutor.accept(() -> {
-            alSetMaxDistance(min);
-            alSetMaxDistance(max);
+            alSetMinDistance(min);
+            alSetMaxDistance(Math.max(max, min));
         });
     }
 

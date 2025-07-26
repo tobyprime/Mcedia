@@ -136,5 +136,15 @@ public class MediaPlayer {
             media.seek(ms);
         }
     }
+
+    public synchronized float getProgress(){
+        if (media != null) {
+            if (media.getLengthUs() <=0){
+                return 0;
+            }
+            return (float) media.getDurationUs() / media.getLengthUs();
+        }
+        return 0;
+    }
 }
 

@@ -24,6 +24,7 @@ import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.video_fetcher.VideoUrlProcessor;
 
 public class PlayerAgent {
+    private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
     private final ArmorStand entity;
     public String playingUrl;
@@ -139,10 +140,47 @@ public class PlayerAgent {
 
     private float halfW = 1.777f;
 
-    public void render(ArmorStandRenderState state, MultiBufferSource bufferSource, PoseStack poseStack, int i) {
-        long start = System.nanoTime();
+    public void renderScreen(PoseStack poseStack, MultiBufferSource bufferSource, int i) {
+        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull((player.getMedia() != null) ? this.texture.getResourceLocation() : idleScreen));
 
-        // 阶段1：计算缩放和音量
+        var matrix = poseStack.last().pose();
+
+        consumer.addVertex(matrix, -halfW, -1, 0).setLight(i).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+        consumer.addVertex(matrix, halfW, -1, 0).setLight(i).setUv(1, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+        consumer.addVertex(matrix, halfW, 1, 0).setLight(i).setUv(1, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+        consumer.addVertex(matrix, -halfW, 1, 0).setLight(i).setUv(0, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+    }
+
+    public void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i) {
+        // 绘制进度条，黑色为底，白色为进度
+        // 进度条参数
+        float barHeight = (float) 1 / 50;
+        float barY = -1;
+        float barLeft = -halfW;
+        float barRight = halfW;
+        float barBottom = barY - barHeight;
+
+        // 画底色（黑色）
+        VertexConsumer black = bufferSource.getBuffer(RenderType.debugQuads());
+        int blackColor = 0xFF000000;
+        black.addVertex(poseStack.last().pose(), barLeft, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+        black.addVertex(poseStack.last().pose(), barRight, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+        black.addVertex(poseStack.last().pose(), barRight, barY, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+        black.addVertex(poseStack.last().pose(), barLeft, barY, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
+
+        // 画进度（白色）
+        float progressRight = barLeft + (barRight - barLeft) * Math.max(0, Math.min(progress, 1));
+        int whiteColor = 0xFFFFFFFF;
+        if (progress > 0) {
+            VertexConsumer white = bufferSource.getBuffer(RenderType.debugQuads());
+            white.addVertex(poseStack.last().pose(), barLeft, barBottom, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+            white.addVertex(poseStack.last().pose(), progressRight, barBottom, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+            white.addVertex(poseStack.last().pose(), progressRight, barY, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+            white.addVertex(poseStack.last().pose(), barLeft, barY, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0, 0, 1);
+        }
+    }
+
+    public void render(ArmorStandRenderState state, MultiBufferSource bufferSource, PoseStack poseStack, int i) {
         var size = state.scale * scale;
         var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
         var volumeFactor = 1f;
@@ -152,64 +190,34 @@ public class PlayerAgent {
             volumeFactor = (state.leftArmPose.x()) / 360;
         }
         var volume = volumeFactor * audioMaxVolume;
-        long t1 = System.nanoTime();
 
-        // 阶段2：同步访问 player
-        synchronized (player) {
+        synchronized (player){
             if (player.getMedia() != null) {
                 this.player.getMedia().uploadVideo();
                 halfW = player.getMedia().getAspectRatio();
+            } else {
+                halfW = 1.777f;
             }
         }
-        long t2 = System.nanoTime();
 
-        // 阶段3：设置音频属性
         audioSource.setVolume(volume);
         audioSource.setRange(audioRangeMin, audioRangeMax);
-        if (i < 0) i = 5;
-        audioSource.setPos(
-                (float) state.x + audioOffsetRotated.x,
-                (float) state.y + audioOffsetRotated.y,
-                (float) state.z + audioOffsetRotated.z
-        );
-        long t3 = System.nanoTime();
-
-        // 阶段4：准备矩阵
+        if (i < 0) {
+            i = 5;
+        }
+        audioSource.setPos(((float) state.x + audioOffsetRotated.x), ((float) state.y + audioOffsetRotated.y), ((float) state.z + audioOffsetRotated.z));
         poseStack.pushPose();
+
         poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
-        poseStack.mulPose(new Quaternionf().rotationYXZ(
-                (float) Math.toRadians(-state.headPose.x()),
-                (float) Math.toRadians(-state.headPose.y()),
-                (float) Math.toRadians(-state.headPose.z())
-        ));
-        poseStack.translate(offsetX, offsetY + 1 * state.scale, offsetZ + 0.6 * state.scale);
+        poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.x()), (float) Math.toRadians(-state.headPose.y()), (float) Math.toRadians(-state.headPose.z())));
+        poseStack.translate(offsetX, offsetY + 1.02 * state.scale, offsetZ + 0.6 * state.scale);
         poseStack.scale(size, size, size);
-        long t4 = System.nanoTime();
 
-        // 阶段5：绘制四边形
-        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(this.texture.getResourceLocation()));
-        var matrix = poseStack.last().pose();
-
-        consumer.addVertex(matrix, -halfW, -1, 0).setLight(i).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, halfW, -1, 0).setLight(i).setUv(1, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, halfW, 1, 0).setLight(i).setUv(1, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-        consumer.addVertex(matrix, -halfW, 1, 0).setLight(i).setUv(0, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
-
+        renderScreen(poseStack, bufferSource, i);
+        renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
         poseStack.popPose();
-        long t5 = System.nanoTime();
 
-        if ((t5 - start) / 1_000_000.0>5)
-        // 打印耗时（毫秒）
-        LOGGER.info("阶段1: {}ms, 阶段2: {}fms, 阶段3: {}fms, 阶段4: {}fms, 阶段5: {}fms, 总计: {}fms%n",
-                (t1 - start) / 1_000_000.0,
-                (t2 - t1) / 1_000_000.0,
-                (t3 - t2) / 1_000_000.0,
-                (t4 - t3) / 1_000_000.0,
-                (t5 - t4) / 1_000_000.0,
-                (t5 - start) / 1_000_000.0
-        );
     }
-
 
     public void open(@Nullable String mediaUrl) {
         if (mediaUrl == null) {

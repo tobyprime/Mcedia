@@ -20,7 +20,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         super();
         Minecraft.getInstance().getTextureManager().register(id, this);
         this.resourceLocation = id;
-        setSize(100,100);
+        setSize(1920,1080);
     }
 
     public void setSize(int width,int height) {
@@ -34,7 +34,6 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         GpuDevice gpuDevice = RenderSystem.getDevice();
 
         this.texture = gpuDevice.createTexture(this.resourceLocation::toString, TextureFormat.RGBA8, width, height, 1);
-        gpuDevice.createCommandEncoder().clearColorTexture(this.getTexture(), -1);
         this.setClamp(true);
         this.setFilter(true, false);
     }

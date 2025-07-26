@@ -147,6 +147,10 @@ public class Media implements Closeable {
         return baseDuration + (System.currentTimeMillis() - baseTime) * 1000L;
     }
 
+    public long getLengthUs() {
+        return decoder.getDuration();
+    };
+
     /**
      * 获取秒数（方便UI）
      */
