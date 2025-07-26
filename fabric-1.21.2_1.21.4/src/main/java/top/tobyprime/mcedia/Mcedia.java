@@ -25,6 +25,7 @@ public class Mcedia implements ModInitializer {
         return INSTANCE;
     }
 
+
     public ConcurrentHashMap<Entity, PlayerAgent> getEntityToPlayerMap() {
         return entityToPlayer;
     }
@@ -52,7 +53,7 @@ public class Mcedia implements ModInitializer {
     }
 
     public void HandleMcdiaPlayerEntity(ArmorStand entity) {
-        boolean isMcdiaPlayer = entity.getName().toString().contains("mcdia_player") || entity.getName().toString().contains("mcedia_player");
+        boolean isMcdiaPlayer = entity.getName().toString().contains("mcdia") || entity.getName().toString().contains("mcedia");
         if (!entityToPlayer.containsKey(entity) && isMcdiaPlayer) {
             if (getEntityToPlayerMap().size() >= MAX_PLAYER_COUNT) {
                 return;
@@ -60,6 +61,7 @@ public class Mcedia implements ModInitializer {
             getEntityToPlayerMap().put(entity, new PlayerAgent(entity));
         }
     }
+
     public static void msgToPlayer(String msg) {
         var player = Minecraft.getInstance().player;
         if (player != null) {

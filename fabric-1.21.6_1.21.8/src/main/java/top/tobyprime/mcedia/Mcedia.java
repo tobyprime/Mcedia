@@ -53,7 +53,7 @@ public class Mcedia implements ModInitializer {
     }
 
     public void HandleMcdiaPlayerEntity(ArmorStand entity) {
-        boolean isMcdiaPlayer = entity.getName().toString().contains("mcdia_player") || entity.getName().toString().contains("mcedia_player");
+        boolean isMcdiaPlayer = entity.getName().toString().contains("mcdia") || entity.getName().toString().contains("mcedia");
         if (!entityToPlayer.containsKey(entity) && isMcdiaPlayer) {
             if (getEntityToPlayerMap().size() >= MAX_PLAYER_COUNT) {
                 return;

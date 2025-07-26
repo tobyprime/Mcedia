@@ -23,6 +23,9 @@ import top.tobyprime.mcedia.core.DecoderConfiguration;
 import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.video_fetcher.VideoUrlProcessor;
 
+import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+
 public class PlayerAgent {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
@@ -40,15 +43,7 @@ public class PlayerAgent {
     private final AudioSource audioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
     private final VideoTexture texture  = new VideoTexture(ResourceLocation.fromNamespaceAndPath("mcedia","player_"+hashCode()));
 
-
-    public PlayerAgent(ArmorStand entity) {
-        LOGGER.info("在 {} 新增了一个 Mcdia Player", entity.position());
-        this.entity = entity;
-        player = new MediaPlayer();
-        player.setDecoderConfiguration(new DecoderConfiguration(new DecoderConfiguration.Builder()));
-        player.bindTexture(texture);
-        player.bindAudioSource(audioSource);
-    }
+    private @Nullable CompletableFuture<?> currentPlayFuture;
 
     private float audioRangeMin = 2;
     private float audioRangeMax = 500;
@@ -105,7 +100,31 @@ public class PlayerAgent {
     }
 
 
-    public void tick() {
+    public PlayerAgent(ArmorStand entity) {
+        LOGGER.info("在 {} 新增了一个 Mcdia Player", entity.position());
+        this.entity = entity;
+        player = new MediaPlayer();
+        player.setDecoderConfiguration(new DecoderConfiguration(new DecoderConfiguration.Builder()));
+        player.bindTexture(texture);
+        player.bindAudioSource(audioSource);
+    }
+
+
+    public long getServerDuration() {
+        var args = entity.getMainHandItem().getDisplayName().getString().split(":");
+        try {
+            var duration = System.currentTimeMillis() - Long.parseLong(args[1].substring(0, args[1].length() - 1));
+            LOGGER.info("从 {} 开始播放", duration);
+            if (duration < 1000) {
+                return 0;
+            }
+            return duration * 1000;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    public void update() {
         var mainHandBook = entity.getItemInHand(InteractionHand.MAIN_HAND);
 
         if (mainHandBook.getItem() instanceof WritableBookItem) {
@@ -219,21 +238,34 @@ public class PlayerAgent {
 
     }
 
+    public void tick() {
+        update();
+    }
+
     public void open(@Nullable String mediaUrl) {
         if (mediaUrl == null) {
             close();
             return;
         }
-        Mcedia.msgToPlayer("开始播放: " + mediaUrl);
+        var poster = Arrays.stream(entity.getMainHandItem().getDisplayName().getString().substring(1).split(":")).findFirst().orElse("未知");
+        Mcedia.msgToPlayer(poster + "点播: " + mediaUrl);
 
         playingUrl = mediaUrl;
         LOGGER.info("准备播放 {}", mediaUrl);
 
-        player.openAsync(()-> VideoUrlProcessor.Process(mediaUrl)).exceptionally((e)->{
+        currentPlayFuture = player.openAsync(() -> VideoUrlProcessor.Process(mediaUrl)).exceptionally((e) -> {
             LOGGER.warn("打开视频失败", e);
             Mcedia.msgToPlayer("无法解析或播放: " + mediaUrl);
             throw new RuntimeException(e);
-        }).thenRun(player::play);
+        }).thenRun(() -> {
+            player.play();
+            LOGGER.info("seek to {} % {}/{}", (float) getServerDuration() / player.getMedia().getLengthUs(), getServerDuration(), player.getMedia().getLengthUs());
+            player.seek(getServerDuration());
+        }).exceptionally(e -> {
+            LOGGER.warn("播放视频失败", e);
+            Mcedia.msgToPlayer("无法解析或播放: " + mediaUrl);
+            throw new RuntimeException(e);
+        });
     }
 
     public void close() {

@@ -168,6 +168,12 @@ public class Media implements Closeable {
         }
         LOGGER.info("移动到 {}", targetUs);
         try {
+            if (targetUs > getLengthUs()) {
+                targetUs = getLengthUs();
+            }
+            if (targetUs < 0) {
+                targetUs = 0;
+            }
             decoder.seek(targetUs);
             baseDuration = targetUs;
             baseTime = System.currentTimeMillis();
