@@ -35,6 +35,7 @@ public class AudioSource implements IAudioSource {
     private void alInit() {
         if (!requireInit || isClosed) return;
         try {
+            alCleanAll();
             int error = AL10.alGetError();
             if (error != AL10.AL_NO_ERROR) {
                 LOGGER.warn("初始化失败: {}", error);
@@ -82,6 +83,52 @@ public class AudioSource implements IAudioSource {
             if (alSource != -1) {
                 try { AL10.alDeleteSources(alSource); } catch (Exception ignored) {}
                 alSource = -1;
+            }
+        }
+    }
+
+    private void alCleanAll() {
+        synchronized (alLock) {
+            try {
+                // 停止播放
+                if (alSource != -1) {
+                    AL10.alSourceStop(alSource);
+
+                    // 回收所有队列中的 buffer
+                    int queuedCount = AL10.alGetSourcei(alSource, AL10.AL_BUFFERS_QUEUED);
+                    while (queuedCount-- > 0) {
+                        int bufferId = AL10.alSourceUnqueueBuffers(alSource);
+                        if (bufferId > 0) {
+                            availableBuffers.offer(bufferId);
+                        }
+                    }
+
+                    // 删除 Source
+                    AL10.alDeleteSources(alSource);
+                    alSource = -1;
+                }
+
+                // 删除所有 Buffer
+                if (alBuffers != null) {
+                    for (int bufferId : alBuffers) {
+                        try {
+                            AL10.alDeleteBuffers(bufferId);
+                        } catch (Exception e) {
+                            LOGGER.warn("删除 buffer {} 失败", bufferId, e);
+                        }
+                    }
+                    alBuffers = null;
+                }
+
+                // 清空缓冲池
+                availableBuffers.clear();
+
+                // 重置状态
+                requireInit = true;
+
+                LOGGER.info("OpenAL 所有资源已清理，等待重新初始化。");
+            } catch (Exception e) {
+                LOGGER.error("alCleanAll 清理 OpenAL 资源时出错", e);
             }
         }
     }
@@ -141,6 +188,7 @@ public class AudioSource implements IAudioSource {
             if (error != AL10.AL_NO_ERROR) {
                 LOGGER.error("上传失败: {}", error);
                 availableBuffers.offer(bufferId);
+                requireInit = true;
                 return;
             }
 

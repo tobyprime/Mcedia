@@ -131,7 +131,7 @@ public class MediaPlayer {
             media.pause();
         }
     }
-    public synchronized void seek(int ms){
+    public synchronized void seek(long ms){
         if (media != null) {
             media.seek(ms);
         }
