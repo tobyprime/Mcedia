@@ -2,6 +2,8 @@ package top.tobyprime.mcedia;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientWorldEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.SoundEngineExecutor;
 import net.minecraft.network.chat.Component;
@@ -37,18 +39,32 @@ public class Mcedia implements ModInitializer {
         return engine.mcdia$getExecutor();
     }
 
+    private void clearMap(){
+        for (var entry : entityToPlayer.entrySet()) {
+            entry.getValue().close();
+            entityToPlayer.remove(entry.getKey());
+        }
+    }
+
     @Override
     public void onInitialize() {
         INSTANCE = this;
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             for (var pair : entityToPlayer.entrySet()) {
-                if (pair.getKey().isRemoved() || !pair.getKey().position().closerThan(Minecraft.getInstance().player.position(), 500)) {
+                if (pair.getKey().isRemoved()) {
                     pair.getValue().close();
                     entityToPlayer.remove(pair.getKey());
                     return;
                 }
                 pair.getValue().tick();
             }
+        });
+
+        ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((mc, level)->{
+            clearMap();
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            clearMap();
         });
     }
 

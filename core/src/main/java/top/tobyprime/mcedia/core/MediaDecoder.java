@@ -84,7 +84,7 @@ public class MediaDecoder implements Closeable {
      * 解码已结束且 frame 消费完
      */
     public boolean isEnded() {
-        return decodeEnded && videoQueue.isEmpty() && audioQueue.isEmpty();
+        return decodeEnded && audioQueue.isEmpty();
     }
 
     /**

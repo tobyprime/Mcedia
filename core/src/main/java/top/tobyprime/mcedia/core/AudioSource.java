@@ -272,6 +272,23 @@ public class AudioSource implements IAudioSource {
         }
     }
 
+    public void alSetPitch(float pitch) {
+        alInitIfNeed();
+        if (pitch < 0) {
+            pitch = 0;
+        }
+        try {
+            AL10.alSourcef(alSource, AL10.AL_PITCH, pitch);
+        } catch (Exception e) {
+            LOGGER.error("设置最大距离失败", e);
+        }
+    }
+
+    @Override
+    public void setPitch(float pitch) {
+        alThreadExecutor.accept(() -> alSetPitch(pitch));
+    }
+
     @Override
     public void clearBuffer() {
         alThreadExecutor.accept(() -> {

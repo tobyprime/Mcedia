@@ -78,21 +78,7 @@ public class MediaPlayer {
         }
     }
 
-    private void openInternal(String inputMedia) {
-        closeInternal();
-        if (inputMedia == null) {
-            return;
-        }
-        var newMedia = new Media(inputMedia, decoderConfiguration);
-
-        newMedia.bindTexture(texture);
-        for (var audioSource : audioSources) {
-            newMedia.bindAudioSource(audioSource);
-        }
-        synchronized (this) {
-            media = newMedia;
-        }
-    }
+    public boolean looping = false;
 
     public synchronized @Nullable Media getMedia() {
         return media;
@@ -141,6 +127,37 @@ public class MediaPlayer {
         if (media != null) {
             preMedia.seek(ms);
         }
+    }
+    float speed = 1;
+
+    private void openInternal(String inputMedia) {
+        closeInternal();
+        if (inputMedia == null) {
+            return;
+        }
+        var newMedia = new Media(inputMedia, decoderConfiguration);
+
+        newMedia.bindTexture(texture);
+        for (var audioSource : audioSources) {
+            newMedia.bindAudioSource(audioSource);
+        }
+        synchronized (this) {
+            media = newMedia;
+        }
+        media.setSpeed(speed);
+        media.setLooping(looping);
+    }
+
+    public synchronized void setSpeed(float speed) {
+        this.speed = speed;
+        if (media != null) {
+            media.setSpeed(speed);
+        }
+    }
+
+    public synchronized void setLooping(boolean looping) {
+        this.looping = looping;
+        if (media != null) media.setLooping(looping);
     }
 
     public synchronized float getProgress(){

@@ -5,5 +5,6 @@ import top.tobyprime.mcedia.core.AudioBufferData;
 
 public interface IAudioSource {
     void upload(@Nullable AudioBufferData buffer);
+    void setPitch(float pitch);
     void clearBuffer();
 }

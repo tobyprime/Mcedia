@@ -24,7 +24,7 @@ import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.video_fetcher.VideoUrlProcessor;
 
 import java.util.Arrays;
-import java.util.concurrent.CompletableFuture;
+import java.util.Objects;
 
 public class PlayerAgent {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
@@ -43,17 +43,51 @@ public class PlayerAgent {
     private final AudioSource audioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
     private final VideoTexture texture  = new VideoTexture(ResourceLocation.fromNamespaceAndPath("mcedia","player_"+hashCode()));
 
-    private @Nullable CompletableFuture<?> currentPlayFuture;
-
     private float audioRangeMin = 2;
     private float audioRangeMax = 500;
+    public static long parseToMicros(String timeStr) {
+        if (timeStr == null || timeStr.isEmpty()) {
+            throw new IllegalArgumentException("Time string cannot be null or empty");
+        }
 
-    public void updateInputUrl(String url) {
-        if (url == playingUrl) {return;}
-        if (url == null) {
+        String[] parts = timeStr.split(":");
+        int len = parts.length;
+
+        int hours = 0, minutes = 0, seconds = 0;
+
+        try {
+            if (len == 1) {
+                // 可能只有小时
+                hours = Integer.parseInt(parts[0]);
+            } else if (len == 2) {
+                // 小时:分钟
+                hours = Integer.parseInt(parts[0]);
+                minutes = Integer.parseInt(parts[1]);
+            } else if (len == 3) {
+                // 小时:分钟:秒
+                hours = Integer.parseInt(parts[0]);
+                minutes = Integer.parseInt(parts[1]);
+                seconds = Integer.parseInt(parts[2]);
+            } else {
+                throw new IllegalArgumentException("Invalid time format: " + timeStr);
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid number in time string: " + timeStr, e);
+        }
+
+        long totalSeconds = hours * 3600L + minutes * 60L + seconds;
+        return totalSeconds * 1_000_000L;
+    }
+    String inputContent = null;
+    public void updateInputUrl(String content) {
+        if (content == null) {
             open(null);
             return;
         }
+        inputContent = content;
+        var args = content.split("\n");
+        var url = args[0];
+        if (Objects.equals(url, playingUrl)) {return;}
         open(url);
     }
 
@@ -74,6 +108,9 @@ public class PlayerAgent {
         this.audioRangeMax = 500;
     }
 
+    public void updateOther(String flags) {
+        this.player.setLooping(flags.contains("looping"));
+    }
     public void updateOffset(String offset) {
         try {
             var vars = offset.split("\n");
@@ -110,6 +147,18 @@ public class PlayerAgent {
     }
 
 
+    private long getBaseDuration(){
+        long duration = 0;
+        try {
+            var args = inputContent.split("\n");
+            if (args.length < 2) return 0;
+            duration = parseToMicros(args[1]);
+        }catch (NumberFormatException e){
+            LOGGER.info("获取base duration失败",e);
+        }
+        return duration;
+    }
+
     public long getServerDuration() {
         var args = entity.getMainHandItem().getDisplayName().getString().split(":");
         try {
@@ -122,6 +171,9 @@ public class PlayerAgent {
         } catch (NumberFormatException e) {
             return 0;
         }
+    }
+    public long getDuration(){
+        return  getBaseDuration() + getServerDuration();
     }
 
     public void update() {
@@ -149,6 +201,9 @@ public class PlayerAgent {
                 }
                 if (pages.size() > 1) {
                     updateAudioOffset(pages.get(1));
+                }
+                if (pages.size() > 2) {
+                    updateOther(pages.get(2));
                 }
             }
         } else {
@@ -199,15 +254,29 @@ public class PlayerAgent {
         }
     }
 
+    public float rotationToFactor(float rotation) {
+        if (rotation < 0) {
+            return -rotation / 360;
+        } else {
+            return (360.0f - rotation) / 360;
+        }
+    }
+    public float speed = 1;
+
     public void render(ArmorStandRenderState state, MultiBufferSource bufferSource, PoseStack poseStack, int i) {
         var size = state.scale * scale;
         var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
-        var volumeFactor = 1f;
-        if (state.leftArmPose.x() < 0) {
-            volumeFactor = (360.0f + state.leftArmPose.x()) / 360;
+        var volumeFactor = 1 - rotationToFactor(state.leftArmPose.x());
+        var speedFactor = rotationToFactor(state.leftArmPose.y());
+        if (speedFactor < 0.1) {
+            speed = 1;
+        } else if (speedFactor > 0.5) {
+            speed = 1 - (1 - speedFactor) * 2;
         } else {
-            volumeFactor = (state.leftArmPose.x()) / 360;
+            speed = (speedFactor - 0.1f) / 0.4f * 8;
         }
+
+        player.setSpeed(speed);
         var volume = volumeFactor * audioMaxVolume;
 
         synchronized (player){
@@ -243,24 +312,28 @@ public class PlayerAgent {
     }
 
     public void open(@Nullable String mediaUrl) {
+        playingUrl = mediaUrl;
+
         if (mediaUrl == null) {
             close();
             return;
         }
+
+        long duration = getDuration();
+
         var poster = Arrays.stream(entity.getMainHandItem().getDisplayName().getString().substring(1).split(":")).findFirst().orElse("未知");
         Mcedia.msgToPlayer(poster + "点播: " + mediaUrl);
 
-        playingUrl = mediaUrl;
         LOGGER.info("准备播放 {}", mediaUrl);
 
-        currentPlayFuture = player.openAsync(() -> VideoUrlProcessor.Process(mediaUrl)).exceptionally((e) -> {
+        player.openAsync(() -> VideoUrlProcessor.Process(mediaUrl)).exceptionally((e) -> {
             LOGGER.warn("打开视频失败", e);
             Mcedia.msgToPlayer("无法解析或播放: " + mediaUrl);
             throw new RuntimeException(e);
         }).thenRun(() -> {
             player.play();
-            LOGGER.info("seek to {} % {}/{}", (float) getServerDuration() / player.getMedia().getLengthUs(), getServerDuration(), player.getMedia().getLengthUs());
-            player.seek(getServerDuration());
+            player.seek(duration);
+            player.setSpeed(2);
         }).exceptionally(e -> {
             LOGGER.warn("播放视频失败", e);
             Mcedia.msgToPlayer("无法解析或播放: " + mediaUrl);

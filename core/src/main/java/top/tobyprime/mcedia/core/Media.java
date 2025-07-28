@@ -26,7 +26,10 @@ public class Media implements Closeable {
     private boolean paused = true;
     private boolean isLiveStream = false; // 标识是否为直播
     private long lastAudioPts = -1; // 最近上传的音频帧时间戳
-    private long lastVideoPts = -1; // 最近上传的视频帧时间戳
+    private float speed = 1;
+    private boolean looping = false;
+
+    // 最近上传的视频帧时间戳
     private @Nullable Frame currentVideoFrame;
     public Media(String url, DecoderConfiguration config) {
         try {
@@ -41,67 +44,72 @@ public class Media implements Closeable {
         } catch (FFmpegFrameGrabber.Exception e) {
             throw new RuntimeException(e);
         }
-        audioThread = new Thread(() -> {
-            LOGGER.info("音频上传线程启动");
-            long nextPlayTime = System.nanoTime();
-            try {
-                while (!Thread.currentThread().isInterrupted()) {
-                    if (!paused) {
-                        Frame currFrame = decoder.audioQueue.poll();
-                        if (currFrame == null) {
-                            // 无帧时，短暂睡眠避免忙等待
-                            Thread.sleep(10);
-                            continue;
-                        }
-                        Frame nextFrame = decoder.audioQueue.peek(); // 只看不取
-
-                        // 消费掉过期的视频帧
-                        while (!decoder.videoQueue.isEmpty()) {
-                            Frame videoFrame = decoder.videoQueue.peek();
-                            if (videoFrame == null) break;
-                            // 如果视频帧的时间戳小于当前音频帧，则认为过期，消费掉
-                            if (videoFrame.timestamp < currFrame.timestamp) {
-                                synchronized (this){
-                                    if (currentVideoFrame != null)
-                                        currentVideoFrame.close();
-                                    currentVideoFrame = decoder.videoQueue.poll();
-                                }
-                                lastVideoPts = videoFrame.timestamp;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        uploadBuffer(currFrame);
-                        lastAudioPts = currFrame.timestamp;
-
-                        // 计算下一个音频帧的间隔
-                        long intervalUs;
-                        if (nextFrame != null) {
-                            intervalUs = nextFrame.timestamp - currFrame.timestamp;
-                            if (intervalUs <= 0) intervalUs = 20_000L; // 防止pts异常
-                        } else {
-                            intervalUs = 20_000L; // 队列空时用默认值
-                        }
-                        nextPlayTime += intervalUs * 1000L;
-                        long sleepNanos = nextPlayTime - System.nanoTime();
-                        if (sleepNanos > 0) {
-                            Thread.sleep(sleepNanos / 1_000_000, (int) (sleepNanos % 1_000_000));
-                        }
-                        currFrame.close();
-
-                    } else {
-                        // 暂停时，短暂睡眠避免忙等待
-                        Thread.sleep(10);
-                    }
-                }
-            } catch (InterruptedException ignored) {
-            }
-            LOGGER.info("音频上传线程退出");
-        });
+        audioThread = new Thread(this::playLoop);
         audioThread.start();
     }
 
+    public void playLoop() {
+        long nextPlayTime = System.nanoTime();
+        try {
+            while (!Thread.currentThread().isInterrupted()) {
+                if (!paused) {
+                    Frame currFrame = decoder.audioQueue.poll();
+                    if (currFrame == null) {
+                        if (decoder.isEnded() && looping && decoder.getDuration() != 0) {
+                            // 如果循环播放且播放结束则从头开始
+                            LOGGER.info("looping");
+                            this.seek(0);
+                        }
+                        // 无帧时，短暂睡眠避免忙等待
+                        Thread.sleep(10);
+                        continue;
+                    }
+                    // 消费掉过期的视频帧
+                    while (!decoder.videoQueue.isEmpty()) {
+                        Frame videoFrame = decoder.videoQueue.peek();
+                        if (videoFrame == null) break;
+                        // 如果视频帧的时间戳小于当前音频帧，则认为过期，消费掉
+                        if (videoFrame.timestamp < currFrame.timestamp) {
+                            synchronized (this) {
+                                if (currentVideoFrame != null)
+                                    currentVideoFrame.close();
+                                currentVideoFrame = decoder.videoQueue.poll();
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+
+                    uploadBuffer(currFrame);
+                    lastAudioPts = currFrame.timestamp;
+
+                    // 计算下一个音频帧的间隔
+                    Frame nextFrame = decoder.audioQueue.peek();
+                    long intervalUs;
+                    if (nextFrame != null) {
+                        intervalUs = (long) ((nextFrame.timestamp - currFrame.timestamp)/speed);
+                        if (intervalUs <= 0) intervalUs = 20_000L; // 防止pts异常
+                    } else {
+                        intervalUs = 20_000L; // 队列空时用默认值
+                    }
+                    nextPlayTime += intervalUs * 1000L;
+                    long sleepNanos = nextPlayTime - System.nanoTime();
+                    if (sleepNanos > 0) {
+                        Thread.sleep(sleepNanos / 1_000_000, (int) (sleepNanos % 1_000_000));
+                    }
+                    currFrame.close();
+                } else {
+                    // 暂停时，短暂睡眠避免忙等待
+                    Thread.sleep(10);
+                }
+            }
+        } catch (InterruptedException ignored) {
+        }
+
+    }
+    public void setLooping(boolean looping) {
+        this.looping = looping;
+    }
     /**
      * 播放
      */
@@ -114,7 +122,6 @@ public class Media implements Closeable {
             } else {
                 baseDuration = 0; // 直播时重置
                 lastAudioPts = -1;
-                lastVideoPts = -1;
             }
             paused = false;
         }
@@ -157,6 +164,11 @@ public class Media implements Closeable {
     public double getDurationSeconds() {
         return getDurationUs() / 1_000_000.0;
     }
+    public void setSpeed(float speed) {
+        if (speed == this.speed) {return;}
+        this.speed = speed;
+        this.audioSources.forEach(s->s.setPitch(speed));
+    }
 
     /**
      * 跳转到指定时间戳 (微秒)
@@ -169,7 +181,7 @@ public class Media implements Closeable {
         LOGGER.info("移动到 {}", targetUs);
         try {
             if (targetUs > getLengthUs()) {
-                targetUs = getLengthUs();
+                targetUs =  getLengthUs();
             }
             if (targetUs < 0) {
                 targetUs = 0;
@@ -178,7 +190,6 @@ public class Media implements Closeable {
             baseDuration = targetUs;
             baseTime = System.currentTimeMillis();
             lastAudioPts = targetUs;
-            lastVideoPts = targetUs;
         } catch (Exception e) {
             LOGGER.error("Seek failed", e);
         }
@@ -249,6 +260,8 @@ public class Media implements Closeable {
     @Override
     public void close() {
         audioThread.interrupt();
+        this.audioSources.forEach(s->s.setPitch(1));
+
         try {
             audioThread.join();
         } catch (InterruptedException e) {
