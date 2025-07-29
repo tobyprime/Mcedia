@@ -160,15 +160,15 @@ public class PlayerAgent {
     }
 
     public long getServerDuration() {
-        var args = entity.getMainHandItem().getDisplayName().getString().split(":");
         try {
+            var args = entity.getMainHandItem().getDisplayName().getString().split(":");
             var duration = System.currentTimeMillis() - Long.parseLong(args[1].substring(0, args[1].length() - 1));
             LOGGER.info("从 {} 开始播放", duration);
             if (duration < 1000) {
                 return 0;
             }
             return duration * 1000;
-        } catch (NumberFormatException e) {
+        } catch (Exception e) {
             return 0;
         }
     }
