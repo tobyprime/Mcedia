@@ -153,7 +153,7 @@ public class PlayerAgent {
             var args = inputContent.split("\n");
             if (args.length < 2) return 0;
             duration = parseToMicros(args[1]);
-        }catch (NumberFormatException e){
+        }catch (Exception e){
             LOGGER.info("获取base duration失败",e);
         }
         return duration;
@@ -321,8 +321,8 @@ public class PlayerAgent {
 
         long duration = getDuration();
 
-        var poster = Arrays.stream(entity.getMainHandItem().getDisplayName().getString().substring(1).split(":")).findFirst().orElse("未知");
-        Mcedia.msgToPlayer(poster + "点播: " + mediaUrl);
+        var name = entity.getMainHandItem().getDisplayName().getString().substring(1);
+        var poster = name.contains(":") ? Arrays.stream(entity.getMainHandItem().getDisplayName().getString().substring(1).split(":")).findFirst().orElse("未知") : "未知";        Mcedia.msgToPlayer(poster + "点播: " + mediaUrl);
 
         LOGGER.info("准备播放 {}", mediaUrl);
 
