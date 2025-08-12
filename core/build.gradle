@@ -8,6 +8,8 @@ repositories {
     mavenCentral()
 }
 
+def platform = project.findProperty('platformName') ?: 'windows-x86_64'
+
 dependencies {
     implementation "org.jetbrains:annotations:${project.annotations_version}"
 
@@ -19,8 +21,8 @@ dependencies {
     implementation "org.json:json:${project.json_version}"
 
     implementation "org.bytedeco:javacv:${project.javacv_version}"
-    implementation "org.bytedeco:javacpp:${project.javacpp_version}:windows-x86_64"
-    implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}:windows-x86_64"
+    implementation "org.bytedeco:javacpp:${project.javacpp_version}:${platform}"
+    implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}:${platform}"
 }
 shadowJar {
     archiveClassifier.set('all') // 会生成 xxx-all.jar

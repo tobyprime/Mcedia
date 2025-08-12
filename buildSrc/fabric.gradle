@@ -1,4 +1,6 @@
-version = "${project.mod_version}-${project(":core").version}"
+def platform = project.findProperty('platformName') ?: 'windows-x86_64'
+
+version = "${project(":").mod_base_version}-${project.mod_sub_version}-${project(":core").version}-${platform}"
 group = project.maven_group
 
 base {

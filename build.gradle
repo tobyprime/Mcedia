@@ -1,3 +1,35 @@
 plugins {
     id 'java'
 }
+
+
+def platforms = [
+        "windows-x86_64",
+        "linux-x86_64",
+        "linux-arm64",
+        "macosx-x86_64",
+        "macosx-arm64",
+]
+// 多平台构建任务
+tasks.register('buildAllPlatform') {
+    group = "build"
+    // 使用 doLast 确保任务执行时调用
+    doLast {
+        platforms.each { platform ->
+            println "======== Building platform: $platform ========"
+
+            // 使用Gradle的BuildLauncher API动态执行
+            def result = exec {
+                // Gradle wrapper路径，适配Windows和Unix
+                def gradlew = org.gradle.internal.os.OperatingSystem.current().isWindows() ? "gradlew.bat" : "gradle"
+
+                commandLine gradlew, "build", "-PplatformName=$platform","--stacktrace"
+                // 可选：关闭控制台输出（-q），但为了观察输出暂时不加
+            }
+
+            if (result.exitValue != 0) {
+                throw new GradleException("Build failed for platform $platform")
+            }
+        }
+    }
+}
