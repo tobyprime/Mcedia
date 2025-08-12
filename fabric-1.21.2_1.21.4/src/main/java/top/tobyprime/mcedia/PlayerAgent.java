@@ -79,16 +79,22 @@ public class PlayerAgent {
         return totalSeconds * 1_000_000L;
     }
     String inputContent = null;
+
     public void updateInputUrl(String content) {
-        if (content == null) {
-            open(null);
-            return;
+        try {
+            if (content == null) {
+                open(null);
+                return;
+            }
+            inputContent = content;
+            var args = content.split("\n");
+            var url = args[0];
+            if (Objects.equals(url, playingUrl)) {
+                return;
+            }
+            open(url);
+        } catch (Exception e) {
         }
-        inputContent = content;
-        var args = content.split("\n");
-        var url = args[0];
-        if (Objects.equals(url, playingUrl)) {return;}
-        open(url);
     }
 
     public void resetOffset() {
@@ -177,38 +183,42 @@ public class PlayerAgent {
     }
 
     public void update() {
-        var mainHandBook = entity.getItemInHand(InteractionHand.MAIN_HAND);
+        try{
+            var mainHandBook = entity.getItemInHand(InteractionHand.MAIN_HAND);
 
-        if (mainHandBook.getItem() instanceof WritableBookItem) {
-            var components = mainHandBook.get(DataComponents.WRITABLE_BOOK_CONTENT);
-            if (components != null) {
-                updateInputUrl(components.getPages(Minecraft.getInstance().isTextFilteringEnabled()).findFirst().orElse(null));
+            if (mainHandBook.getItem() instanceof WritableBookItem) {
+                var components = mainHandBook.get(DataComponents.WRITABLE_BOOK_CONTENT);
+                if (components != null) {
+                    updateInputUrl(components.getPages(Minecraft.getInstance().isTextFilteringEnabled()).findFirst().orElse(null));
+                } else {
+                    this.open(null);
+                }
             } else {
                 this.open(null);
             }
-        } else {
-            this.open(null);
-        }
-        var offHandBook = entity.getItemInHand(InteractionHand.OFF_HAND);
+            var offHandBook = entity.getItemInHand(InteractionHand.OFF_HAND);
 
-        if (offHandBook.getItem() instanceof WritableBookItem) {
-            var components = offHandBook.get(DataComponents.WRITABLE_BOOK_CONTENT);
-            if (components != null && components != preOffHandBookComponent) {
-                preOffHandBookComponent = components;
-                var pages = components.getPages(Minecraft.getInstance().isTextFilteringEnabled()).toList();
-                if (pages.size() > 0) {
-                    updateOffset(pages.get(0));
+            if (offHandBook.getItem() instanceof WritableBookItem) {
+                var components = offHandBook.get(DataComponents.WRITABLE_BOOK_CONTENT);
+                if (components != null && components != preOffHandBookComponent) {
+                    preOffHandBookComponent = components;
+                    var pages = components.getPages(Minecraft.getInstance().isTextFilteringEnabled()).toList();
+                    if (pages.size() > 0) {
+                        updateOffset(pages.get(0));
+                    }
+                    if (pages.size() > 1) {
+                        updateAudioOffset(pages.get(1));
+                    }
+                    if (pages.size() > 2) {
+                        updateOther(pages.get(2));
+                    }
                 }
-                if (pages.size() > 1) {
-                    updateAudioOffset(pages.get(1));
-                }
-                if (pages.size() > 2) {
-                    updateOther(pages.get(2));
-                }
+            } else {
+                resetOffset();
+                resetAudioOffset();
             }
-        } else {
-            resetOffset();
-            resetAudioOffset();
+        }
+        catch (Exception ignored){
         }
     }
 
