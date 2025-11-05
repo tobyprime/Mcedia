@@ -21,7 +21,7 @@ public class BilibiliBangumiFetcher {
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliBangumiFetcher.class);
 
     public static VideoInfo fetch(String bangumiUrl, @Nullable String cookie, String desiredQuality) throws Exception {
-        // 1. 从番剧 URL 中提取 ep 号
+        // 从 URL 中提取 ep 号
         Pattern epPattern = Pattern.compile("/ep(\\d+)");
         Matcher matcher = epPattern.matcher(bangumiUrl);
         if (!matcher.find()) {
@@ -29,7 +29,26 @@ public class BilibiliBangumiFetcher {
         }
         String epId = matcher.group(1);
 
-        // 2. 调用 PGC (番剧) 的播放地址 API
+        // 获取番剧/电影信息
+        String viewApi = "https://api.bilibili.com/pgc/view/web/season?ep_id=" + epId;
+        HttpRequest viewRequest = HttpRequest.newBuilder().uri(URI.create(viewApi)).header("User-Agent", "Mozilla/5.0").build();
+        HttpResponse<String> viewResponse = client.send(viewRequest, HttpResponse.BodyHandlers.ofString());
+        JSONObject viewJson = new JSONObject(viewResponse.body());
+        String title = "未知标题";
+        String author = "Bilibili动漫";
+        if (viewJson.optInt("code") == 0) {
+            JSONObject result = viewJson.getJSONObject("result");
+            title = result.getString("title");
+            // 找到当前集的标题
+            for (Object ep : result.getJSONArray("episodes")) {
+                if (String.valueOf(((JSONObject)ep).getInt("id")).equals(epId)) {
+                    title = title + " - " + ((JSONObject)ep).getString("share_copy");
+                    break;
+                }
+            }
+        }
+
+        // 调用 PGC 的播放地址 API
         String playApi = "https://api.bilibili.com/pgc/player/web/playurl?ep_id=" + epId +
                 "&qn=112&type=&otype=json&platform=html5&high_quality=1&fnval=16";
 
@@ -53,7 +72,7 @@ public class BilibiliBangumiFetcher {
 
         JSONObject result = responseJson.getJSONObject("result");
 
-        // 3. 优先尝试解析 DASH (高画质，音视频分离)
+        // 优先尝试解析 DASH (高画质，音视频分离)
         if (result.has("dash")) {
             JSONObject dash = result.getJSONObject("dash");
             if (dash.has("video") && dash.has("audio") && dash.getJSONArray("video").length() > 0 && dash.getJSONArray("audio").length() > 0) {
@@ -64,18 +83,18 @@ public class BilibiliBangumiFetcher {
                     LOGGER.info("成功解析DASH格式视频流");
                     String videoBaseUrl = selectedVideo.getString("baseUrl");
                     String audioBaseUrl = selectedAudio.getString("baseUrl");
-                    return new VideoInfo(videoBaseUrl, audioBaseUrl);
+                    return new VideoInfo(videoBaseUrl, audioBaseUrl, title, author);
                 }
             }
         }
 
-        // 4. 如果没有 DASH，尝试解析 DURL (低画质/预览，音视频合并)
+        // 如果没有 DASH，尝试解析 DURL (低画质/预览，音视频合并)
         if (result.has("durl")) {
             JSONArray durlArray = result.getJSONArray("durl");
             if (durlArray.length() > 0) {
                 LOGGER.info("解析DASH失败，降级到DURL格式");
                 String playableUrl = durlArray.getJSONObject(0).getString("url");
-                return new VideoInfo(playableUrl, null); // DURL 格式的 audioUrl 为 null
+                return new VideoInfo(playableUrl, null, title, author); // DURL 格式的 audioUrl 为 null
             }
         }
 

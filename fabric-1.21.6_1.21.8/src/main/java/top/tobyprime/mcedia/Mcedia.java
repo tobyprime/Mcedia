@@ -12,6 +12,7 @@ import net.minecraft.world.entity.decoration.ArmorStand;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 import top.tobyprime.mcedia.provider.BilibiliBangumiProvider;
+import top.tobyprime.mcedia.provider.BilibiliLiveProvider;
 import top.tobyprime.mcedia.provider.BilibiliVideoProvider;
 import top.tobyprime.mcedia.provider.MediaProviderRegistry;
 
@@ -75,6 +76,7 @@ public class Mcedia implements ModInitializer {
         MediaProviderRegistry registry = MediaProviderRegistry.getInstance();
         registry.register(new BilibiliVideoProvider());
         registry.register(new BilibiliBangumiProvider());
+        registry.register(new BilibiliLiveProvider());
     }
 
     private void processPendingAgents() {
@@ -102,6 +104,14 @@ public class Mcedia implements ModInitializer {
         var player = Minecraft.getInstance().player;
         if (player != null) {
             player.displayClientMessage(Component.literal(msg), false);
+        }
+    }
+
+    public static void msgToPlayer(Component component) {
+        var player = Minecraft.getInstance().player;
+        if (player != null) {
+            // displayClientMessage 方法原生就支持 Component
+            player.displayClientMessage(component, false);
         }
     }
 }

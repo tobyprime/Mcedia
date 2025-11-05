@@ -22,7 +22,7 @@ public class BiliBiliVideoFetcher {
     private static final Logger LOGGER = LoggerFactory.getLogger(BiliBiliVideoFetcher.class);
 
     public static VideoInfo fetch(String videoUrl, @Nullable String cookie, String desiredQuality) throws Exception {
-        // 1. 提取 BV 号
+        // 提取 BV 号
         Pattern bvPattern = Pattern.compile("(BV[0-9A-Za-z]+)");
         Matcher matcher = bvPattern.matcher(videoUrl);
         if (!matcher.find()) {
@@ -37,7 +37,20 @@ public class BiliBiliVideoFetcher {
             page = Integer.parseInt(pageMatcher.group(1));
         }
 
-        // 2. 获取 CID
+        // 获取视频信息（标题/作者）
+        String viewApi = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid;
+        HttpRequest viewRequest = HttpRequest.newBuilder().uri(URI.create(viewApi)).header("User-Agent", "Mozilla/5.0").build();
+        HttpResponse<String> viewResponse = client.send(viewRequest, HttpResponse.BodyHandlers.ofString());
+        JSONObject viewJson = new JSONObject(viewResponse.body());
+        String title = "未知标题";
+        String author = "未知作者";
+        if (viewJson.optInt("code") == 0) {
+            JSONObject viewData = viewJson.getJSONObject("data");
+            title = viewData.getString("title");
+            author = viewData.getJSONObject("owner").getString("name");
+        }
+
+        // 获取 CID
         String pagelistApi = "https://api.bilibili.com/x/player/pagelist?bvid=" + bvid + "&jsonp=jsonp";
         HttpRequest.Builder pagelistRequestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(pagelistApi))
@@ -57,7 +70,7 @@ public class BiliBiliVideoFetcher {
         }
         String cid = pages.getJSONObject(page - 1).get("cid").toString();
 
-        // 3. 获取播放地址
+        // 获取播放地址
         String playApi = "https://api.bilibili.com/x/player/playurl?bvid=" + bvid +
                 "&cid=" + cid + "&qn=112&type=&otype=json&platform=html5&high_quality=1&fnval=16";
         HttpRequest.Builder playRequestBuilder = HttpRequest.newBuilder()
@@ -76,7 +89,7 @@ public class BiliBiliVideoFetcher {
 
         JSONObject data = playJson.getJSONObject("data");
 
-        // 4. 优先解析 DASH 格式
+        // 优先解析 DASH 格式
         if (data.has("dash")) {
             JSONObject dash = data.getJSONObject("dash");
             if (dash.has("video") && dash.has("audio") && dash.getJSONArray("video").length() > 0 && dash.getJSONArray("audio").length() > 0) {
@@ -86,17 +99,17 @@ public class BiliBiliVideoFetcher {
                 if (selectedVideo != null && selectedAudio != null) {
                     String videoBaseUrl = selectedVideo.getString("baseUrl");
                     String audioBaseUrl = selectedAudio.getString("baseUrl");
-                    return new VideoInfo(videoBaseUrl, audioBaseUrl);
+                    return new VideoInfo(videoBaseUrl, audioBaseUrl, title, author);
                 }
             }
         }
 
-        // 5. 回退到 DURL 格式
+        // 回退到 DURL 格式
         if (data.has("durl")) {
             JSONArray durlArray = data.getJSONArray("durl");
             if (durlArray.length() > 0) {
                 String url = durlArray.getJSONObject(0).getString("url");
-                return new VideoInfo(url, null);
+                return new VideoInfo(url, null, title, author);
             }
         }
 

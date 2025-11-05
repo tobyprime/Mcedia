@@ -46,13 +46,15 @@ public class MediaPlayer {
         if (media != null) media.unbindAudioSource(audioBuffer);
     }
 
-    public static void shutdownExecutor() { executor.shutdownNow(); }
+    public static void shutdownExecutor() {
+        executor.shutdownNow();
+    }
+
     public DecoderConfiguration getDecoderConfiguration() { return decoderConfiguration; }
     public void setDecoderConfiguration(DecoderConfiguration decoderConfiguration) { this.decoderConfiguration = decoderConfiguration; }
 
     private void closeInternal() {
         Media preMedia;
-        // 用 synchronized(this) 来保证对 media 字段的原子性访问
         synchronized (this) {
             if (media == null) return;
             preMedia = media;
@@ -76,6 +78,19 @@ public class MediaPlayer {
         }, executor);
     }
 
+    /**
+     * 同步关闭。此方法会阻塞，直到所有资源被释放。
+     * 主要用于游戏退出等需要确保清理完成的场景。
+     */
+    public void closeSync() {
+        lock.lock();
+        try {
+            closeInternal();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public CompletableFuture<?> openAsync(String inputMedia) {
         return CompletableFuture.runAsync(() -> openInternal(inputMedia), executor);
     }
@@ -84,25 +99,28 @@ public class MediaPlayer {
         return CompletableFuture.runAsync(() -> openInternal(inputMediaSupplier.get()), executor);
     }
 
-    public CompletableFuture<?> openAsyncWithVideoInfo(Supplier<VideoInfo> videoInfoSupplier, @Nullable Supplier<String> cookieSupplier) {
-        return CompletableFuture.runAsync(() -> {
-            openInternal(videoInfoSupplier.get(), cookieSupplier != null ? cookieSupplier.get() : null);
+    public CompletableFuture<VideoInfo> openAsyncWithVideoInfo(Supplier<VideoInfo> videoInfoSupplier, @Nullable Supplier<String> cookieSupplier) {
+        return CompletableFuture.supplyAsync(() -> {
+            // supplyAsync 需要一个返回值
+            VideoInfo info = videoInfoSupplier.get();
+            String cookie = (cookieSupplier != null) ? cookieSupplier.get() : null;
+            openInternal(info, cookie);
+            return info; // 将解析到的 VideoInfo 返回给 CompletableFuture
         }, executor);
     }
 
     public synchronized void play() { if (media != null) media.play(); }
     public synchronized void pause() { if (media != null) media.pause(); }
-    public void seek(long ms) {
+    public void seek(long us) {
         Media currentMedia;
         synchronized(this) {
             currentMedia = this.media;
         }
-        if (currentMedia != null) currentMedia.seek(ms);
+        if (currentMedia != null) currentMedia.seek(us);
     }
     float speed = 1;
 
     private void openInternal(String inputMedia) {
-        // --- 保护整个 open 流程 ---
         lock.lock();
         try {
             closeInternal();
@@ -114,7 +132,6 @@ public class MediaPlayer {
         }
     }
 
-    // 重载 openInternal 方法
     private void openInternal(VideoInfo info, @Nullable String cookie) {
         lock.lock();
         try {
@@ -127,7 +144,6 @@ public class MediaPlayer {
         }
     }
 
-    // 提取公共逻辑
     private void bindResourcesToMedia(Media newMedia) {
         newMedia.bindTexture(texture);
         for (var audioSource : audioSources) {

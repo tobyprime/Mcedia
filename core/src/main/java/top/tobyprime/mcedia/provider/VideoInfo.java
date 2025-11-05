@@ -2,25 +2,27 @@ package top.tobyprime.mcedia.provider;
 
 import org.jetbrains.annotations.Nullable;
 
-/**
- * 封装从视频源解析出的最终可播放URL。
- * 支持音视频分离的格式。
- */
 public class VideoInfo {
     private final String videoUrl;
-    private final String audioUrl; // 可以为 null，表示音视频合并在 videoUrl 中
+    @Nullable
+    private final String audioUrl;
+    private final String title;
+    private final String author;
 
-    public VideoInfo(String videoUrl, @Nullable String audioUrl) {
+    public VideoInfo(String videoUrl, @Nullable String audioUrl, String title, String author) {
         this.videoUrl = videoUrl;
         this.audioUrl = audioUrl;
+        this.title = title;
+        this.author = author;
     }
 
-    public String getVideoUrl() {
-        return videoUrl;
+    public VideoInfo(String videoUrl, @Nullable String audioUrl) {
+        this(videoUrl, audioUrl, "未知标题", "未知作者");
     }
 
+    public String getVideoUrl() { return videoUrl; }
     @Nullable
-    public String getAudioUrl() {
-        return audioUrl;
-    }
+    public String getAudioUrl() { return audioUrl; }
+    public String getTitle() { return title; }
+    public String getAuthor() { return author; }
 }
