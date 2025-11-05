@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 import top.tobyprime.mcedia.interfaces.ITexture;
+import top.tobyprime.mcedia.provider.VideoInfo; // 导入 VideoInfo
 
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -29,24 +30,50 @@ public class Media implements Closeable {
     private float speed = 1;
     private boolean looping = false;
 
-    // 最近上传的视频帧时间戳
     private @Nullable Frame currentVideoFrame;
+
+    /**
+     * 【旧构造函数】 - 兼容只传入单个URL的情况
+     * 它会把 URL 包装成 VideoInfo，然后调用新的主构造函数。
+     */
     public Media(String url, DecoderConfiguration config) {
+        this(new VideoInfo(url, null), null, config);
+    }
+
+    public Media(VideoInfo info, DecoderConfiguration config) {
+        this(info, null, config);
+    }
+
+    /**
+     * 【新主构造函数】 - 支持音视频分离
+     * @param info 包含视频和音频URL的VideoInfo对象
+     * @param config 解码器配置
+     */
+    public Media(VideoInfo info, @Nullable String cookie, DecoderConfiguration config) {
         try {
-            decoder = new MediaDecoder(url, config);
-            // 检测是否为直播流（假设duration无效或为0表示直播）
+            // 将 VideoInfo 和 cookie 都传递给 MediaDecoder
+            decoder = new MediaDecoder(info, cookie, config);
+
+            // ... (后续代码不变)
             isLiveStream = decoder.getDuration() <= 0 || Double.isInfinite(decoder.getDuration());
             if (isLiveStream) {
-                LOGGER.info("检测到直播流: {}", url);
+                LOGGER.info("检测到直播流: {}", info.getVideoUrl());
             } else {
-                LOGGER.info("检测到点播流: {}", url);
+                LOGGER.info("检测到点播流: {}", info.getVideoUrl());
             }
         } catch (FFmpegFrameGrabber.Exception e) {
             throw new RuntimeException(e);
         }
         audioThread = new Thread(this::playLoop);
+        audioThread.setName("Mcedia-Audio-Thread");
+        audioThread.setDaemon(true);
         audioThread.start();
     }
+
+    // =====================================================================
+    //           该文件中的其他所有方法 (playLoop, play, pause 等)
+    //                     保持完全不变，无需修改
+    // =====================================================================
 
     public void playLoop() {
         long nextPlayTime = System.nanoTime();

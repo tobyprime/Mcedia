@@ -9,29 +9,30 @@ import net.minecraft.client.sounds.SoundEngineExecutor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
+import top.tobyprime.mcedia.provider.BilibiliBangumiProvider;
+import top.tobyprime.mcedia.provider.BilibiliVideoProvider;
+import top.tobyprime.mcedia.provider.MediaProviderRegistry;
 
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class Mcedia implements ModInitializer {
     private static final int MAX_PLAYER_COUNT = 5;
-    private static final Logger LOGGER = LoggerFactory.getLogger(Mcedia.class);
 
     private static Mcedia INSTANCE;
     private final ConcurrentHashMap<Entity, PlayerAgent> entityToPlayer = new ConcurrentHashMap<>();
+    private final Queue<ArmorStand> pendingAgents = new ConcurrentLinkedQueue<>();
 
     public static Mcedia getInstance() {
         return INSTANCE;
     }
 
-
     public ConcurrentHashMap<Entity, PlayerAgent> getEntityToPlayerMap() {
         return entityToPlayer;
     }
-
 
     public SoundEngineExecutor getAudioExecutor() {
         var manager = (ISoundManagerBridge) Minecraft.getInstance().getSoundManager();
@@ -39,7 +40,7 @@ public class Mcedia implements ModInitializer {
         return engine.mcdia$getExecutor();
     }
 
-    private void clearMap(){
+    private void clearMap() {
         for (var entry : entityToPlayer.entrySet()) {
             entry.getValue().close();
             entityToPlayer.remove(entry.getKey());
@@ -49,7 +50,15 @@ public class Mcedia implements ModInitializer {
     @Override
     public void onInitialize() {
         INSTANCE = this;
+
+        // --- 核心修复：在 Mod 初始化时加载配置文件 ---
+        McediaConfig.load();
+        // ------------------------------------------
+
+        initializeProviders();
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            processPendingAgents();
             for (var pair : entityToPlayer.entrySet()) {
                 if (pair.getKey().isRemoved()) {
                     pair.getValue().close();
@@ -60,21 +69,34 @@ public class Mcedia implements ModInitializer {
             }
         });
 
-        ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((mc, level)->{
-            clearMap();
-        });
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            clearMap();
-        });
+        ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((mc, level) -> clearMap());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> clearMap());
+    }
+
+    private void initializeProviders() {
+        MediaProviderRegistry registry = MediaProviderRegistry.getInstance();
+        registry.register(new BilibiliVideoProvider());
+        registry.register(new BilibiliBangumiProvider());
+    }
+
+    private void processPendingAgents() {
+        ArmorStand entity;
+        while ((entity = pendingAgents.poll()) != null) {
+            if (!entity.isRemoved() && !entityToPlayer.containsKey(entity)) {
+                if (getEntityToPlayerMap().size() >= MAX_PLAYER_COUNT) {
+                    return;
+                }
+                PlayerAgent agent = new PlayerAgent(entity);
+                agent.initializeGraphics();
+                entityToPlayer.put(entity, agent);
+            }
+        }
     }
 
     public void HandleMcdiaPlayerEntity(ArmorStand entity) {
-        boolean isMcdiaPlayer = entity.getName().toString().contains("mcdia") || entity.getName().toString().contains("mcedia");
-        if (!entityToPlayer.containsKey(entity) && isMcdiaPlayer) {
-            if (getEntityToPlayerMap().size() >= MAX_PLAYER_COUNT) {
-                return;
-            }
-            getEntityToPlayerMap().put(entity, new PlayerAgent(entity));
+        boolean isMcdiaPlayer = entity.getCustomName() != null && (entity.getCustomName().getString().contains("mcdia") || entity.getCustomName().getString().contains("mcedia"));
+        if (isMcdiaPlayer && !entityToPlayer.containsKey(entity) && !pendingAgents.contains(entity)) {
+            pendingAgents.add(entity);
         }
     }
 

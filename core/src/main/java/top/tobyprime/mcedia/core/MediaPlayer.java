@@ -3,140 +3,135 @@ package top.tobyprime.mcedia.core;
 import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 import top.tobyprime.mcedia.interfaces.ITexture;
+import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 public class MediaPlayer {
-    // 全局共享线程池（单线程或多线程）
     private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MediaPlayer-Async");
         t.setDaemon(true);
         return t;
     });
+
+    // --- 核心修复：引入一个锁 ---
+    private final ReentrantLock lock = new ReentrantLock();
+
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
     private @Nullable ITexture texture;
-
     @Nullable
     private Media media;
     private volatile DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
 
     public synchronized void bindTexture(ITexture texture) {
         this.texture = texture;
-        if (media != null) {
-            media.bindTexture(texture);
-        }
+        if (media != null) media.bindTexture(texture);
     }
 
     public synchronized void unbindTexture() {
-        if (media != null) {
-            media.unbindTexture();
-        }
+        if (media != null) media.unbindTexture();
     }
 
     public synchronized void bindAudioSource(IAudioSource audioBuffer) {
-        this.audioSources.add(audioBuffer);
-        if (media != null) {
-            media.bindAudioSource(audioBuffer);
-        }
+        audioSources.add(audioBuffer);
+        if (media != null) media.bindAudioSource(audioBuffer);
     }
 
     public synchronized void unbindAudioSource(IAudioSource audioBuffer) {
-        this.audioSources.remove(audioBuffer);
-        if (media != null) {
-            media.unbindAudioSource(audioBuffer);
-        }
-    }
-    /**
-     * 关闭线程池（全局）
-     */
-    public static void shutdownExecutor() {
-        executor.shutdownNow();
+        audioSources.remove(audioBuffer);
+        if (media != null) media.unbindAudioSource(audioBuffer);
     }
 
-    public DecoderConfiguration getDecoderConfiguration() {
-        return decoderConfiguration;
-    }
-
-    public void setDecoderConfiguration(DecoderConfiguration decoderConfiguration) {
-        this.decoderConfiguration = decoderConfiguration;
-    }
+    public static void shutdownExecutor() { executor.shutdownNow(); }
+    public DecoderConfiguration getDecoderConfiguration() { return decoderConfiguration; }
+    public void setDecoderConfiguration(DecoderConfiguration decoderConfiguration) { this.decoderConfiguration = decoderConfiguration; }
 
     private void closeInternal() {
-        Media preMedia = null;
+        Media preMedia;
+        // 使用 synchronized(this) 保证对 media 字段的原子性访问
         synchronized (this) {
-            if (media != null) {
-                preMedia = media;
-                media = null;
-            }
+            if (media == null) return;
+            preMedia = media;
+            media = null;
         }
-        if (preMedia != null) {
-            preMedia.close();
-        }
+        // 在锁外关闭，避免长时间持有锁
+        preMedia.close();
     }
 
     public boolean looping = false;
+    @Nullable
+    public synchronized Media getMedia() { return media; }
 
-    public synchronized @Nullable Media getMedia() {
-        return media;
-    }
-
-
-    /**
-     * 异步关闭
-     */
-    public  CompletableFuture<?> closeAsync() {
-        return CompletableFuture.runAsync(this::closeInternal, executor);
-    }
-
-    /**
-     * 异步打开（会先关闭当前媒体）
-     */
-    public CompletableFuture<?> openAsync(String inputMedia) {
+    public CompletableFuture<?> closeAsync() {
         return CompletableFuture.runAsync(() -> {
-            openInternal(inputMedia);
+            lock.lock();
+            try {
+                closeInternal();
+            } finally {
+                lock.unlock();
+            }
         }, executor);
+    }
+
+    public CompletableFuture<?> openAsync(String inputMedia) {
+        return CompletableFuture.runAsync(() -> openInternal(inputMedia), executor);
     }
 
     public CompletableFuture<?> openAsync(Supplier<String> inputMediaSupplier) {
+        return CompletableFuture.runAsync(() -> openInternal(inputMediaSupplier.get()), executor);
+    }
+
+    public CompletableFuture<?> openAsyncWithVideoInfo(Supplier<VideoInfo> videoInfoSupplier, @Nullable Supplier<String> cookieSupplier) {
         return CompletableFuture.runAsync(() -> {
-            openInternal(inputMediaSupplier.get());
+            openInternal(videoInfoSupplier.get(), cookieSupplier != null ? cookieSupplier.get() : null);
         }, executor);
     }
 
-    public synchronized void play(){
-        if (media != null) {
-            media.play();
+    public synchronized void play() { if (media != null) media.play(); }
+    public synchronized void pause() { if (media != null) media.pause(); }
+    public void seek(long ms) {
+        Media currentMedia;
+        synchronized(this) {
+            currentMedia = this.media;
         }
-    }
-    public synchronized void pause(){
-        if (media != null) {
-            media.pause();
-        }
-    }
-    public void seek(long ms){
-        Media preMedia = null;
-        synchronized (this) {
-            if (media != null) {
-                preMedia = media;
-            }
-        }
-        if (media != null) {
-            preMedia.seek(ms);
-        }
+        if (currentMedia != null) currentMedia.seek(ms);
     }
     float speed = 1;
 
     private void openInternal(String inputMedia) {
-        closeInternal();
-        if (inputMedia == null) {
-            return;
+        // --- 核心修复：使用锁来保护整个 open 流程 ---
+        lock.lock();
+        try {
+            closeInternal();
+            if (inputMedia == null) return;
+            var newMedia = new Media(inputMedia, decoderConfiguration);
+            bindResourcesToMedia(newMedia);
+        } finally {
+            lock.unlock();
         }
-        var newMedia = new Media(inputMedia, decoderConfiguration);
+    }
 
+    // 重载 openInternal 方法
+    private void openInternal(VideoInfo info, @Nullable String cookie) {
+        // --- 核心修复：使用锁来保护整个 open 流程 ---
+        lock.lock();
+        try {
+            closeInternal();
+            if (info == null) return;
+            var newMedia = new Media(info, cookie, decoderConfiguration);
+            bindResourcesToMedia(newMedia);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // 提取公共逻辑
+    private void bindResourcesToMedia(Media newMedia) {
         newMedia.bindTexture(texture);
         for (var audioSource : audioSources) {
             newMedia.bindAudioSource(audioSource);
@@ -148,26 +143,7 @@ public class MediaPlayer {
         media.setLooping(looping);
     }
 
-    public synchronized void setSpeed(float speed) {
-        this.speed = speed;
-        if (media != null) {
-            media.setSpeed(speed);
-        }
-    }
-
-    public synchronized void setLooping(boolean looping) {
-        this.looping = looping;
-        if (media != null) media.setLooping(looping);
-    }
-
-    public synchronized float getProgress(){
-        if (media != null) {
-            if (media.getLengthUs() <=0){
-                return 0;
-            }
-            return (float) media.getDurationUs() / media.getLengthUs();
-        }
-        return 0;
-    }
+    public synchronized void setSpeed(float speed) { this.speed = speed; if (media != null) media.setSpeed(speed); }
+    public synchronized void setLooping(boolean looping) { this.looping = looping; if (media != null) media.setLooping(looping); }
+    public synchronized float getProgress() { if (media != null && media.getLengthUs() > 0) { return (float) media.getDurationUs() / media.getLengthUs(); } return 0; }
 }
-

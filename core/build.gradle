@@ -44,3 +44,18 @@ java {
         languageVersion = JavaLanguageVersion.of(21)
     }
 }
+
+repositories {
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+    mavenCentral()
+}
+
+dependencies {
+    // 'compileOnly' means this dependency is needed for compiling,
+    // but it should not be included in the final JAR file.
+    // This is correct because Fabric Loader provides this class at runtime.
+    compileOnly "net.fabricmc:fabric-loader:${project.loader_version}"
+}

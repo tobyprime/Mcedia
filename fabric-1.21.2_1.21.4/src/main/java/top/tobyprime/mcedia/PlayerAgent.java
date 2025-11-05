@@ -21,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.AudioSource;
 import top.tobyprime.mcedia.core.DecoderConfiguration;
 import top.tobyprime.mcedia.core.MediaPlayer;
-import top.tobyprime.mcedia.video_fetcher.VideoUrlProcessor;
 
 import java.util.Arrays;
 import java.util.Objects;

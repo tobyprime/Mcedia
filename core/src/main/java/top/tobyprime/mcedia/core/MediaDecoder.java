@@ -3,197 +3,177 @@ package top.tobyprime.mcedia.core;
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.io.Closeable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.LinkedBlockingQueue;
 
 public class MediaDecoder implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
-    public final String inputUrl;
-    public final LinkedBlockingDeque<Frame> videoQueue = new LinkedBlockingDeque<>();
-    public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>();
-    private final FFmpegFrameGrabber grabber;
-    private final Thread decoderThread;
+
+    // --- 核心修复 1: 为队列设置上限 ---
+    private static final int MAX_VIDEO_FRAMES = 60; // 缓存约 1-2 秒的视频帧
+    private static final int MAX_AUDIO_FRAMES = 512; // 缓存更多的音频帧
+
+    public final LinkedBlockingDeque<Frame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
+    public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>(MAX_AUDIO_FRAMES);
+
     private final DecoderConfiguration configuration;
-    private volatile boolean decodeEnded = false;
+    private final List<Thread> decoderThreads = new ArrayList<>();
+    private final List<FFmpegFrameGrabber> grabbers = new ArrayList<>();
+    private final FFmpegFrameGrabber primaryGrabber;
+    private volatile boolean isClosed = false;
+    private volatile int runningDecoders = 0;
 
     public MediaDecoder(String inputUrl, DecoderConfiguration configuration) throws FFmpegFrameGrabber.Exception {
-        this.configuration = configuration;
-        this.inputUrl = inputUrl;
-
-        this.grabber = buildGrabber();
-        this.grabber.start();
-        this.decoderThread = new Thread(() -> {
-            LOGGER.info("解码线程启动");
-            try {
-                while (!Thread.currentThread().isInterrupted()) {
-                    Frame frame = grabber.grab();
-                    // 如果 eof 则一直等待
-                    if (frame == null) {
-                        if (!decodeEnded) {
-                            LOGGER.info("EOF");
-                        }
-                        decodeEnded = true;
-                        Thread.sleep(10);
-                        continue;
-                    }
-                    processFrame(frame.clone());
-                }
-            } catch (InterruptedException ignored) {
-            } catch (Exception e) {
-                LOGGER.warn("解码异常", e);
-            } finally {
-                LOGGER.info("解码线程退出");
-            }
-        });
-        this.decoderThread.start();
+        this(new VideoInfo(inputUrl, null), null, configuration);
     }
 
-    public FFmpegFrameGrabber buildGrabber() {
-        var grabber = new FFmpegFrameGrabber(inputUrl);
-        grabber.setOption("reconnect", "1"); // 自动重连
-        grabber.setOption("reconnect_streamed", "1"); // 流式传输自动重连
-        grabber.setOption("reconnect_delay_max", "5"); // 最大自动重连延迟
-        if (configuration.userAgent != null) grabber.setOption("user_agent", configuration.userAgent);
+    public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration) throws FFmpegFrameGrabber.Exception {
+        this.configuration = configuration;
+        primaryGrabber = buildGrabber(info.getVideoUrl(), cookie, configuration, true);
+        grabbers.add(primaryGrabber);
 
+        if (info.getAudioUrl() != null && !info.getAudioUrl().isEmpty()) {
+            LOGGER.info("检测到分离的音频流，启用双抓取器模式");
+            FFmpegFrameGrabber audioGrabber = buildGrabber(info.getAudioUrl(), cookie, configuration, false);
+            grabbers.add(audioGrabber);
+        }
+
+        for (FFmpegFrameGrabber grabber : grabbers) {
+            grabber.start();
+        }
+
+        for (FFmpegFrameGrabber grabber : grabbers) {
+            Thread thread = new Thread(() -> decodeLoop(grabber));
+            thread.setName("Mcedia-Decoder-" + (grabbers.indexOf(grabber) == 0 ? "Video" : "Audio"));
+            thread.setDaemon(true);
+            decoderThreads.add(thread);
+            thread.start();
+        }
+    }
+
+    private void decodeLoop(FFmpegFrameGrabber grabber) {
+        runningDecoders++;
+        try {
+            while (!Thread.currentThread().isInterrupted() && !isClosed) {
+                Frame frame = grabber.grab();
+                if (frame == null) {
+                    LOGGER.info("解码器 {} 到达流末尾 (EOF)", grabbers.indexOf(grabber));
+                    break;
+                }
+
+                // --- 核心修复 2: 使用 clone() 并正确处理帧 ---
+                // 我们必须克隆，因为 grabber 会重用内部缓冲区
+                Frame clonedFrame = frame.clone();
+
+                if (clonedFrame.image != null && configuration.enableVideo) {
+                    // offer 方法在队列满时会返回 false，而 put 会阻塞等待
+                    videoQueue.put(clonedFrame);
+                } else if (clonedFrame.samples != null && configuration.enableAudio) {
+                    audioQueue.put(clonedFrame);
+                } else {
+                    // 如果帧不是我们需要的类型，立即释放它
+                    clonedFrame.close();
+                }
+            }
+        } catch (InterruptedException e) {
+            // 线程被中断，正常退出
+        } catch (Exception e) {
+            if (!isClosed) {
+                LOGGER.warn("解码异常", e);
+            }
+        } finally {
+            runningDecoders--;
+            LOGGER.info("解码线程 {} 退出", grabbers.indexOf(grabber));
+        }
+    }
+
+    private FFmpegFrameGrabber buildGrabber(String url, @Nullable String cookie, DecoderConfiguration configuration, boolean isVideoGrabber) {
+        var grabber = new FFmpegFrameGrabber(url);
+        StringBuilder headers = new StringBuilder();
+        headers.append("Referer: https://www.bilibili.com/\r\n");
+        headers.append("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n");
+        if (cookie != null && !cookie.isEmpty()) {
+            headers.append("Cookie: ").append(cookie).append("\r\n");
+        }
+        grabber.setOption("headers", headers.toString());
+
+        grabber.setOption("reconnect", "1");
+        grabber.setOption("reconnect_streamed", "1");
+        grabber.setOption("reconnect_delay_max", "5");
         grabber.setOption("timeout", String.valueOf(configuration.timeout));
         grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
+        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
 
-        if (configuration.useHardwareDecoding) {
-            grabber.setOption("hwaccel", "auto");
-        }
-
-        grabber.setAudioChannels(1);  // 不设置为 1 音频会有问题
-
-        if (configuration.videoAlpha) {
-            grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
+        if (isVideoGrabber) {
+            grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
+            grabber.setPixelFormat(configuration.videoAlpha ? avutil.AV_PIX_FMT_RGBA : avutil.AV_PIX_FMT_RGB24);
         } else {
-            grabber.setPixelFormat(avutil.AV_PIX_FMT_RGB24);
+            grabber.setOption("vn", "1");
         }
-        grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
+        grabber.setAudioChannels(1);
         grabber.setOption("an", configuration.enableAudio ? "0" : "1");
         return grabber;
     }
 
-    /**
-     * 解码已结束且 frame 消费完
-     */
-    public boolean isEnded() {
-        return decodeEnded && audioQueue.isEmpty();
-    }
-
-    /**
-     * 解码结束
-     */
-    public boolean isDecodeEnded() {
-        return decodeEnded;
-    }
-
-    public long getDuration() {
-        return grabber.getLengthInTime();
-    }
-
-    /**
-     * 视频宽度
-     */
-    public int getWidth() {
-        return grabber.getImageWidth();
-    }
-
-    /**
-     * 视频高度
-     */
-    public int getHeight() {
-        return grabber.getImageHeight();
-    }
-
-    /**
-     * 音频采样率
-     */
-    public int getSampleRate() {
-        return grabber.getSampleRate();
-    }
-
-    /**
-     * 音频通道数
-     */
-    public int getChannels() {
-        return grabber.getAudioChannels();
-    }
+    public boolean isEnded() { return runningDecoders == 0 && audioQueue.isEmpty() && videoQueue.isEmpty(); }
+    public long getDuration() { return primaryGrabber.getLengthInTime(); }
+    public int getWidth() { return primaryGrabber.getImageWidth(); }
+    public int getHeight() { return primaryGrabber.getImageHeight(); }
+    public int getSampleRate() { return primaryGrabber.getSampleRate(); }
+    public int getChannels() { return primaryGrabber.getAudioChannels(); }
 
     public void seek(long timestamp) {
-        if (timestamp < 0) {
-            timestamp = 0;
-        }
-        var duration = this.getDuration();
+        if (getDuration() <= 0) return;
+        timestamp = Math.max(0, timestamp);
+        timestamp = Math.min(timestamp, getDuration());
 
-        if (duration <= 0) {
-            return;
-        }
-
-        if (timestamp >= duration) {
-            timestamp = duration;
-        }
+        // --- 核心修复 3: 清理队列时要释放帧 ---
         clearQueue();
+
         try {
-            this.grabber.setTimestamp(timestamp, true);
+            for (FFmpegFrameGrabber grabber : grabbers) {
+                grabber.setTimestamp(timestamp, true);
+            }
         } catch (FFmpegFrameGrabber.Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Seek failed", e);
         }
-    }
-
-    private void processFrame(Frame frame) throws InterruptedException {
-        long frameTimestamp = frame.timestamp;
-
-        // 等待缓存被消费
-        while (true) {
-            if (frame.timestamp < 0 ) break;
-            if (audioQueue.isEmpty()) {
-                break;
-            }
-            if (frameTimestamp - audioQueue.peek().timestamp < configuration.cacheDuration) {
-                break;
-            }
-            Thread.sleep(10);
-        }
-
-        if (frame.image != null) {
-            videoQueue.offer(frame.clone());
-        } else if (frame.samples != null) {
-            audioQueue.offer(frame.clone());
-        }
-        frame.close();
     }
 
     public void clearQueue() {
-        for (int i = 0; i < audioQueue.size(); i++) {
-            audioQueue.poll().close();
-        }
-        for (int i = 0; i < videoQueue.size(); i++) {
-            videoQueue.poll().close();
-        }
+        videoQueue.forEach(Frame::close);
+        audioQueue.forEach(Frame::close);
+        videoQueue.clear();
+        audioQueue.clear();
     }
 
     @Override
     public void close() {
-
-        try {
-            this.decoderThread.interrupt();
-            this.decoderThread.join();
-        } catch (Exception e) {
-            LOGGER.warn("关闭解码线程异常", e);
+        if (isClosed) return;
+        isClosed = true;
+        for (Thread thread : decoderThreads) {
+            thread.interrupt();
         }
-        this.decodeEnded = true;
+        for (Thread thread : decoderThreads) {
+            try {
+                thread.join(1000);
+            } catch (InterruptedException ignored) {}
+        }
         clearQueue();
-        try {
-            this.grabber.release();
-        } catch (Exception e) {
-            LOGGER.warn("关闭解码器异常", e);
+        for (FFmpegFrameGrabber grabber : grabbers) {
+            try {
+                grabber.release();
+            } catch (Exception e) {
+                LOGGER.warn("关闭抓取器异常", e);
+            }
         }
     }
 }
