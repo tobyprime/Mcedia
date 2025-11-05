@@ -82,17 +82,13 @@ public class PlayerAgent {
         return totalSeconds * 1_000_000L;
     }
 
-    // --- 核心修复：防止日志刷屏 ---
     public void updateInputUrl(String content) {
         try {
-            // 如果新的书本内容和上次处理的内容完全一样，就什么都不做
             if (Objects.equals(content, this.inputContent)) {
                 return;
             }
-            // 更新我们正在处理的内容
             this.inputContent = content;
 
-            // 如果书被清空了，则停止播放
             if (content == null || content.isBlank()) {
                 open(null);
                 return;
@@ -101,14 +97,12 @@ public class PlayerAgent {
             var args = content.split("\n");
             var url = args[0].trim();
 
-            // 如果输入不是以 "http" 开头，我们直接认为它是无效的，并停止播放
             if (!url.toLowerCase().startsWith("http")) {
                 LOGGER.warn("无效的输入URL: '{}'，将停止播放。", url);
                 open(null); // 调用 open(null) 来安全地停止当前播放
                 return;
             }
 
-            // 只有当有效的URL发生变化时，才重新打开
             if (Objects.equals(url, playingUrl)) {
                 return;
             }
@@ -133,7 +127,6 @@ public class PlayerAgent {
     }
 
     private long getBaseDuration() {
-        // 检查 inputContent 是否为 null
         if (inputContent == null) return 0;
         long duration = 0;
         try {
@@ -190,7 +183,7 @@ public class PlayerAgent {
                     }
                 }
             } else {
-                // 如果之前有书，现在没了，需要重置
+
                 if (preOffHandBookComponent != null) {
                     preOffHandBookComponent = null;
                     resetOffset();
@@ -243,13 +236,11 @@ public class PlayerAgent {
     }
 
     public void open(@Nullable String mediaUrl) {
-        // 只有当新的 URL 和正在播放的 URL 不同时才执行
         if (Objects.equals(mediaUrl, playingUrl)) {
             return;
         }
         playingUrl = mediaUrl;
 
-        // 如果 URL 为 null，则关闭播放器
         if (mediaUrl == null) {
             close();
             return;

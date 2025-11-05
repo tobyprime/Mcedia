@@ -19,7 +19,6 @@ public class MediaPlayer {
         return t;
     });
 
-    // --- 核心修复：引入一个锁 ---
     private final ReentrantLock lock = new ReentrantLock();
 
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
@@ -53,13 +52,12 @@ public class MediaPlayer {
 
     private void closeInternal() {
         Media preMedia;
-        // 使用 synchronized(this) 保证对 media 字段的原子性访问
+        // 用 synchronized(this) 来保证对 media 字段的原子性访问
         synchronized (this) {
             if (media == null) return;
             preMedia = media;
             media = null;
         }
-        // 在锁外关闭，避免长时间持有锁
         preMedia.close();
     }
 
@@ -104,7 +102,7 @@ public class MediaPlayer {
     float speed = 1;
 
     private void openInternal(String inputMedia) {
-        // --- 核心修复：使用锁来保护整个 open 流程 ---
+        // --- 保护整个 open 流程 ---
         lock.lock();
         try {
             closeInternal();
@@ -118,7 +116,6 @@ public class MediaPlayer {
 
     // 重载 openInternal 方法
     private void openInternal(VideoInfo info, @Nullable String cookie) {
-        // --- 核心修复：使用锁来保护整个 open 流程 ---
         lock.lock();
         try {
             closeInternal();

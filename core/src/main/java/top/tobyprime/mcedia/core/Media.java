@@ -32,10 +32,6 @@ public class Media implements Closeable {
 
     private @Nullable Frame currentVideoFrame;
 
-    /**
-     * 【旧构造函数】 - 兼容只传入单个URL的情况
-     * 它会把 URL 包装成 VideoInfo，然后调用新的主构造函数。
-     */
     public Media(String url, DecoderConfiguration config) {
         this(new VideoInfo(url, null), null, config);
     }
@@ -44,17 +40,10 @@ public class Media implements Closeable {
         this(info, null, config);
     }
 
-    /**
-     * 【新主构造函数】 - 支持音视频分离
-     * @param info 包含视频和音频URL的VideoInfo对象
-     * @param config 解码器配置
-     */
     public Media(VideoInfo info, @Nullable String cookie, DecoderConfiguration config) {
         try {
-            // 将 VideoInfo 和 cookie 都传递给 MediaDecoder
             decoder = new MediaDecoder(info, cookie, config);
 
-            // ... (后续代码不变)
             isLiveStream = decoder.getDuration() <= 0 || Double.isInfinite(decoder.getDuration());
             if (isLiveStream) {
                 LOGGER.info("检测到直播流: {}", info.getVideoUrl());
@@ -70,10 +59,6 @@ public class Media implements Closeable {
         audioThread.start();
     }
 
-    // =====================================================================
-    //           该文件中的其他所有方法 (playLoop, play, pause 等)
-    //                     保持完全不变，无需修改
-    // =====================================================================
 
     public void playLoop() {
         long nextPlayTime = System.nanoTime();
@@ -245,7 +230,6 @@ public class Media implements Closeable {
 
         if (currentVideoFrame == null) return;
 
-        // 否则正常渲染
         var frame = currentVideoFrame;
         currentVideoFrame = null;
         VideoFrame vf = VideoDataConverter.convertToVideoFrame(frame);

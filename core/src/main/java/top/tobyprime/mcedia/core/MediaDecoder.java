@@ -16,7 +16,6 @@ import java.util.concurrent.LinkedBlockingDeque;
 public class MediaDecoder implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
 
-    // --- 核心修复 1: 为队列设置上限 ---
     private static final int MAX_VIDEO_FRAMES = 60; // 缓存约 1-2 秒的视频帧
     private static final int MAX_AUDIO_FRAMES = 512; // 缓存更多的音频帧
 
@@ -68,8 +67,7 @@ public class MediaDecoder implements Closeable {
                     break;
                 }
 
-                // --- 核心修复 2: 使用 clone() 并正确处理帧 ---
-                // 我们必须克隆，因为 grabber 会重用内部缓冲区
+                // 必须克隆，因为 grabber 会重用内部缓冲区
                 Frame clonedFrame = frame.clone();
 
                 if (clonedFrame.image != null && configuration.enableVideo) {
@@ -78,7 +76,7 @@ public class MediaDecoder implements Closeable {
                 } else if (clonedFrame.samples != null && configuration.enableAudio) {
                     audioQueue.put(clonedFrame);
                 } else {
-                    // 如果帧不是我们需要的类型，立即释放它
+                    // 如果帧不是需要的类型，立即释放它
                     clonedFrame.close();
                 }
             }
@@ -135,8 +133,6 @@ public class MediaDecoder implements Closeable {
         if (getDuration() <= 0) return;
         timestamp = Math.max(0, timestamp);
         timestamp = Math.min(timestamp, getDuration());
-
-        // --- 核心修复 3: 清理队列时要释放帧 ---
         clearQueue();
 
         try {

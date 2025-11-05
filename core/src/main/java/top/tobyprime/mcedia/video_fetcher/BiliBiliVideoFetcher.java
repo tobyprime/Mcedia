@@ -21,7 +21,6 @@ public class BiliBiliVideoFetcher {
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BiliBiliVideoFetcher.class);
 
-    // --- 核心修复：添加第三个参数 desiredQuality ---
     public static VideoInfo fetch(String videoUrl, @Nullable String cookie, String desiredQuality) throws Exception {
         // 1. 提取 BV 号
         Pattern bvPattern = Pattern.compile("(BV[0-9A-Za-z]+)");

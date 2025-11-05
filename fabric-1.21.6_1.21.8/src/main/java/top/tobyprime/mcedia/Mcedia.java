@@ -51,9 +51,7 @@ public class Mcedia implements ModInitializer {
     public void onInitialize() {
         INSTANCE = this;
 
-        // --- 核心修复：在 Mod 初始化时加载配置文件 ---
         McediaConfig.load();
-        // ------------------------------------------
 
         initializeProviders();
 
