@@ -44,7 +44,7 @@ public class McediaConfig {
         try {
             properties.store(Files.newOutputStream(CONFIG_PATH), "Mcedia Configuration\n" +
                     "# Enter your Bilibili SESSDATA cookie here to access member-only content.\n" +
-                    "# Example: bilibili.cookie=SESSDATA=a1b2c3d4,...;");
+                    "# Example: bilibili.cookie=SESSDATA\\=a1b2c3d4,...;");
         } catch (IOException e) {
             LoggerFactory.getLogger("McediaConfig").error("Failed to save Mcedia config", e);
         }
