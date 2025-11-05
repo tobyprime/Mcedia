@@ -1,4 +1,4 @@
-此项目为 https://github.com/tobyprime/Mcedia 的分支，感谢tobyprime。
+此项目为 https://github.com/tobyprime/Mcedia 的分支，感谢tobyprime。该项目只支持1.21.6-1.21.8。
 
 ## 使用
 ### 功能
@@ -13,6 +13,8 @@
 4. 等待视频播放
 
 ### 其他调节项
+mod在客户端初始化后会在`.minecraft/config`生成相应的配置文件`mcedia.properties`，需要在其中填入大会员账户的cookie才可以进行大会员操作。（注意，cookie属隐私信息，请勿轻易传播给他人，发送客户端文件时请检查该项！）
+
 声音由盔甲架**副手 x 轴**旋转调节
 播放由盔甲架**副手 y 轴**旋转调节（**会导致不同步**）
 旋转由盔甲架头部旋转调节，或是主体旋转调节

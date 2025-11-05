@@ -57,5 +57,5 @@ dependencies {
     // 'compileOnly' means this dependency is needed for compiling,
     // but it should not be included in the final JAR file.
     // This is correct because Fabric Loader provides this class at runtime.
-    compileOnly "net.fabricmc:fabric-loader:${project.loader_version}"
+    compileOnly "net.fabricmc:fabric-loader:${rootProject.property('loader_version')}"
 }
