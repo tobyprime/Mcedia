@@ -18,8 +18,6 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.WritableBookItem;
-import net.minecraft.world.item.WrittenBookItem;
 import net.minecraft.world.item.component.WritableBookContent;
 import net.minecraft.world.item.component.WrittenBookContent;
 import org.jetbrains.annotations.Nullable;
@@ -38,6 +36,8 @@ import java.net.URI;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class PlayerAgent {
@@ -64,6 +64,12 @@ public class PlayerAgent {
     public float speed = 1;
     private String desiredQuality = "自动";
 
+    private long lastSeekTime = 0;
+    private static final long SEEK_COOLDOWN_MS = 200;
+    private long timestampFromUrlUs = 0;
+
+    private volatile boolean isLoopingInProgress = false;
+
     public PlayerAgent(ArmorStand entity) {
         LOGGER.info("在 {} 注册了一个 Mcedia Player 实例", entity.position());
         this.entity = entity;
@@ -86,12 +92,15 @@ public class PlayerAgent {
         String[] parts = timeStr.split(":");
         long totalSeconds = 0;
         try {
-            if (parts.length == 1) totalSeconds = Long.parseLong(parts[0]) * 3600;
-            else if (parts.length == 2)
+            if (parts.length == 1) {
+                totalSeconds = Long.parseLong(parts[0]) * 3600;
+            } else if (parts.length == 2) {
                 totalSeconds = Long.parseLong(parts[0]) * 3600 + Long.parseLong(parts[1]) * 60;
-            else if (parts.length == 3)
+            } else if (parts.length == 3) {
                 totalSeconds = Long.parseLong(parts[0]) * 3600 + Long.parseLong(parts[1]) * 60 + Long.parseLong(parts[2]);
-            else throw new IllegalArgumentException("Invalid time format: " + timeStr);
+            } else {
+                throw new IllegalArgumentException("Invalid time format: " + timeStr);
+            }
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Invalid number in time string: " + timeStr, e);
         }
@@ -104,21 +113,17 @@ public class PlayerAgent {
                 return;
             }
             this.inputContent = firstPageContent;
-
             if (firstPageContent == null || firstPageContent.isBlank()) {
                 open(null);
                 return;
             }
-
             var args = firstPageContent.split("\n");
             var url = args[0].trim();
-
             if (!url.toLowerCase().startsWith("http")) {
                 LOGGER.warn("无效的输入URL: '{}'，将停止播放。", url);
                 open(null);
                 return;
             }
-
             if (Objects.equals(url, playingUrl)) {
                 return;
             }
@@ -131,7 +136,6 @@ public class PlayerAgent {
     @Nullable
     private List<String> getBookPages(ItemStack bookStack) {
         boolean isTextFilteringEnabled = Minecraft.getInstance().isTextFilteringEnabled();
-
         if (bookStack.is(Items.WRITABLE_BOOK)) {
             WritableBookContent content = bookStack.get(DataComponents.WRITABLE_BOOK_CONTENT);
             if (content != null) {
@@ -152,13 +156,11 @@ public class PlayerAgent {
         try {
             ItemStack mainHandItem = entity.getItemInHand(InteractionHand.MAIN_HAND);
             List<String> mainHandPages = getBookPages(mainHandItem);
-
             updateInputUrl(mainHandPages != null && !mainHandPages.isEmpty() ? mainHandPages.get(0) : null);
 
             ItemStack offHandItem = entity.getItemInHand(InteractionHand.OFF_HAND);
             if (!ItemStack.matches(offHandItem, preOffHandItemStack)) {
                 preOffHandItemStack = offHandItem.copy();
-
                 List<String> offHandPages = getBookPages(offHandItem);
                 if (offHandPages != null) {
                     if (!offHandPages.isEmpty()) updateOffset(offHandPages.get(0));
@@ -178,7 +180,6 @@ public class PlayerAgent {
         } catch (Exception ignored) {
         }
     }
-
 
     public void resetOffset() {
         this.offsetX = 0;
@@ -261,19 +262,48 @@ public class PlayerAgent {
     }
 
     public long getDuration() {
-        return getBaseDuration() + getServerDuration();
+        return getBaseDuration() + getServerDuration() + timestampFromUrlUs;
+    }
+
+    private long parseBiliTimestampToUs(String timestamp) {
+        if (timestamp == null || timestamp.isBlank()) {
+            return 0;
+        }
+        long totalSeconds = 0;
+        Pattern h = Pattern.compile("(\\d+)h");
+        Pattern m = Pattern.compile("(\\d+)m");
+        Pattern s = Pattern.compile("(\\d+)s");
+        Matcher hMatcher = h.matcher(timestamp);
+        if (hMatcher.find()) totalSeconds += Long.parseLong(hMatcher.group(1)) * 3600;
+        Matcher mMatcher = m.matcher(timestamp);
+        if (mMatcher.find()) totalSeconds += Long.parseLong(mMatcher.group(1)) * 60;
+        Matcher sMatcher = s.matcher(timestamp);
+        if (sMatcher.find()) totalSeconds += Long.parseLong(sMatcher.group(1));
+        return totalSeconds * 1_000_000L;
     }
 
     public void tick() {
         update();
+
+        Media currentMedia = player.getMedia();
+        if (currentMedia != null && !currentMedia.isLiveStream() && currentMedia.isEnded()) {
+            // 检查是否需要循环，并确保没有正在进行的循环操作
+            if (player.looping && !this.isLoopingInProgress) {
+                // 设置标志位，防止重复触发
+                this.isLoopingInProgress = true;
+                LOGGER.info("媒体播放结束。正在重新开始循环...");
+                // 使用我们之前的可靠方法来重启播放
+                startPlayback(true);
+            }
+        }
     }
 
     private float halfW = 1.777f;
 
     public void renderScreen(PoseStack poseStack, MultiBufferSource bufferSource, int i) {
         if (texture == null) return;
-
-        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull((player.getMedia() != null) ? this.texture.getResourceLocation() : idleScreen));
+        ResourceLocation screenTexture = (player.getMedia() != null) ? this.texture.getResourceLocation() : idleScreen;
+        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(screenTexture));
         var matrix = poseStack.last().pose();
 
         consumer.addVertex(matrix, -halfW, -1, 0).setLight(i).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
@@ -283,10 +313,14 @@ public class PlayerAgent {
     }
 
     public void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i) {
-        float barHeight = 1f / 50f, barY = -1f, barLeft = -halfW, barRight = halfW, barBottom = barY - barHeight;
+        float barHeight = 1f / 50f;
+        float barY = -1f;
+        float barLeft = -halfW;
+        float barRight = halfW;
+        float barBottom = barY - barHeight;
+
         VertexConsumer black = bufferSource.getBuffer(RenderType.debugQuads());
         int blackColor = 0xFF000000;
-
         black.addVertex(poseStack.last().pose(), barLeft, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
         black.addVertex(poseStack.last().pose(), barRight, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
         black.addVertex(poseStack.last().pose(), barRight, barY, 0).setColor(blackColor).setLight(i).setNormal(0, 0, 1);
@@ -314,6 +348,20 @@ public class PlayerAgent {
         var speedFactor = rotationToFactor(state.leftArmPose.y());
         speed = speedFactor < 0.1f ? 1f : (speedFactor > 0.5f ? 1f - (1f - speedFactor) * 2f : (speedFactor - 0.1f) / 0.4f * 8f);
 
+        Media currentMedia = player.getMedia();
+        if (currentMedia != null && !currentMedia.isLiveStream()) {
+            boolean isSeekingActivated = state.rightArmPose.x() < -80.0f;
+            if (isSeekingActivated) {
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastSeekTime > SEEK_COOLDOWN_MS) {
+                    float progress = (state.bodyPose.y() + 180.0f) / 360.0f;
+                    long totalDurationUs = currentMedia.getLengthUs();
+                    long targetUs = (long) (totalDurationUs * progress);
+                    player.seek(targetUs);
+                    lastSeekTime = currentTime;
+                }
+            }
+        }
         player.setSpeed(speed);
         var volume = volumeFactor * audioMaxVolume;
 
@@ -340,6 +388,7 @@ public class PlayerAgent {
 
         renderScreen(poseStack, bufferSource, i);
         renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
+
         poseStack.popPose();
     }
 
@@ -347,17 +396,33 @@ public class PlayerAgent {
         if (Objects.equals(mediaUrl, playingUrl)) {
             return;
         }
-        playingUrl = mediaUrl;
 
-        if (mediaUrl == null) {
+        this.timestampFromUrlUs = 0;
+        if (mediaUrl != null) {
+            Pattern pattern = Pattern.compile("[?&]t=([^&]+)");
+            Matcher matcher = pattern.matcher(mediaUrl);
+            if (matcher.find()) {
+                String timestampStr = matcher.group(1);
+                this.timestampFromUrlUs = parseBiliTimestampToUs(timestampStr);
+                LOGGER.info("从URL中解析到空降时间: {} us", this.timestampFromUrlUs);
+            }
+        }
+
+        playingUrl = mediaUrl;
+        this.isLoopingInProgress = false;
+        startPlayback(false);
+    }
+
+    private void startPlayback(boolean isLooping) {
+        if (playingUrl == null) {
             close();
             return;
         }
 
-        long duration = getDuration();
-        LOGGER.info("准备播放 {}，清晰度: {}", mediaUrl, desiredQuality);
+        long duration = isLooping ? 0 : getDuration();
+        LOGGER.info(isLooping ? "Looping playback..." : "准备播放 {}，清晰度: {}，起始时间: {} us", playingUrl, desiredQuality, duration);
 
-        final String finalMediaUrl = mediaUrl;
+        final String finalMediaUrl = playingUrl;
         CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(() -> {
             try {
                 String bilibiliCookie = McediaConfig.BILIBILI_COOKIE;
@@ -370,37 +435,50 @@ public class PlayerAgent {
         videoInfoFuture.handle((videoInfo, throwable) -> {
             if (throwable != null) {
                 LOGGER.warn("打开视频失败", throwable.getCause());
-                Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + finalMediaUrl);
+                if (!isLooping) {
+                    Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + finalMediaUrl);
+                }
+                this.isLoopingInProgress = false;
             } else {
-                Style clickableStyle = Style.EMPTY
-                        .withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)))
-                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("点击打开原视频链接")));
-
-                Component message = Component.literal("§a[Mcedia] §f正在播放: ")
-                        .append(Component.literal(videoInfo.getTitle()).withStyle(clickableStyle.withColor(ChatFormatting.YELLOW)))
-                        .append(Component.literal(" §f- "))
-                        .append(Component.literal(videoInfo.getAuthor()).withStyle(clickableStyle.withColor(ChatFormatting.AQUA)));
-
-                Mcedia.msgToPlayer(message);
-                player.seek(duration);
+                if (!isLooping) {
+                    Style clickableStyle = Style.EMPTY
+                            .withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)))
+                            .withHoverEvent(new HoverEvent.ShowText(Component.literal("点击打开原视频链接")));
+                    Component message = Component.literal("§a[Mcedia] §f正在播放: ")
+                            .append(Component.literal(videoInfo.getTitle()).withStyle(clickableStyle.withColor(ChatFormatting.YELLOW)))
+                            .append(Component.literal(" §f- "))
+                            .append(Component.literal(videoInfo.getAuthor()).withStyle(clickableStyle.withColor(ChatFormatting.AQUA)));
+                    Mcedia.msgToPlayer(message);
+                }
+                if (duration > 100_000L) { // 100_000 us = 100 ms
+                    LOGGER.info("检测到非零起始时间，正在移动到 {} us", duration);
+                    player.seek(duration);
+                }
                 player.play();
                 player.setSpeed(speed);
+
+                this.isLoopingInProgress = false;
             }
             return null;
         }).exceptionally(e -> {
             LOGGER.warn("播放视频时发生未知错误", e);
-            Mcedia.msgToPlayer("§c[Mcedia] §f播放时发生错误: " + finalMediaUrl);
+            if (!isLooping) {
+                Mcedia.msgToPlayer("§c[Mcedia] §f播放时发生错误: " + finalMediaUrl);
+            }
+            this.isLoopingInProgress = false;
             return null;
         });
     }
 
     public void close() {
         playingUrl = null;
+        isLoopingInProgress = false;
         player.closeAsync();
     }
 
     public void closeSync() {
         playingUrl = null;
+        isLoopingInProgress = false;
         player.closeSync();
     }
 }

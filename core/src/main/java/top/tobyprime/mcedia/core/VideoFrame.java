@@ -20,6 +20,16 @@ public class VideoFrame implements Closeable {
     }
 
     @Override
+    public String toString() {
+        return "VideoFrame{" +
+                "width=" + width +
+                ", height=" + height +
+                ", buffer_capacity=" + (buffer != null ? buffer.capacity() : "null") +
+                ", released=" + released +
+                '}';
+    }
+
+    @Override
     public void close() {
         if (!released) {
             MemoryUtil.memFree(buffer);

@@ -1,6 +1,0 @@
-plugins {
-    id 'fabric-loom' version '1.11-SNAPSHOT'
-    id 'maven-publish'
-}
-
-apply from: "$rootDir/buildSrc/fabric.gradle"
