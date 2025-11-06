@@ -34,17 +34,14 @@ public class Media implements Closeable {
     private static final int AUDIO_BUFFER_TARGET = 256;
     private static final int VIDEO_BUFFER_TARGET = 30;
 
-    // [FIX] 恢复被误删的便利构造函数
     public Media(String url, DecoderConfiguration config) {
         this(new VideoInfo(url, null), null, config);
     }
 
-    // [FIX] 恢复被误删的便利构造函数
     public Media(VideoInfo info, DecoderConfiguration config) {
         this(info, null, config);
     }
 
-    // 主要构造函数 (保持不变)
     public Media(VideoInfo info, @Nullable String cookie, DecoderConfiguration config) {
         try {
             decoder = new MediaDecoder(info, cookie, config);

@@ -32,10 +32,6 @@ public class VideoDataConverter {
         return new VideoFrame(processedBuffer, width, height, frame.timestamp);
     }
 
-    /**
-     * 从带有填充(stride)的FFmpeg缓冲区中复制像素数据到一个紧凑的、无填充的ByteBuffer。
-     * [FIX] 此版本解决了越界读取(newPosition > limit)的崩溃问题。
-     */
     public static ByteBuffer removeStride(ByteBuffer src, int height, int width, int stride, int channels) {
         int rowBytes = width * channels;
 

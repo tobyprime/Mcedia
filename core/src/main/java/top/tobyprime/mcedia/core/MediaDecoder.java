@@ -31,33 +31,21 @@ public class MediaDecoder implements Closeable {
     private volatile int runningDecoders = 0;
 
     public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration) throws FFmpegFrameGrabber.Exception {
-        LOGGER.info("==================== Mcedia MediaDecoder Start ====================");
-        LOGGER.info("[DECODER_INIT] Creating MediaDecoder instance.");
         this.configuration = configuration;
 
-        LOGGER.info("[DECODER_INIT] Building primary (video/main) grabber for URL: {}", info.getVideoUrl());
         primaryGrabber = buildGrabber(info.getVideoUrl(), cookie, configuration, true);
         grabbers.add(primaryGrabber);
 
         if (info.getAudioUrl() != null && !info.getAudioUrl().isEmpty()) {
-            LOGGER.info("[DECODER_INIT] Detected separate audio stream. Building audio grabber for URL: {}", info.getAudioUrl());
             FFmpegFrameGrabber audioGrabber = buildGrabber(info.getAudioUrl(), cookie, configuration, false);
             grabbers.add(audioGrabber);
         }
 
         for (FFmpegFrameGrabber grabber : grabbers) {
             int index = grabbers.indexOf(grabber);
-            LOGGER.info("[DECODER_INIT] Starting grabber #{}...", index);
             try {
                 grabber.start();
-                LOGGER.info("[DECODER_INIT] Grabber #{} started successfully.", index);
-                LOGGER.info("[DECODER_INIT]   - Format: {}", grabber.getFormat());
-                LOGGER.info("[DECODER_INIT]   - Duration: {} seconds", grabber.getLengthInTime() / 1_000_000.0);
-                LOGGER.info("[DECODER_INIT]   - Video Stream: {}x{}, Codec: {}", grabber.getImageWidth(), grabber.getImageHeight(), grabber.getVideoCodecName());
-                LOGGER.info("[DECODER_INIT]   - Audio Stream: {} Hz, {} channels, Codec: {}", grabber.getSampleRate(), grabber.getAudioChannels(), grabber.getAudioCodecName());
             } catch (FFmpegFrameGrabber.Exception e) {
-                LOGGER.error("[DECODER_INIT] FAILED to start grabber #{}!", index, e);
-                // Propagate the exception to fail media opening immediately
                 throw e;
             }
         }
@@ -69,12 +57,10 @@ public class MediaDecoder implements Closeable {
             decoderThreads.add(thread);
             thread.start();
         }
-        LOGGER.info("[DECODER_INIT] All decoder threads started.");
     }
 
     private void decodeLoop(FFmpegFrameGrabber grabber) {
         int index = grabbers.indexOf(grabber);
-        LOGGER.info("[DECODE_LOOP_{}] Thread started.", index);
         runningDecoders++;
 
         long videoFramesDecoded = 0;
@@ -86,13 +72,11 @@ public class MediaDecoder implements Closeable {
                 try {
                     frame = grabber.grab();
                 } catch (FFmpegFrameGrabber.Exception e) {
-                    LOGGER.warn("[DECODE_LOOP_{}] grab() threw a recoverable exception: {}. Continuing...", index, e.getMessage());
                     try { Thread.sleep(50); } catch (InterruptedException interruptedException) { Thread.currentThread().interrupt(); }
                     continue;
                 }
 
                 if (frame == null) {
-                    LOGGER.info("[DECODE_LOOP_{}] grab() returned null. Reached End of File (EOF).", index);
                     break;
                 }
 
@@ -100,11 +84,11 @@ public class MediaDecoder implements Closeable {
 
                 if (clonedFrame.image != null && configuration.enableVideo) {
                     videoFramesDecoded++;
-                    if (videoFramesDecoded == 1) LOGGER.info("[DECODE_LOOP_{}] DECODED FIRST VIDEO FRAME!", index);
+                    if (videoFramesDecoded == 1);
                     videoQueue.put(clonedFrame);
                 } else if (clonedFrame.samples != null && configuration.enableAudio) {
                     audioFramesDecoded++;
-                    if (audioFramesDecoded == 1) LOGGER.info("[DECODE_LOOP_{}] DECODED FIRST AUDIO FRAME!", index);
+                    if (audioFramesDecoded == 1);
                     audioQueue.put(clonedFrame);
                 } else {
                     clonedFrame.close();
@@ -112,18 +96,14 @@ public class MediaDecoder implements Closeable {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOGGER.info("[DECODE_LOOP_{}] Thread interrupted. Closing.", index);
         } catch (Exception e) {
             if (!isClosed) {
-                LOGGER.error("[DECODE_LOOP_{}] A critical, unrecoverable error occurred.", index, e);
             }
         } finally {
             runningDecoders--;
-            LOGGER.info("[DECODE_LOOP_{}] Thread finished. Decoded {} video frames and {} audio frames. runningDecoders is now {}.", index, videoFramesDecoded, audioFramesDecoded, runningDecoders);
         }
     }
 
-    // ... a buildGrabber és a többi metódus változatlan marad ...
     private FFmpegFrameGrabber buildGrabber(String url, @Nullable String cookie, DecoderConfiguration configuration, boolean isVideoGrabber) {
         var grabber = new FFmpegFrameGrabber(url);
         StringBuilder headers = new StringBuilder();
@@ -186,7 +166,6 @@ public class MediaDecoder implements Closeable {
     public void close() {
         if (isClosed) return;
         isClosed = true;
-        LOGGER.info("[DECODER_CLOSE] Closing MediaDecoder. Interrupting {} threads.", decoderThreads.size());
         for (Thread thread : decoderThreads) {
             thread.interrupt();
         }
@@ -195,15 +174,12 @@ public class MediaDecoder implements Closeable {
                 thread.join(1000);
             } catch (InterruptedException ignored) {}
         }
-        LOGGER.info("[DECODER_CLOSE] All decoder threads joined.");
         clearQueue();
         for (FFmpegFrameGrabber grabber : grabbers) {
             try {
                 grabber.release();
             } catch (Exception e) {
-                LOGGER.warn("[DECODER_CLOSE] Exception while releasing grabber.", e);
             }
         }
-        LOGGER.info("==================== Mcedia MediaDecoder Closed ===================");
     }
 }
