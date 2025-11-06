@@ -8,6 +8,7 @@ import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
+import org.lwjgl.opengl.GL11;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.VideoFrame;
@@ -17,25 +18,39 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private final Logger logger = LoggerFactory.getLogger(VideoTexture.class);
     ResourceLocation resourceLocation;
 
+    // [移除] 不再需要 previousFrame 来手动管理帧同步
+    // private volatile VideoFrame previousFrame = null;
+
     public VideoTexture(ResourceLocation id) {
         super();
         Minecraft.getInstance().getTextureManager().register(id, this);
         this.resourceLocation = id;
-        setSize(100,100);
+        setSize(100, 100);
     }
 
-    public void setSize(int width,int height) {
-        if (texture==null || texture.getWidth(0) != width || texture.getHeight(0) != height) {
+    public void setSize(int width, int height) {
+        if (texture == null || texture.getWidth(0) != width || texture.getHeight(0) != height) {
             resize(width, height);
         }
     }
 
     public void resize(int width, int height) {
-        logger.info("修改尺寸 {}x{}",width,height);
-        GpuDevice gpuDevice = RenderSystem.getDevice();
+        logger.info("修改尺寸 {}x{}", width, height);
+        RenderSystem.assertOnRenderThread();
 
+        if (this.textureView != null) {
+            this.textureView.close();
+            this.textureView = null;
+        }
+        if (this.texture != null) {
+            this.texture.close();
+            this.texture = null;
+        }
+
+        GpuDevice gpuDevice = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST;
-        this.texture = gpuDevice.createTexture(this.resourceLocation::toString, usage, TextureFormat.RGBA8, width, height, 1, 1);
+
+        this.texture = gpuDevice.createTexture(this.resourceLocation.toString(), usage, TextureFormat.RGBA8, width, height, 1, 1);
         this.textureView = gpuDevice.createTextureView(this.texture);
         this.setClamp(true);
         this.setFilter(true, false);
@@ -43,14 +58,35 @@ public class VideoTexture extends AbstractTexture implements ITexture {
 
     public void upload(VideoFrame frame) {
         if (this.texture == null) {
+            // 注意：帧的关闭现在由调用方（Media.uploadVideo）负责
             return;
         }
+        RenderSystem.assertOnRenderThread();
+
         setSize(frame.width, frame.height);
         GpuDevice gpuDevice = RenderSystem.getDevice();
         frame.buffer.rewind();
+        // 1.21+ 的 writeToTexture API 可能有细微变化，但基本用法如此
         gpuDevice.createCommandEncoder().writeToTexture(texture, frame.buffer.asIntBuffer(), NativeImage.Format.RGBA, 0, 0, 0, 0, this.texture.getWidth(0), this.texture.getHeight(0));
-        frame.close();
 
+        // [移除] glFinish() 会导致严重的性能问题，且在新架构下不再需要
+        // GL11.glFinish();
+
+        // [移除] 帧的生命周期管理已移至 Media 类
+        // if (this.previousFrame != null) {
+        //     this.previousFrame.close();
+        // }
+        // this.previousFrame = frame;
+    }
+
+    @Override
+    public void close() {
+        super.close();
+        // [移除] 确保在 close 时不再引用任何外部帧
+        // if (this.previousFrame != null) {
+        //     this.previousFrame.close();
+        //     this.previousFrame = null;
+        // }
     }
 
     public ResourceLocation getResourceLocation() {

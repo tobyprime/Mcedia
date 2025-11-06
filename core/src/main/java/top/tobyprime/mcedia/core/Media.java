@@ -11,6 +11,7 @@ import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.io.Closeable;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentLinkedQueue; // [新增] 导入线程安全的队列
 
 public class Media implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(Media.class);
@@ -26,9 +27,14 @@ public class Media implements Closeable {
     private float speed = 1;
     private boolean looping = false;
 
-    private final Object videoFrameLock = new Object();
-    @Nullable
-    private Frame currentVideoFrame;
+    // [移除] 不再需要手动的锁和单个帧的引用
+    // private final Object videoFrameLock = new Object();
+    // @Nullable
+    // private VideoFrame currentVideoFrame;
+
+    // [新增] 使用线程安全的队列来在解码线程和渲染线程之间传递视频帧
+    private final ConcurrentLinkedQueue<VideoFrame> videoFrameQueue = new ConcurrentLinkedQueue<>();
+
 
     private boolean isBuffering = true;
     private static final int AUDIO_BUFFER_TARGET = 256;
@@ -94,22 +100,16 @@ public class Media implements Closeable {
                     continue;
                 }
 
-                Frame frameToUpdate = null;
-                while (!decoder.videoQueue.isEmpty() && decoder.videoQueue.peek().timestamp <= currFrame.timestamp) {
-                    if (frameToUpdate != null) {
-                        frameToUpdate.close();
-                    }
-                    frameToUpdate = decoder.videoQueue.poll();
-                }
-
-                if (frameToUpdate != null) {
-                    Frame oldFrame;
-                    synchronized (videoFrameLock) {
-                        oldFrame = this.currentVideoFrame;
-                        this.currentVideoFrame = frameToUpdate;
-                    }
-                    if (oldFrame != null) {
-                        oldFrame.close();
+                // [修改] 视频帧处理逻辑
+                // 将所有时间戳小于等于当前音频帧的视频帧放入待上传队列
+                while (!decoder.videoQueue.isEmpty() && decoder.videoQueue.peek().ptsUs <= currFrame.timestamp) {
+                    VideoFrame frameToQueue = decoder.videoQueue.poll();
+                    if (frameToQueue != null) {
+                        // 如果渲染队列积压过多，则丢弃旧帧以追赶进度
+                        if (videoFrameQueue.size() > VIDEO_BUFFER_TARGET) {
+                            videoFrameQueue.poll().close(); // 取出并关闭最旧的帧
+                        }
+                        videoFrameQueue.offer(frameToQueue);
                     }
                 }
 
@@ -132,27 +132,31 @@ public class Media implements Closeable {
     public void uploadVideo() {
         if (paused || texture == null) return;
 
-        Frame frameToUpload = null;
-        synchronized (videoFrameLock) {
-            frameToUpload = this.currentVideoFrame;
+        VideoFrame frameToUpload = null;
+        // [修改] 从队列中获取最新的帧，并丢弃所有旧的帧
+        // 这可以防止在渲染卡顿时，播放过时的视频帧
+        while (videoFrameQueue.size() > 1) {
+            VideoFrame oldFrame = videoFrameQueue.poll();
+            if (oldFrame != null) {
+                oldFrame.close();
+            }
         }
+        frameToUpload = videoFrameQueue.poll();
 
         if (frameToUpload != null) {
-            VideoFrame vf = null;
             try {
-                vf = VideoDataConverter.convertToVideoFrame(frameToUpload);
-                if (vf != null && vf.buffer != null && vf.buffer.remaining() > 0) {
-                    texture.upload(vf);
+                if (frameToUpload.buffer != null && frameToUpload.buffer.hasRemaining()) {
+                    texture.upload(frameToUpload);
                 }
             } catch (Exception e) {
-                LOGGER.error("在视频帧转换或上传调用期间发生错误", e);
+                LOGGER.error("在视频帧上传期间发生错误", e);
             } finally {
-                if (vf != null) {
-                    vf.close();
-                }
+                // [关键修改] 无论上传成功与否，帧的生命周期都在这里结束，立即释放内存
+                frameToUpload.close();
             }
         }
     }
+
 
     public void setLooping(boolean looping) { this.looping = looping; }
     public void play() { LOGGER.info("开始播放"); paused = false; }
@@ -185,10 +189,11 @@ public class Media implements Closeable {
         }
         audioSources.forEach(IAudioSource::clearBuffer);
 
-        synchronized (videoFrameLock) {
-            if (currentVideoFrame != null) {
-                currentVideoFrame.close();
-                currentVideoFrame = null;
+        // [修改] 清理队列中所有剩余的帧
+        while (!videoFrameQueue.isEmpty()) {
+            VideoFrame frame = videoFrameQueue.poll();
+            if (frame != null) {
+                frame.close();
             }
         }
 

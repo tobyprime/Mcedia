@@ -1,14 +1,17 @@
+// MediaDecoder.java
 package top.tobyprime.mcedia.core;
 
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
 import org.jetbrains.annotations.Nullable;
+import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.io.Closeable;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -20,7 +23,8 @@ public class MediaDecoder implements Closeable {
     private static final int MAX_VIDEO_FRAMES = 60;
     private static final int MAX_AUDIO_FRAMES = 512;
 
-    public final LinkedBlockingDeque<Frame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
+    // [修改] 队列现在直接存储我们自己的、内存安全的VideoFrame对象
+    public final LinkedBlockingDeque<VideoFrame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
     public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>(MAX_AUDIO_FRAMES);
 
     private final DecoderConfiguration configuration;
@@ -42,10 +46,11 @@ public class MediaDecoder implements Closeable {
         }
 
         for (FFmpegFrameGrabber grabber : grabbers) {
-            int index = grabbers.indexOf(grabber);
             try {
                 grabber.start();
             } catch (FFmpegFrameGrabber.Exception e) {
+                // 清理已成功启动的 grabber
+                close();
                 throw e;
             }
         }
@@ -60,16 +65,13 @@ public class MediaDecoder implements Closeable {
     }
 
     private void decodeLoop(FFmpegFrameGrabber grabber) {
-        int index = grabbers.indexOf(grabber);
         runningDecoders++;
-
-        long videoFramesDecoded = 0;
-        long audioFramesDecoded = 0;
 
         try {
             while (!Thread.currentThread().isInterrupted() && !isClosed) {
                 Frame frame;
                 try {
+                    // grab() 不是线程安全的，但我们只在这个线程里调用它，所以没问题
                     frame = grabber.grab();
                 } catch (FFmpegFrameGrabber.Exception e) {
                     try { Thread.sleep(50); } catch (InterruptedException interruptedException) { Thread.currentThread().interrupt(); }
@@ -80,24 +82,34 @@ public class MediaDecoder implements Closeable {
                     break;
                 }
 
-                Frame clonedFrame = frame.clone();
+                boolean isVideo = frame.image != null && configuration.enableVideo;
+                boolean isAudio = frame.samples != null && configuration.enableAudio;
 
-                if (clonedFrame.image != null && configuration.enableVideo) {
-                    videoFramesDecoded++;
-                    if (videoFramesDecoded == 1);
-                    videoQueue.put(clonedFrame);
-                } else if (clonedFrame.samples != null && configuration.enableAudio) {
-                    audioFramesDecoded++;
-                    if (audioFramesDecoded == 1);
-                    audioQueue.put(clonedFrame);
-                } else {
-                    clonedFrame.close();
+                if (isVideo) {
+                    // [关键修复] 在解码线程内部进行深拷贝，创建 VideoFrame
+                    ByteBuffer rawBuffer = (ByteBuffer) frame.image[0];
+                    rawBuffer.rewind();
+
+                    // 1. 分配一块新的、独立的堆外内存
+                    ByteBuffer copiedBuffer = MemoryUtil.memAlloc(rawBuffer.remaining());
+                    // 2. 将解码器的数据完整复制过来
+                    copiedBuffer.put(rawBuffer);
+                    copiedBuffer.rewind();
+
+                    // 3. 将这个内存安全的 VideoFrame 对象放入队列
+                    VideoFrame videoFrame = new VideoFrame(copiedBuffer, frame.imageWidth, frame.imageHeight, frame.timestamp);
+                    videoQueue.put(videoFrame);
+                } else if (isAudio) {
+                    // 对于音频，javacv的Frame.clone()是安全的，因为它会创建新的数组
+                    audioQueue.put(frame.clone());
                 }
+                // grabber返回的原始frame可以被内部重用了，我们已经复制了我们需要的数据
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             if (!isClosed) {
+                LOGGER.error("Error in decoder loop", e);
             }
         } finally {
             runningDecoders--;
@@ -131,6 +143,7 @@ public class MediaDecoder implements Closeable {
         grabber.setOption("an", configuration.enableAudio ? "0" : "1");
         return grabber;
     }
+
     public boolean isEof() {
         return runningDecoders == 0;
     }
@@ -149,15 +162,18 @@ public class MediaDecoder implements Closeable {
         timestamp = Math.min(timestamp, getDuration());
         clearQueue();
         try {
-            for (FFmpegFrameGrabber grabber : grabbers) {
-                grabber.setTimestamp(timestamp, true);
+            // seek操作也应该同步，防止与grab()冲突
+            synchronized (this) {
+                for (FFmpegFrameGrabber grabber : grabbers) {
+                    grabber.setTimestamp(timestamp, true);
+                }
             }
         } catch (FFmpegFrameGrabber.Exception e) {
             throw new RuntimeException("Seek failed", e);
         }
     }
     public void clearQueue() {
-        videoQueue.forEach(Frame::close);
+        videoQueue.forEach(VideoFrame::close);
         audioQueue.forEach(Frame::close);
         videoQueue.clear();
         audioQueue.clear();
@@ -166,20 +182,22 @@ public class MediaDecoder implements Closeable {
     public void close() {
         if (isClosed) return;
         isClosed = true;
-        for (Thread thread : decoderThreads) {
-            thread.interrupt();
-        }
+        decoderThreads.forEach(Thread::interrupt);
         for (Thread thread : decoderThreads) {
             try {
                 thread.join(1000);
             } catch (InterruptedException ignored) {}
         }
         clearQueue();
-        for (FFmpegFrameGrabber grabber : grabbers) {
-            try {
-                grabber.release();
-            } catch (Exception e) {
+        new Thread(() -> {
+            for (FFmpegFrameGrabber grabber : grabbers) {
+                try {
+                    grabber.stop();
+                    grabber.release();
+                } catch (Exception e) {
+                    LOGGER.error("Failed to release grabber", e);
+                }
             }
-        }
+        }).start();
     }
 }
