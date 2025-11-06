@@ -67,6 +67,7 @@ public class PlayerAgent {
     private long lastSeekTime = 0;
     private static final long SEEK_COOLDOWN_MS = 200;
     private long timestampFromUrlUs = 0;
+//    private float lastSeekBodyYRot = Float.NEGATIVE_INFINITY;
 
     private volatile boolean isLoopingInProgress = false;
 
@@ -349,19 +350,32 @@ public class PlayerAgent {
         speed = speedFactor < 0.1f ? 1f : (speedFactor > 0.5f ? 1f - (1f - speedFactor) * 2f : (speedFactor - 0.1f) / 0.4f * 8f);
 
         Media currentMedia = player.getMedia();
-        if (currentMedia != null && !currentMedia.isLiveStream()) {
-            boolean isSeekingActivated = state.rightArmPose.x() < -80.0f;
-            if (isSeekingActivated) {
-                long currentTime = System.currentTimeMillis();
-                if (currentTime - lastSeekTime > SEEK_COOLDOWN_MS) {
-                    float progress = (state.bodyPose.y() + 180.0f) / 360.0f;
-                    long totalDurationUs = currentMedia.getLengthUs();
-                    long targetUs = (long) (totalDurationUs * progress);
-                    player.seek(targetUs);
-                    lastSeekTime = currentTime;
-                }
-            }
-        }
+//        if (currentMedia != null && !currentMedia.isLiveStream()) {
+//            boolean isSeekingActivated = state.rightArmPose.x() < -80.0f;
+//            if (isSeekingActivated) {
+//                float currentBodyYRot = state.bodyPose.y();
+//
+//                // 只有当身体角度发生变化时 (设置一个小的阈值以忽略抖动)
+//                if (Math.abs(currentBodyYRot - lastSeekBodyYRot) > 0.1f) {
+//                    long currentTime = System.currentTimeMillis();
+//                    if (currentTime - lastSeekTime > SEEK_COOLDOWN_MS) {
+//                        float progress = (currentBodyYRot + 180.0f) / 360.0f;
+//                        long totalDurationUs = currentMedia.getLengthUs();
+//                        long targetUs = (long) (totalDurationUs * progress);
+//
+//                        player.seek(targetUs);
+//                        player.play();
+//                        lastSeekTime = currentTime;
+//                        // 在执行 seek 后，立刻记住当前的角度
+//                        lastSeekBodyYRot = currentBodyYRot;
+//                    }
+//                }
+//            } else {
+//                // 如果没有激活拖动，就重置“记忆”，
+//                // 这样下一次激活时就能立刻响应第一次拖动。
+//                lastSeekBodyYRot = Float.NEGATIVE_INFINITY;
+//            }
+//        }
         player.setSpeed(speed);
         var volume = volumeFactor * audioMaxVolume;
 
