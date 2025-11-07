@@ -27,12 +27,12 @@ public class Media implements Closeable {
     private float speed = 1;
     private boolean looping = false;
 
-    // [移除] 不再需要手动的锁和单个帧的引用
+    // 不再需要手动的锁和单个帧的引用
     // private final Object videoFrameLock = new Object();
     // @Nullable
     // private VideoFrame currentVideoFrame;
 
-    // [新增] 使用线程安全的队列来在解码线程和渲染线程之间传递视频帧
+    // 使用线程安全的队列来在解码线程和渲染线程之间传递视频帧
     private final ConcurrentLinkedQueue<VideoFrame> videoFrameQueue = new ConcurrentLinkedQueue<>();
 
 
@@ -100,7 +100,7 @@ public class Media implements Closeable {
                     continue;
                 }
 
-                // [修改] 视频帧处理逻辑
+                // 视频帧处理逻辑
                 // 将所有时间戳小于等于当前音频帧的视频帧放入待上传队列
                 while (!decoder.videoQueue.isEmpty() && decoder.videoQueue.peek().ptsUs <= currFrame.timestamp) {
                     VideoFrame frameToQueue = decoder.videoQueue.poll();
@@ -133,7 +133,7 @@ public class Media implements Closeable {
         if (paused || texture == null) return;
 
         VideoFrame frameToUpload = null;
-        // [修改] 从队列中获取最新的帧，并丢弃所有旧的帧
+        // 从队列中获取最新的帧，并丢弃所有旧的帧
         // 这可以防止在渲染卡顿时，播放过时的视频帧
         while (videoFrameQueue.size() > 1) {
             VideoFrame oldFrame = videoFrameQueue.poll();
@@ -151,7 +151,7 @@ public class Media implements Closeable {
             } catch (Exception e) {
                 LOGGER.error("在视频帧上传期间发生错误", e);
             } finally {
-                // [关键修改] 无论上传成功与否，帧的生命周期都在这里结束，立即释放内存
+                // 无论上传成功与否，帧的生命周期都在这里结束，立即释放内存
                 frameToUpload.close();
             }
         }
@@ -189,7 +189,7 @@ public class Media implements Closeable {
         }
         audioSources.forEach(IAudioSource::clearBuffer);
 
-        // [修改] 清理队列中所有剩余的帧
+        // 清理队列中所有剩余的帧
         while (!videoFrameQueue.isEmpty()) {
             VideoFrame frame = videoFrameQueue.poll();
             if (frame != null) {

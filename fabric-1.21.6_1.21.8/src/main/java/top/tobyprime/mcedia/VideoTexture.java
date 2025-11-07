@@ -18,9 +18,6 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private final Logger logger = LoggerFactory.getLogger(VideoTexture.class);
     ResourceLocation resourceLocation;
 
-    // [移除] 不再需要 previousFrame 来手动管理帧同步
-    // private volatile VideoFrame previousFrame = null;
-
     public VideoTexture(ResourceLocation id) {
         super();
         Minecraft.getInstance().getTextureManager().register(id, this);
@@ -58,7 +55,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
 
     public void upload(VideoFrame frame) {
         if (this.texture == null) {
-            // 注意：帧的关闭现在由调用方（Media.uploadVideo）负责
+            // 注意,帧的关闭由调用方（Media.uploadVideo）负责
             return;
         }
         RenderSystem.assertOnRenderThread();
@@ -66,13 +63,12 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         setSize(frame.width, frame.height);
         GpuDevice gpuDevice = RenderSystem.getDevice();
         frame.buffer.rewind();
-        // 1.21+ 的 writeToTexture API 可能有细微变化，但基本用法如此
         gpuDevice.createCommandEncoder().writeToTexture(texture, frame.buffer.asIntBuffer(), NativeImage.Format.RGBA, 0, 0, 0, 0, this.texture.getWidth(0), this.texture.getHeight(0));
 
-        // [移除] glFinish() 会导致严重的性能问题，且在新架构下不再需要
+        // glFinish() 会导致严重的性能问题，且在新架构下不再需要
         // GL11.glFinish();
 
-        // [移除] 帧的生命周期管理已移至 Media 类
+        // 帧的生命周期管理已移至 Media 类
         // if (this.previousFrame != null) {
         //     this.previousFrame.close();
         // }
@@ -82,7 +78,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     @Override
     public void close() {
         super.close();
-        // [移除] 确保在 close 时不再引用任何外部帧
+        // 确保在 close 时不再引用任何外部帧
         // if (this.previousFrame != null) {
         //     this.previousFrame.close();
         //     this.previousFrame = null;
