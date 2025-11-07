@@ -18,6 +18,10 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     implementation project(":core")
     include project(path: ':core', configuration: 'shadow')
+    implementation "com.google.code.gson:gson:2.10.1"
+    modImplementation include("com.google.code.gson:gson:2.10.1")
+    implementation "com.google.zxing:core:3.5.3"
+    modImplementation "com.google.zxing:core:3.5.3"
 }
 
 processResources {

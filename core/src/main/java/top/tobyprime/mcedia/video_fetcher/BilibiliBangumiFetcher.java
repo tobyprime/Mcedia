@@ -5,6 +5,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.BilibiliAuthRequiredException;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.net.URI;
@@ -36,9 +37,23 @@ public class BilibiliBangumiFetcher {
         JSONObject viewJson = new JSONObject(viewResponse.body());
         String title = "未知标题";
         String author = "Bilibili动漫";
+        boolean requiresVip = false;
+        boolean requiresPurchase = false;
+
         if (viewJson.optInt("code") == 0) {
             JSONObject result = viewJson.getJSONObject("result");
             title = result.getString("title");
+
+            // 解析付费信息
+            if (result.has("payment")) {
+                JSONObject payment = result.getJSONObject("payment");
+                if (payment.has("price") && !payment.getString("price").equals("0.0")) {
+                    requiresPurchase = true;
+                }
+            }
+            // 默认番剧都要VIP
+            requiresVip = true;
+
             // 找到当前集的标题
             for (Object ep : result.getJSONArray("episodes")) {
                 if (String.valueOf(((JSONObject)ep).getInt("id")).equals(epId)) {
@@ -50,7 +65,7 @@ public class BilibiliBangumiFetcher {
 
         // 调用 PGC 的播放地址 API
         String playApi = "https://api.bilibili.com/pgc/player/web/playurl?ep_id=" + epId +
-                "&qn=112&type=&otype=json&platform=html5&high_quality=1&fnval=16";
+                "&qn=116&type=&otype=json&platform=html5&high_quality=1&fnval=4048";
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(playApi))
@@ -71,6 +86,16 @@ public class BilibiliBangumiFetcher {
         }
 
         JSONObject result = responseJson.getJSONObject("result");
+        if (result == null) {
+            throw new RuntimeException("B站API未返回有效的 result 数据：" + responseJson.optString("message", "未知错误"));
+        }
+
+        if (result.has("is_preview") && result.getInt("is_preview") == 1) {
+            throw new BilibiliAuthRequiredException("该内容需要大会员或已登录。API返回了预览内容。");
+        }
+        if (result.has("code") && result.getInt("code") == -10403) {
+            throw new BilibiliAuthRequiredException("B站返回权限错误(-10403)，该内容需要大会员或已登录。");
+        }
 
         // 优先尝试解析 DASH (高画质，音视频分离)
         if (result.has("dash")) {
@@ -112,33 +137,46 @@ public class BilibiliBangumiFetcher {
         if (streams == null || streams.length() == 0) {
             return null;
         }
-
-        // 如果是"自动"、纯音频流（无formats）、或清晰度列表为空，直接返回最高码率的（API返回的第一个通常是最好的）
         if ("自动".equals(desiredQuality) || formats == null || formats.length() == 0) {
             return streams.getJSONObject(0);
         }
-
-        // 构建清晰度名称到ID的映射表
         Map<String, Integer> qualityMap = new HashMap<>();
         for (int i = 0; i < formats.length(); i++) {
             JSONObject format = formats.getJSONObject(i);
-            // new_description 是 B 站网页上显示的文本, e.g., "1080P 高清"
             qualityMap.put(format.getString("new_description"), format.getInt("quality"));
         }
-
         Integer targetQualityId = qualityMap.get(desiredQuality);
         if (targetQualityId != null) {
-            // 寻找 ID 完全匹配的流
+            JSONObject bestStream = null;
+            int bestCodecScore = -1; // -1：未找到；1：AV1；2：HEVC；3：AVC（H.264）
+
             for (int i = 0; i < streams.length(); i++) {
                 JSONObject stream = streams.getJSONObject(i);
                 if (stream.getInt("id") == targetQualityId) {
-                    LOGGER.info("找到匹配的清晰度: {} (ID: {})", desiredQuality, targetQualityId);
-                    return stream;
+                    String codecs = stream.optString("codecs", "");
+                    int currentCodecScore = 0;
+
+                    if (codecs.contains("avc1")) { // H.264 是最优先的
+                        currentCodecScore = 3;
+                    } else if (codecs.contains("hev1")) { // H.265 其次
+                        currentCodecScore = 2;
+                    } else if (codecs.contains("av01")) { // AV1 优先级最低
+                        currentCodecScore = 1;
+                    }
+
+                    if (currentCodecScore > bestCodecScore) {
+                        bestStream = stream;
+                        bestCodecScore = currentCodecScore;
+                    }
+                }
+
+                if (bestStream != null) {
+                    String chosenCodec = bestCodecScore == 3 ? "H.264/AVC" : (bestCodecScore == 2 ? "H.265/HEVC" : "AV1");
+                    LOGGER.info("找到匹配清晰度 '{}' (ID: {})，并优先选择 {} 编码。", desiredQuality, targetQualityId, chosenCodec);
+                    return bestStream;
                 }
             }
         }
-
-        // 如果找不到精确匹配的（比如用户输错了），则降级为返回最高画质
         LOGGER.warn("未找到清晰度 '{}'，将使用最高可用清晰度。", desiredQuality);
         return streams.getJSONObject(0);
     }

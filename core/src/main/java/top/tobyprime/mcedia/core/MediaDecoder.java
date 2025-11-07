@@ -86,18 +86,34 @@ public class MediaDecoder implements Closeable {
                 boolean isAudio = frame.samples != null && configuration.enableAudio;
 
                 if (isVideo) {
-                    // [关键修复] 在解码线程内部进行深拷贝，创建 VideoFrame
+
+                    int width = frame.imageWidth;
+                    int height = frame.imageHeight;
+                    int stride = frame.imageStride;
+
                     ByteBuffer rawBuffer = (ByteBuffer) frame.image[0];
                     rawBuffer.rewind();
 
-                    // 1. 分配一块新的、独立的堆外内存
-                    ByteBuffer copiedBuffer = MemoryUtil.memAlloc(rawBuffer.remaining());
-                    // 2. 将解码器的数据完整复制过来
-                    copiedBuffer.put(rawBuffer);
+                    int tightStride = width * 4;
+
+                    // 分配一块新的、独立的、大小正好的堆外内存
+                    ByteBuffer copiedBuffer = MemoryUtil.memAlloc(tightStride * height);
+
+                    // 检查解码器输出的跨距是否已经合适
+                    if (stride == tightStride) {
+                        copiedBuffer.put(rawBuffer);
+                    } else {
+                        byte[] rowData = new byte[tightStride];
+                        for (int y = 0; y < height; y++) {
+                            rawBuffer.get(y * stride, rowData, 0, tightStride);
+                            copiedBuffer.put(rowData);
+                        }
+                    }
+
                     copiedBuffer.rewind();
 
-                    // 3. 将这个内存安全的 VideoFrame 对象放入队列
-                    VideoFrame videoFrame = new VideoFrame(copiedBuffer, frame.imageWidth, frame.imageHeight, frame.timestamp);
+                    // 将这个内存安全的 VideoFrame 对象放入队列
+                    VideoFrame videoFrame = new VideoFrame(copiedBuffer, width, height, frame.timestamp);
                     videoQueue.put(videoFrame);
                 } else if (isAudio) {
                     // 对于音频，javacv的Frame.clone()是安全的，因为它会创建新的数组
@@ -135,7 +151,7 @@ public class MediaDecoder implements Closeable {
         if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
-            grabber.setPixelFormat(configuration.videoAlpha ? avutil.AV_PIX_FMT_RGBA : avutil.AV_PIX_FMT_RGB24);
+            grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
         } else {
             grabber.setOption("vn", "1");
         }

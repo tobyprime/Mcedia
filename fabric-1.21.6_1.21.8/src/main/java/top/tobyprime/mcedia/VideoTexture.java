@@ -63,7 +63,13 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         setSize(frame.width, frame.height);
         GpuDevice gpuDevice = RenderSystem.getDevice();
         frame.buffer.rewind();
-        gpuDevice.createCommandEncoder().writeToTexture(texture, frame.buffer.asIntBuffer(), NativeImage.Format.RGBA, 0, 0, 0, 0, this.texture.getWidth(0), this.texture.getHeight(0));
+        gpuDevice.createCommandEncoder().writeToTexture(
+                texture,
+                frame.buffer.asIntBuffer(),
+                NativeImage.Format.RGBA,
+                0, 0, 0, 0,
+                this.texture.getWidth(0),
+                this.texture.getHeight(0));
 
         // glFinish() 会导致严重的性能问题，且在新架构下不再需要
         // GL11.glFinish();

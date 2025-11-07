@@ -21,6 +21,8 @@ dependencies {
     implementation "org.bytedeco:javacv:${project.javacv_version}"
     implementation "org.bytedeco:javacpp:${project.javacpp_version}:windows-x86_64"
     implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}:windows-x86_64"
+    implementation "com.google.code.gson:gson:2.10.1"
+    implementation "com.google.zxing:core:3.5.3"
 }
 shadowJar {
     archiveClassifier.set('all') // 会生成 xxx-all.jar

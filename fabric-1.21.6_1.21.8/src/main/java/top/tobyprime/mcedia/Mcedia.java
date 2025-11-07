@@ -9,12 +9,14 @@ import net.minecraft.client.sounds.SoundEngineExecutor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import top.tobyprime.mcedia.auth_manager.BilibiliAuthManager;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 import top.tobyprime.mcedia.provider.BilibiliBangumiProvider;
 import top.tobyprime.mcedia.provider.BilibiliLiveProvider;
 import top.tobyprime.mcedia.provider.BilibiliVideoProvider;
 import top.tobyprime.mcedia.provider.MediaProviderRegistry;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -70,6 +72,21 @@ public class Mcedia implements ModInitializer {
 
         ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((mc, level) -> clearMap());
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> clearMap());
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            // 一个小的延迟，确保聊天框已经完全准备好接收消息
+            new Thread(() -> {
+                try {
+                    Thread.sleep(3000); // 延迟3秒
+                    BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
+                } catch (InterruptedException e) {
+                    // ignore
+                }
+            }).start();
+        });
+
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            CommandLogin.register(dispatcher);
+        });
     }
 
     private void initializeProviders() {

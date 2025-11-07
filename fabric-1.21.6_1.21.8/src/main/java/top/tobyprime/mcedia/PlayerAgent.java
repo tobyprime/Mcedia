@@ -26,6 +26,7 @@ import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.AudioSource;
+import top.tobyprime.mcedia.BilibiliAuthRequiredException;
 import top.tobyprime.mcedia.core.DecoderConfiguration;
 import top.tobyprime.mcedia.core.Media;
 import top.tobyprime.mcedia.core.MediaPlayer;
@@ -252,11 +253,12 @@ public class PlayerAgent {
             String displayName = entity.getMainHandItem().getDisplayName().getString();
             var nameParts = displayName.split(":");
             if (nameParts.length > 1) {
-                long startTime = Long.parseLong(nameParts[1].substring(0, nameParts[1].length() - 1));
+                long startTime = Long.parseLong(nameParts[1].trim());
                 long duration = System.currentTimeMillis() - startTime;
                 return duration < 1000 ? 0 : duration * 1000;
             }
         } catch (Exception e) {
+            LOGGER.warn("无法从物品名称解析服务器时长: '{}'", entity.getMainHandItem().getDisplayName().getString(), e);
             return 0;
         }
         return 0;
@@ -439,8 +441,7 @@ public class PlayerAgent {
         final String finalMediaUrl = playingUrl;
         CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(() -> {
             try {
-                String bilibiliCookie = McediaConfig.BILIBILI_COOKIE;
-                return MediaProviderRegistry.getInstance().resolve(finalMediaUrl, bilibiliCookie, this.desiredQuality);
+                return MediaProviderRegistry.getInstance().resolve(finalMediaUrl, McediaConfig.BILIBILI_COOKIE, this.desiredQuality);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -448,12 +449,21 @@ public class PlayerAgent {
 
         videoInfoFuture.handle((videoInfo, throwable) -> {
             if (throwable != null) {
+                Throwable cause = throwable.getCause();
                 LOGGER.warn("打开视频失败", throwable.getCause());
+                if (cause instanceof BilibiliAuthRequiredException) {
+                    // 如果是需要登录的异常
+                    Mcedia.msgToPlayer("§e[Mcedia] §f该视频需要登录或会员。请使用 §a/mcedia login §f登录。");
+                    LOGGER.warn("播放失败: {}", cause.getMessage());
+                } else {
+                    LOGGER.warn("打开视频失败", cause);
+                }
                 if (!isLooping) {
                     Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + finalMediaUrl);
                 }
                 this.isLoopingInProgress = false;
             } else {
+                // 播放成功
                 if (!isLooping) {
                     Style clickableStyle = Style.EMPTY
                             .withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)))

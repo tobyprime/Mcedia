@@ -5,6 +5,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.BilibiliAuthRequiredException;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.net.URI;
@@ -44,10 +45,17 @@ public class BiliBiliVideoFetcher {
         JSONObject viewJson = new JSONObject(viewResponse.body());
         String title = "未知标题";
         String author = "未知作者";
+        boolean requiresVip = false;
+        boolean requiresPurchase = false;
+
         if (viewJson.optInt("code") == 0) {
             JSONObject viewData = viewJson.getJSONObject("data");
             title = viewData.getString("title");
             author = viewData.getJSONObject("owner").getString("name");
+
+            JSONObject rights = viewData.getJSONObject("rights");
+            requiresVip = rights.optInt("vip_need", 0) == 1;
+            requiresPurchase = rights.optInt("is_stein_gate", 0) == 1; // "互动视频"也视为特殊付费
         }
 
         // 获取 CID
@@ -72,7 +80,7 @@ public class BiliBiliVideoFetcher {
 
         // 获取播放地址
         String playApi = "https://api.bilibili.com/x/player/playurl?bvid=" + bvid +
-                "&cid=" + cid + "&qn=112&type=&otype=json&platform=html5&high_quality=1&fnval=16";
+                "&cid=" + cid + "&127&fnval=4048";
         HttpRequest.Builder playRequestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(playApi))
                 .header("User-Agent", "Mozilla/5.0")
@@ -83,11 +91,18 @@ public class BiliBiliVideoFetcher {
 
         HttpResponse<String> playResponse = client.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
         JSONObject playJson = new JSONObject(playResponse.body());
+
+        // 检查API响应，处理需要登录或VIP的情况
         if (playJson.getInt("code") != 0) {
-            throw new RuntimeException("获取视频播放地址失败: " + playJson.optString("message"));
+            String message = playJson.optString("message");
+            if (playJson.getInt("code") == -10403) { // B站特定错误码，表示需要登录或权限不足
+                throw new BilibiliAuthRequiredException("b站说这个视频要登录或大会员才能看T.T: " + message);
+            }
+            throw new RuntimeException("获取视频播放地址失败: " + message);
         }
 
         JSONObject data = playJson.getJSONObject("data");
+        boolean hasDash = data.has("dash") && data.getJSONObject("dash").has("video") && data.getJSONObject("dash").getJSONArray("video").length() > 0;
 
         // 优先解析 DASH 格式
         if (data.has("dash")) {
@@ -109,11 +124,12 @@ public class BiliBiliVideoFetcher {
             JSONArray durlArray = data.getJSONArray("durl");
             if (durlArray.length() > 0) {
                 String url = durlArray.getJSONObject(0).getString("url");
+                LOGGER.warn("未找到DASH流，可能为会员内容。正在尝试播放试看片段 (DURL)。");
                 return new VideoInfo(url, null, title, author);
             }
         }
 
-        throw new RuntimeException("未能从API响应中找到可用的视频流");
+        throw new BilibiliAuthRequiredException("该视频需要登录或大会员，且没有提供试看片段。");
     }
 
     private static JSONObject findBestStream(JSONArray streams, @Nullable JSONArray formats, String desiredQuality) {
@@ -130,11 +146,33 @@ public class BiliBiliVideoFetcher {
         }
         Integer targetQualityId = qualityMap.get(desiredQuality);
         if (targetQualityId != null) {
+            JSONObject bestStream = null;
+            int bestCodecScore = -1; // -1：未找到；1：AV1；2：HEVC；3：AVC（H.264）
+
             for (int i = 0; i < streams.length(); i++) {
                 JSONObject stream = streams.getJSONObject(i);
                 if (stream.getInt("id") == targetQualityId) {
-                    LOGGER.info("找到匹配的清晰度: {} (ID: {})", desiredQuality, targetQualityId);
-                    return stream;
+                    String codecs = stream.optString("codecs", "");
+                    int currentCodecScore = 0;
+
+                    if (codecs.contains("avc1")) { // H.264 是最优先的
+                        currentCodecScore = 3;
+                    } else if (codecs.contains("hev1")) { // H.265 其次
+                        currentCodecScore = 2;
+                    } else if (codecs.contains("av01")) { // AV1 优先级最低
+                        currentCodecScore = 1;
+                    }
+
+                    if (currentCodecScore > bestCodecScore) {
+                        bestStream = stream;
+                        bestCodecScore = currentCodecScore;
+                    }
+                }
+
+                if (bestStream != null) {
+                    String chosenCodec = bestCodecScore == 3 ? "H.264/AVC" : (bestCodecScore == 2 ? "H.265/HEVC" : "AV1");
+                    LOGGER.info("找到匹配清晰度 '{}' (ID: {})，并优先选择 {} 编码。", desiredQuality, targetQualityId, chosenCodec);
+                    return bestStream;
                 }
             }
         }
