@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.McediaConfig;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.io.Closeable;
@@ -22,6 +23,8 @@ public class MediaDecoder implements Closeable {
 
     private static final int MAX_VIDEO_FRAMES = 60;
     private static final int MAX_AUDIO_FRAMES = 512;
+    private static final int VIDEO_BUFFER_CAPACITY = 120; // 预缓冲120帧视频
+    private static final int AUDIO_BUFFER_CAPACITY = 1024; // 预缓冲1024帧音频
 
     // [修改] 队列现在直接存储我们自己的、内存安全的VideoFrame对象
     public final LinkedBlockingDeque<VideoFrame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
@@ -34,11 +37,18 @@ public class MediaDecoder implements Closeable {
     private volatile boolean isClosed = false;
     private volatile int runningDecoders = 0;
 
+    @Nullable
+    private VideoFramePool videoFramePool;
+
     public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration) throws FFmpegFrameGrabber.Exception {
         this.configuration = configuration;
 
         primaryGrabber = buildGrabber(info.getVideoUrl(), cookie, configuration, true);
         grabbers.add(primaryGrabber);
+
+        if (configuration.enableVideo) {
+            this.videoFramePool = new VideoFramePool(VIDEO_BUFFER_CAPACITY, 3840 * 2160 * 4);
+        }
 
         if (info.getAudioUrl() != null && !info.getAudioUrl().isEmpty()) {
             FFmpegFrameGrabber audioGrabber = buildGrabber(info.getAudioUrl(), cookie, configuration, false);
@@ -86,6 +96,7 @@ public class MediaDecoder implements Closeable {
                 boolean isAudio = frame.samples != null && configuration.enableAudio;
 
                 if (isVideo) {
+                    if (videoFramePool == null) continue;
 
                     int width = frame.imageWidth;
                     int height = frame.imageHeight;
@@ -97,7 +108,7 @@ public class MediaDecoder implements Closeable {
                     int tightStride = width * 4;
 
                     // 分配一块新的、独立的、大小正好的堆外内存
-                    ByteBuffer copiedBuffer = MemoryUtil.memAlloc(tightStride * height);
+                    ByteBuffer copiedBuffer = videoFramePool.acquire();
 
                     // 检查解码器输出的跨距是否已经合适
                     if (stride == tightStride) {
@@ -113,7 +124,7 @@ public class MediaDecoder implements Closeable {
                     copiedBuffer.rewind();
 
                     // 将这个内存安全的 VideoFrame 对象放入队列
-                    VideoFrame videoFrame = new VideoFrame(copiedBuffer, width, height, frame.timestamp);
+                    VideoFrame videoFrame = new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool);
                     videoQueue.put(videoFrame);
                 } else if (isAudio) {
                     // 对于音频，javacv的Frame.clone()是安全的，因为它会创建新的数组
