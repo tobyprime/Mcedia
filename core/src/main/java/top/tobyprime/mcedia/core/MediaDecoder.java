@@ -23,8 +23,8 @@ public class MediaDecoder implements Closeable {
 
     private static final int MAX_VIDEO_FRAMES = 120;
     private static final int MAX_AUDIO_FRAMES = 1024;
-    private static final int VIDEO_BUFFER_CAPACITY = 120; // 预缓冲120帧视频
-    private static final int AUDIO_BUFFER_CAPACITY = 1024; // 预缓冲1024帧音频
+    private static final int VIDEO_BUFFER_CAPACITY = 120;
+    private static final int AUDIO_BUFFER_CAPACITY = 1024;
 
     public final LinkedBlockingDeque<VideoFrame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
     public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>(MAX_AUDIO_FRAMES);
@@ -138,20 +138,38 @@ public class MediaDecoder implements Closeable {
 
                     // 检查解码器输出的跨距是否已经合适
                     if (stride == tightStride) {
-                        // 如果跨度一致，直接进行一次性的、最高效的内存块复制
+                        // 即使stride一致，也要检查总大小，防止FFmpeg提供的数据不足
+                        if (rawBuffer.remaining() < tightStride * height) {
+                            LOGGER.warn("视频帧数据大小不足，期望 {}，实际 {}。将截断复制。", tightStride * height, rawBuffer.remaining());
+                            rawBuffer.limit(rawBuffer.position() + Math.min(rawBuffer.remaining(), copiedBuffer.remaining()));
+                        }
                         copiedBuffer.put(rawBuffer);
                     } else {
-                        // 如果跨度不一致，采用高效的逐行 ByteBuffer 复制
                         for (int y = 0; y < height; y++) {
-                            // 设置源缓冲区的读取范围，使其精确地指向当前行的数据
-                            rawBuffer.position(y * stride);
-                            rawBuffer.limit(y * stride + tightStride);
-                            // 将这一行的数据直接复制到目标缓冲区
-                            copiedBuffer.put(rawBuffer);
+                            int rowStart = y * stride;
+
+                            if (rowStart >= rawBuffer.capacity()) {
+                                LOGGER.warn("损坏的视频帧：行起始点 {} 超出缓冲区容量 {}。", rowStart, rawBuffer.capacity());
+                                break;
+                            }
+                            if (rawBuffer.capacity() - rowStart < tightStride) {
+                                LOGGER.warn("损坏的视频帧：行数据不足。从 {} 开始，需要 {} 字节，但只有 {} 字节可用。", rowStart, tightStride, rawBuffer.capacity() - rowStart);
+                                break;
+                            }
+
+                            rawBuffer.position(rowStart);
+                            rawBuffer.limit(rowStart + tightStride);
+
+                            if (copiedBuffer.hasRemaining()) {
+                                copiedBuffer.put(rawBuffer);
+                            } else {
+                                break;
+                            }
                         }
                     }
 
                     copiedBuffer.rewind();
+                    rawBuffer.clear();
 
                     // 将这个内存安全的 VideoFrame 对象放入队列
                     VideoFrame videoFrame = new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool);

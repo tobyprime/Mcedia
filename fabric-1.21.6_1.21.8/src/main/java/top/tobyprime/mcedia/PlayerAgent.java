@@ -241,11 +241,13 @@ public class PlayerAgent {
     }
 
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping) {
-        // 在即将seek前的最后一刻，才计算时间戳
-        long durationToSeek = isLooping ? 0 : getDuration();
-        LOGGER.info("视频加载成功，将在 {} us 处开始播放。", durationToSeek);
+        Media media = player.getMedia();
+        if (media == null) {
+            LOGGER.error("视频加载成功但Media对象为空，这是一个严重错误。");
+            return;
+        }
 
-        if (shouldCacheForLoop && !cacheManager.isCached() && !cacheManager.isCaching()) {
+        if (shouldCacheForLoop && !media.isLiveStream() && !cacheManager.isCached() && !cacheManager.isCaching()) {
             cacheManager.cacheVideoAsync(videoInfo, McediaConfig.BILIBILI_COOKIE)
                     .handle((unused, cacheThrowable) -> {
                         if (cacheThrowable != null) Mcedia.msgToPlayer("§e[Mcedia] §c视频后台缓存失败。");
@@ -253,7 +255,6 @@ public class PlayerAgent {
                         return null;
                     });
         }
-        Media media = player.getMedia();
         if (media != null && texture != null && media.getWidth() > 0) {
             texture.prepareAndPrewarm(media.getWidth(), media.getHeight(), () -> this.isTextureReady.set(true));
         }
@@ -263,10 +264,17 @@ public class PlayerAgent {
             Mcedia.msgToPlayer(msg);
         }
 
-        player.play();
-        if (durationToSeek > 0) {
-            player.seek(durationToSeek);
+        if (media.isLiveStream()) {
+            LOGGER.info("直播流加载成功，直接开始播放。");
+        } else {
+            long durationToSeek = isLooping ? 0 : getDuration();
+            LOGGER.info("视频加载成功，将在 {} us 处开始播放。", durationToSeek);
+            if (durationToSeek > 0) {
+                player.seek(durationToSeek);
+            }
         }
+
+        player.play();
         player.setSpeed(speed);
         this.isLoopingInProgress = false;
     }
