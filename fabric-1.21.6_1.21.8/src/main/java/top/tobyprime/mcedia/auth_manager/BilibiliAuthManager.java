@@ -46,11 +46,11 @@ public class BilibiliAuthManager {
      */
     public void logout() {
         LOGGER.info("正在执行登出操作...");
-        // 1. 更新内存中的状态
+        // 更新内存中的状态
         this.isLoggedIn = false;
         this.username = "";
 
-        // 2. 清空配置文件中的Cookie
+        // 清空配置文件中的Cookie
         McediaConfig.saveCookie("");
 
         Mcedia.msgToPlayer("§a[Mcedia] §f已成功登出Bilibili账号。");

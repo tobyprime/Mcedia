@@ -241,7 +241,7 @@ public class PlayerAgent {
     }
 
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping) {
-        // [CRITICAL FIX] 在即将seek前的最后一刻，才计算时间戳
+        // 在即将seek前的最后一刻，才计算时间戳
         long durationToSeek = isLooping ? 0 : getDuration();
         LOGGER.info("视频加载成功，将在 {} us 处开始播放。", durationToSeek);
 

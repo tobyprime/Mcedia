@@ -34,19 +34,19 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         Minecraft.getInstance().execute(() -> {
             // 这整个 lambda 表达式现在都在渲染线程上安全执行
 
-            // 步骤 1: 调整纹理大小
+            // 调整纹理大小
             if (texture == null || texture.getWidth(0) != width || texture.getHeight(0) != height) {
                 resize(width, height);
             }
 
-            // 步骤 2: 上传“黑屏帧”以预热
+            // 上传“黑屏帧”以预热
             try (var blackFrame = VideoFrame.createBlack(width, height)) {
                 uploadInternal(blackFrame);
             } catch (Exception e) {
                 logger.error("在渲染线程上预热帧上传失败", e);
             }
 
-            // [关键] 步骤 3: 所有GPU工作已完成，执行回调，通知 PlayerAgent 可以开始渲染了
+            // 所有GPU工作已完成，执行回调，通知 PlayerAgent 可以开始渲染了
             if (onReadyCallback != null) {
                 onReadyCallback.run();
             }

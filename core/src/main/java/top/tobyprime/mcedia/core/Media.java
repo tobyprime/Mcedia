@@ -222,23 +222,23 @@ public class Media implements Closeable {
             long length = getLengthUs();
             targetUs = Math.max(0, Math.min(targetUs, length));
 
-            // 1. 发送异步seek指令到底层解码器
+            // 发送异步seek指令到底层解码器
             decoder.seek(targetUs);
 
-            // 2. [关键修复] 强制、同步地清空当前所有队列，防止播放线程消费旧数据
+            // 强制、同步地清空当前所有队列，防止播放线程消费旧数据
             decoder.audioQueue.forEach(Frame::close); // 释放内存
             decoder.audioQueue.clear();
 
             videoFrameQueue.forEach(VideoFrame::close); // 释放内存
             videoFrameQueue.clear();
 
-            // 3. 同步重置所有时钟变量到目标时间
+            // 同步重置所有时钟变量到目标时间
             baseDuration = targetUs;
             baseTime = System.currentTimeMillis();
             lastAudioPts = targetUs;
             currentPtsUs.set(targetUs);
 
-            // 4. 强制进入缓冲状态，等待新数据填充队列
+            // 强制进入缓冲状态，等待新数据填充队列
             isBuffering = true;
             LOGGER.debug("Seek 完成，队列已清空，等待数据流恢复...");
 

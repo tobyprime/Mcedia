@@ -132,13 +132,11 @@ public class MediaPlayer {
     }
     float speed = 1;
 
-    // [已修正] 此方法现在会正确调用新的Media构造函数
     private void openInternal(String inputMedia) {
         lock.lock();
         try {
             closeInternal();
             if (inputMedia == null) return;
-            // [修改] 将简单的URL字符串包装成VideoInfo对象，并为cookie和initialSeekUs提供默认值
             var newMedia = new Media(new VideoInfo(inputMedia, null), null, decoderConfiguration, 0);
             bindResourcesToMedia(newMedia);
         } finally {
