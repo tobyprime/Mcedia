@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,6 +24,14 @@ public class BiliBiliVideoFetcher {
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BiliBiliVideoFetcher.class);
     private static final int QUALITY_ID_4K = 120;
+
+    private static Supplier<Boolean> authStatusSupplier = () -> false;
+
+    public static void setAuthStatusSupplier(Supplier<Boolean> supplier) {
+        if (supplier != null) {
+            authStatusSupplier = supplier;
+        }
+    }
 
     public static VideoInfo fetch(String videoUrl, @Nullable String cookie, String desiredQuality) throws Exception {
         // 提取 BV 号
@@ -135,31 +144,51 @@ public class BiliBiliVideoFetcher {
             return null;
         }
 
+        boolean isLoggedIn = authStatusSupplier.get();
+
         // --- 自动清晰度逻辑 ---
         if ("自动".equals(desiredQuality)) {
-            if (formats == null || formats.length() == 0) {
-                LOGGER.warn("自动清晰度选择: 缺少 formats 信息，将使用 API 提供的默认最高画质。");
+            if (formats == null) {
                 return streams.getJSONObject(0);
             }
-            int bestQualityId = -1;
-            String bestQualityDescription = "N/A";
+            Map<String, Integer> availableQualityMap = new HashMap<>();
             for (int i = 0; i < formats.length(); i++) {
                 JSONObject format = formats.getJSONObject(i);
-                int currentQuality = format.getInt("quality");
-                if (currentQuality < QUALITY_ID_4K && currentQuality > bestQualityId) {
-                    bestQualityId = currentQuality;
-                    bestQualityDescription = format.getString("new_description");
-                }
+                availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
             }
-            if (bestQualityId != -1) {
-                LOGGER.info("自动清晰度选择: 找到最佳的4K以下画质为 '{}' (ID: {})", bestQualityDescription, bestQualityId);
-                JSONObject stream = findStreamByIdAndCodec(streams, bestQualityId);
-                if (stream != null) {
-                    return stream;
+            if (isLoggedIn) {
+                LOGGER.info("用户已登录，应用1080P60帧为上限的画质策略。");
+                List<String> preferredQualities = List.of(
+                        "1080P 60帧", "1080P 高码率", "1080P 高清", "1080P",
+                        "720P 60帧", "720P 高清", "720P", "高清 720P",
+                        "480P 高清", "480P", "标清 480P"
+                );
+                for (String preferred : preferredQualities) {
+                    Integer targetId = availableQualityMap.get(preferred);
+                    if (targetId != null) {
+                        JSONObject stream = findStreamByIdAndCodec(streams, targetId);
+                        if (stream != null) {
+                            LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
+                            return stream;
+                        }
+                    }
                 }
+                LOGGER.warn("自动清晰度(已登录): 未在偏好列表中找到匹配项，回退到API最高画质。");
+                return streams.getJSONObject(0);
+            } else {
+                LOGGER.info("用户未登录，尝试锁定至 360P 画质。");
+                String targetQuality = "360P 流畅";
+                Integer targetId = availableQualityMap.get(targetQuality);
+                if (targetId != null) {
+                    JSONObject stream = findStreamByIdAndCodec(streams, targetId);
+                    if (stream != null) {
+                        LOGGER.info("自动清晰度(未登录): 成功锁定到 '{}'", targetQuality);
+                        return stream;
+                    }
+                }
+                LOGGER.warn("自动清晰度(未登录): 未找到 '{}'，回退到最低画质。", targetQuality);
+                return streams.getJSONObject(streams.length() - 1);
             }
-            LOGGER.warn("自动清晰度选择: 未找到合适的4K以下画质，将使用 API 提供的默认最高画质。");
-            return streams.getJSONObject(0);
         }
 
         // --- 手动指定清晰度逻辑 ---

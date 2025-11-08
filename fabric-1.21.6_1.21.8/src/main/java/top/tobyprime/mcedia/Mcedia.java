@@ -13,6 +13,8 @@ import net.minecraft.world.level.pathfinder.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.auth_manager.BilibiliAuthManager;
+import top.tobyprime.mcedia.video_fetcher.BiliBiliVideoFetcher;
+import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 import top.tobyprime.mcedia.provider.BilibiliBangumiProvider;
@@ -58,7 +60,10 @@ public class Mcedia implements ModInitializer {
     @Override
     public void onInitialize() {
         INSTANCE = this;
-        McediaConfig.load(); // 暂时注释掉，因为你目前未使用
+        McediaConfig.load();
+        BiliBiliVideoFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
+        BilibiliBangumiFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
+        BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
         initializeProviders();
         registerCommands();
         registerEvents();
@@ -96,12 +101,15 @@ public class Mcedia implements ModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> cleanupAllAgents());
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            new Thread(() -> {
-                try {
-                    Thread.sleep(3000);
-                    BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
-                } catch (InterruptedException ignored) {}
-            }).start();
+            // 登录成功或失败的消息会在 checkCookieValidityAndNotifyPlayer 的回调中显示
+            if (!BilibiliAuthManager.getInstance().isLoggedIn()) {
+                new Thread(() -> {
+                    try {
+                        Thread.sleep(3000);
+                        Mcedia.msgToPlayer("§e[Mcedia] §f提示: 部分视频需要登录B站才能播放，请使用 §a/mcedia login");
+                    } catch (InterruptedException ignored) {}
+                }).start();
+            }
         });
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {

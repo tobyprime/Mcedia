@@ -30,15 +30,28 @@ public class BilibiliAuthManager {
     private final HttpClient httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
     private final Gson gson = new Gson();
 
+    private volatile boolean isLoggedIn = false;
+    private volatile String username = "";
+
     private BilibiliAuthManager() {}
 
     public static BilibiliAuthManager getInstance() {
         return INSTANCE;
     }
 
+    public boolean isLoggedIn() {
+        return this.isLoggedIn;
+    }
+
+    public String getUsername() {
+        return this.username;
+    }
+
     // 检查 cookie 状态
     public void checkCookieValidityAndNotifyPlayer() {
         if (McediaConfig.BILIBILI_COOKIE == null || McediaConfig.BILIBILI_COOKIE.isEmpty()) {
+            this.isLoggedIn = false;
+            this.username = "";
             return; // 没有Cookie，无需检查
         }
 
@@ -56,24 +69,31 @@ public class BilibiliAuthManager {
                         JsonObject json = gson.fromJson(body, JsonObject.class);
                         // code为0表示cookie有效，非0表示无效
                         if (json.get("code").getAsInt() != 0) {
+                            this.isLoggedIn = false;
+                            this.username = "";
                             Mcedia.msgToPlayer("§e[Mcedia] §f你的Bilibili登录已过期，请使用 §a/mcedia login §f重新登录。");
                             McediaConfig.saveCookie(""); // 清空无效的cookie
                         } else {
-                            String uname = json.getAsJsonObject("data").get("uname").getAsString();
-                            LOGGER.info("Bilibili Cookie有效，当前登录用户: {}", uname);
-                            Mcedia.msgToPlayer("§a[Mcedia] §fBilibili账号已登录: " + uname);
+                            this.isLoggedIn = true;
+                            this.username = json.getAsJsonObject("data").get("uname").getAsString();
+                            LOGGER.info("Bilibili Cookie有效，当前登录用户: {}", username);
+                            Mcedia.msgToPlayer("§a[Mcedia] §fBilibili账号已登录: " + username);
                         }
                     } catch (Exception e) {
+                        this.isLoggedIn = false;
+                        this.username = "";
                         LOGGER.error("检查Bilibili Cookie时解析响应失败", e);
                     }
                 }).exceptionally(e -> {
+                    this.isLoggedIn = false;
+                    this.username = "";
                     LOGGER.error("检查Bilibili Cookie时发生网络错误", e);
                     return null;
                 });
     }
 
     public void startLoginFlow() {
-        Mcedia.msgToPlayer("§a[Mcedia] §f正在生成PC端登录链接...");
+        Mcedia.msgToPlayer("§a[Mcedia] §f正在生成登录链接...");
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header"))
@@ -94,21 +114,19 @@ public class BilibiliAuthManager {
                                 Style style = Style.EMPTY
                                         .withClickEvent(new ClickEvent.OpenUrl(URI.create(qrUrl)))
                                         .withHoverEvent(new HoverEvent.ShowText(Component.literal("在浏览器中打开Bilibili登录页面")));
-                                Mcedia.msgToPlayer("§a[Mcedia] §f请点击以下链接，并在浏览器中用手机B站App扫描二维码：");
-                                Mcedia.msgToPlayer(Component.literal("§b§n[点我打开登录页面]").setStyle(style));
+                                Mcedia.msgToPlayer("§a[Mcedia] §f请复制该链接到手机浏览器中登录：");
+                                Mcedia.msgToPlayer(Component.literal("§b§n[点我复制链接]").setStyle(style));
 
                                 new Thread(() -> pollLoginStatus(qrcodeKey), "Mcedia-Bili-Login-Poll").start();
                             } else {
-                                Mcedia.msgToPlayer("§c[Mcedia] §f二维码生成失败: " + json.get("message").getAsString());
+                                Mcedia.msgToPlayer("§c[Mcedia] §f生成链接失败: " + json.get("message").getAsString());
                             }
                         } catch (Exception e) {
-                            LOGGER.error("Failed to parse Bilibili QR response. Body: {}", body, e);
                             Mcedia.msgToPlayer("§c[Mcedia] §f解析服务器响应失败。");
                         }
                     })
                     .exceptionally(e -> {
-                        LOGGER.error("Failed to request Bilibili QR code", e);
-                        Mcedia.msgToPlayer("§c[Mcedia] §f二维码生成时发生网络错误: " + e.getCause().getMessage());
+                        Mcedia.msgToPlayer("§c[Mcedia] §f生成链接时发生网络错误: " + e.getCause().getMessage());
                         return null;
                     });
         } catch (Exception e) {
@@ -144,12 +162,13 @@ public class BilibiliAuthManager {
                             .map(header -> header.split(";", 2)[0])
                             .collect(Collectors.joining("; "));
 
+                    this.isLoggedIn = true;
                     McediaConfig.saveCookie(fullCookie);
                     Mcedia.msgToPlayer("§a[Mcedia] §f登录成功！Cookie已自动更新。");
                     checkCookieValidityAndNotifyPlayer(); // 立即检查并显示用户名
                     return;
-                } else if (code == 86038) { // 二维码过期
-                    Mcedia.msgToPlayer("§c[Mcedia] §f二维码已过期，请重新执行 /mcedia login。");
+                } else if (code == 86038) { // 链接过期
+                    Mcedia.msgToPlayer("§c[Mcedia] §f链接已过期，请重新执行 /mcedia login。");
                     return;
                 }
 

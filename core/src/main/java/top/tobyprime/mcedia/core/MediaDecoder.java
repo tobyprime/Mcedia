@@ -26,7 +26,6 @@ public class MediaDecoder implements Closeable {
     private static final int VIDEO_BUFFER_CAPACITY = 120; // 预缓冲120帧视频
     private static final int AUDIO_BUFFER_CAPACITY = 1024; // 预缓冲1024帧音频
 
-    // 队列现在直接存储我们自己的、内存安全的VideoFrame对象
     public final LinkedBlockingDeque<VideoFrame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
     public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>(MAX_AUDIO_FRAMES);
 
@@ -184,7 +183,7 @@ public class MediaDecoder implements Closeable {
         grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
-        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "dxva2");
+        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
