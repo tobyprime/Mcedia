@@ -136,29 +136,31 @@ public class BiliBiliVideoFetcher {
 
         // --- 自动清晰度逻辑 ---
         if ("自动".equals(desiredQuality)) {
+            // 如果 formats 信息不可用，安全地回退到 API 默认提供的第一个流（通常是最高画质）
             if (formats == null || formats.length() == 0) {
+                LOGGER.warn("自动清晰度选择: 缺少 formats 信息，将使用 API 提供的默认最高画质。");
                 return streams.getJSONObject(0);
             }
-            List<String> preferredQualities = List.of(
-                    "1080P 60帧", "1080P 高码率", "1080P 高清", "1080P",
-                    "720P 60帧", "720P", "720P 准高清", "高清 720P","480P", "480P 标清","360P", "360P 流畅"
-            );
-            Map<String, Integer> availableQualityMap = new HashMap<>();
+
+            // 遍历 formats 数组，找到 quality ID 最高的对象
+            int bestQualityId = -1;
+            String bestQualityDescription = "N/A";
             for (int i = 0; i < formats.length(); i++) {
                 JSONObject format = formats.getJSONObject(i);
-                availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
-            }
-            for (String preferred : preferredQualities) {
-                Integer targetId = availableQualityMap.get(preferred);
-                if (targetId != null) {
-                    JSONObject stream = findStreamByIdAndCodec(streams, targetId);
-                    if (stream != null) {
-                        LOGGER.info("自动清晰度选择: 找到最佳匹配 '{}'", preferred);
-                        return stream;
-                    }
+                int currentQuality = format.getInt("quality");
+                if (currentQuality > bestQualityId) {
+                    bestQualityId = currentQuality;
+                    bestQualityDescription = format.getString("new_description");
                 }
             }
-            LOGGER.warn("自动清晰度选择: 未在偏好列表中找到匹配项，将使用API提供的最高画质。");
+            if (bestQualityId != -1) {
+                LOGGER.info("自动清晰度选择: API 中可用的最高画质为 '{}' (ID: {})", bestQualityDescription, bestQualityId);
+                JSONObject stream = findStreamByIdAndCodec(streams, bestQualityId);
+                if (stream != null) {
+                    return stream;
+                }
+            }
+            LOGGER.warn("自动清晰度选择: 未能在 streams 数组中找到 ID 为 {} 的流，将使用 API 提供的默认最高画质。", bestQualityId);
             return streams.getJSONObject(0);
         }
 

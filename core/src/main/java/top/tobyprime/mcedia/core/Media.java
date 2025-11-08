@@ -12,6 +12,7 @@ import top.tobyprime.mcedia.provider.VideoInfo;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentLinkedQueue; // [新增] 导入线程安全的队列
+import java.util.concurrent.atomic.AtomicLong;
 
 public class Media implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(Media.class);
@@ -29,9 +30,9 @@ public class Media implements Closeable {
     private float speed = 1;
     private boolean looping = false;
 
-    // 使用线程安全的队列来在解码线程和渲染线程之间传递视频帧
     private final ConcurrentLinkedQueue<VideoFrame> videoFrameQueue = new ConcurrentLinkedQueue<>();
 
+    private final AtomicLong currentPtsUs = new AtomicLong(0);
 
     private boolean isBuffering = true;
     private static final int AUDIO_BUFFER_TARGET = 256;
@@ -55,12 +56,14 @@ public class Media implements Closeable {
         }
 
         try {
-            // 将自己拥有的 pool 传递给 decoder
             decoder = new MediaDecoder(info, cookie, config, this.videoFramePool, initialSeekUs);
             isLiveStream = decoder.getDuration() <= 0 || Double.isInfinite(decoder.getDuration());
+            // 如果有初始跳转，将时钟设置为跳转时间
+            if (initialSeekUs > 0) {
+                currentPtsUs.set(initialSeekUs);
+            }
             LOGGER.info("检测到 {}流: {}", isLiveStream ? "直播" : "点播", info.getVideoUrl());
         } catch (FFmpegFrameGrabber.Exception e) {
-            // 如果构造失败，确保清理已创建的池
             if (this.videoFramePool != null) {
                 this.videoFramePool.close();
             }
@@ -80,7 +83,6 @@ public class Media implements Closeable {
                     Thread.sleep(10);
                     continue;
                 }
-
 
                 // 初始缓冲 或 重新缓冲
                 // 如果需要缓冲（isBuffering为true），则持续等待直到满足条件
@@ -115,9 +117,7 @@ public class Media implements Closeable {
                     continue;
                 }
 
-                if (videoFrameQueue.isEmpty() && !decoder.videoQueue.isEmpty()) {
-                    videoFrameQueue.offer(decoder.videoQueue.poll());
-                }
+                this.currentPtsUs.set(currFrame.timestamp);
 
                 // 视频帧处理逻辑
                 // 将所有时间戳小于等于当前音频帧的视频帧放入待上传队列
@@ -150,10 +150,26 @@ public class Media implements Closeable {
     }
 
     public void uploadVideo() {
-        if (paused || texture == null || videoFrameQueue.isEmpty()) return;
+        if (paused || texture == null) return;
 
-        // 直接从队列头部取出一帧来上传。不再丢弃任何帧。
-        VideoFrame frameToUpload = videoFrameQueue.poll();
+        VideoFrame frameToUpload = null;
+
+        // 丢弃所有过时的帧，只保留最接近当前音频时钟的那一帧进行渲染
+        while (!videoFrameQueue.isEmpty() && videoFrameQueue.peek().ptsUs <= this.currentPtsUs.get()) {
+            // 从队列中移除一帧
+            VideoFrame potentialFrame = videoFrameQueue.poll();
+
+            // 如果队列空了，或者下一帧的时间戳在未来，那么我们手上这帧就是最合适的
+            if (videoFrameQueue.isEmpty() || videoFrameQueue.peek().ptsUs > this.currentPtsUs.get()) {
+                frameToUpload = potentialFrame;
+                break;
+            } else {
+                // 否则，意味着还有更合适的帧（时间戳更晚，但仍然<=音频时钟），丢弃当前帧
+                if (potentialFrame != null) {
+                    potentialFrame.close();
+                }
+            }
+        }
 
         if (frameToUpload != null) {
             try {
