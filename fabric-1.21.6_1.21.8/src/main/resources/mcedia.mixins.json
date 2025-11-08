@@ -9,6 +9,7 @@
   "client": [
     "MixinArmorStandRenderer",
     "MixinArmorStandRenderState",
+    "MixinArmorStand_Removal",
     "MixinSoundEngine",
     "MixinSoundManager"
   ],

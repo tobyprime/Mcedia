@@ -6,6 +6,7 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.io.Closeable;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VideoFrame implements Closeable {
     public final int width;
@@ -16,6 +17,8 @@ public class VideoFrame implements Closeable {
 
     @Nullable
     private final VideoFramePool pool;
+
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
 
     public VideoFrame(ByteBuffer buffer, int width, int height, long ptsUs, @Nullable VideoFramePool pool) {
         this.buffer = buffer;

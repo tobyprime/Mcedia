@@ -1,14 +1,17 @@
 package top.tobyprime.mcedia;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientWorldEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.SoundEngineExecutor;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.level.pathfinder.Path;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.auth_manager.BilibiliAuthManager;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
@@ -16,24 +19,33 @@ import top.tobyprime.mcedia.provider.BilibiliBangumiProvider;
 import top.tobyprime.mcedia.provider.BilibiliLiveProvider;
 import top.tobyprime.mcedia.provider.BilibiliVideoProvider;
 import top.tobyprime.mcedia.provider.MediaProviderRegistry;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Stream;
 
 public class Mcedia implements ModInitializer {
+    public static final Logger LOGGER = LoggerFactory.getLogger(Mcedia.class);
     private static final int MAX_PLAYER_COUNT = 5;
+    private static final java.nio.file.Path CACHE_DIR = new File(Minecraft.getInstance().gameDirectory, "mcedia_cache").toPath();
 
     private static Mcedia INSTANCE;
-    private final ConcurrentHashMap<Entity, PlayerAgent> entityToPlayer = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ArmorStand, PlayerAgent> entityToPlayer = new ConcurrentHashMap<>();
     private final Queue<ArmorStand> pendingAgents = new ConcurrentLinkedQueue<>();
 
     public static Mcedia getInstance() {
         return INSTANCE;
     }
 
-    public ConcurrentHashMap<Entity, PlayerAgent> getEntityToPlayerMap() {
+    public static java.nio.file.Path getCacheDirectory() {
+        return CACHE_DIR;
+    }
+
+    public ConcurrentHashMap<ArmorStand, PlayerAgent> getEntityToPlayerMap() {
         return entityToPlayer;
     }
 
@@ -43,50 +55,13 @@ public class Mcedia implements ModInitializer {
         return engine.mcdia$getExecutor();
     }
 
-    private void clearMap() {
-        for (var entry : entityToPlayer.entrySet()) {
-            entry.getValue().close();
-            entityToPlayer.remove(entry.getKey());
-        }
-    }
-
     @Override
     public void onInitialize() {
         INSTANCE = this;
-
-        McediaConfig.load();
-
+        McediaConfig.load(); // 暂时注释掉，因为你目前未使用
         initializeProviders();
-
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            processPendingAgents();
-            for (var pair : entityToPlayer.entrySet()) {
-                if (pair.getKey().isRemoved()) {
-                    pair.getValue().close();
-                    entityToPlayer.remove(pair.getKey());
-                    return;
-                }
-                pair.getValue().tick();
-            }
-        });
-
-        ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((mc, level) -> clearMap());
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> clearMap());
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            // 一个小的延迟，确保聊天框已经完全准备好接收消息
-            new Thread(() -> {
-                try {
-                    Thread.sleep(3000); // 延迟3秒
-                    BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
-                } catch (InterruptedException e) {
-                    // ignore
-                }
-            }).start();
-        });
-
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
-            CommandLogin.register(dispatcher);
-        });
+        registerCommands();
+        registerEvents();
     }
 
     private void initializeProviders() {
@@ -96,11 +71,67 @@ public class Mcedia implements ModInitializer {
         registry.register(new BilibiliLiveProvider());
     }
 
+    private void registerCommands() {
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            CommandLogin.register(dispatcher);
+        });
+    }
+
+    private void registerEvents() {
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (client.level == null) return;
+
+            processPendingAgents();
+
+            // 只负责 tick 存活的 agent。清理工作已移交给 Mixin 和 disconnect 事件。
+            for (PlayerAgent agent : entityToPlayer.values()) {
+                if (agent.getEntity().isRemoved()) {
+                    removePlayerAgent(agent.getEntity());
+                } else {
+                    agent.tick();
+                }
+            }
+        });
+
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> cleanupAllAgents());
+
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            new Thread(() -> {
+                try {
+                    Thread.sleep(3000);
+                    BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
+                } catch (InterruptedException ignored) {}
+            }).start();
+        });
+
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            cleanupCacheDirectory();
+        });
+    }
+
+    private void cleanupCacheDirectory() {
+        LOGGER.info("正在清理 Mcedia 缓存目录...");
+        if (java.nio.file.Files.isDirectory(CACHE_DIR)) {
+            try (Stream<java.nio.file.Path> files = java.nio.file.Files.list(CACHE_DIR)) {
+                files.forEach(file -> {
+                    try {
+                        java.nio.file.Files.delete(file);
+                    } catch (IOException e) {
+                        LOGGER.warn("删除缓存文件失败: {}", file, e);
+                    }
+                });
+                LOGGER.info("Mcedia 缓存目录已清理。");
+            } catch (IOException e) {
+                LOGGER.error("无法列出缓存目录中的文件", e);
+            }
+        }
+    }
+
     private void processPendingAgents() {
         ArmorStand entity;
         while ((entity = pendingAgents.poll()) != null) {
             if (!entity.isRemoved() && !entityToPlayer.containsKey(entity)) {
-                if (getEntityToPlayerMap().size() >= MAX_PLAYER_COUNT) {
+                if (entityToPlayer.size() >= MAX_PLAYER_COUNT) {
                     return;
                 }
                 PlayerAgent agent = new PlayerAgent(entity);
@@ -117,6 +148,31 @@ public class Mcedia implements ModInitializer {
         }
     }
 
+    /**
+     * 安全地关闭并移除与指定盔甲架关联的 PlayerAgent。
+     * 这个方法由 MixinArmorStand_Removal 调用。
+     * @param entity 即将被移除的盔甲架实体
+     */
+    public void removePlayerAgent(ArmorStand entity) {
+        PlayerAgent agent = this.entityToPlayer.remove(entity);
+        if (agent != null) {
+            LOGGER.info("通过移除事件清理 Mcedia Player 实例，位于 {}", entity.position());
+            agent.closeSync();
+        }
+    }
+
+    /**
+     * 清理所有活动的 PlayerAgent 实例，通常在退出世界时调用。
+     */
+    private void cleanupAllAgents() {
+        LOGGER.info("正在清理所有 Mcedia Player 实例...");
+        for (PlayerAgent agent : this.entityToPlayer.values()) {
+            agent.closeSync();
+        }
+        this.entityToPlayer.clear();
+        LOGGER.info("所有 Mcedia Player 实例已清理完毕。");
+    }
+
     public static void msgToPlayer(String msg) {
         var player = Minecraft.getInstance().player;
         if (player != null) {
@@ -127,7 +183,6 @@ public class Mcedia implements ModInitializer {
     public static void msgToPlayer(Component component) {
         var player = Minecraft.getInstance().player;
         if (player != null) {
-            // displayClientMessage 方法原生就支持 Component
             player.displayClientMessage(component, false);
         }
     }

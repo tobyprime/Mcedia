@@ -25,11 +25,8 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.core.AudioSource;
+import top.tobyprime.mcedia.core.*;
 import top.tobyprime.mcedia.BilibiliAuthRequiredException;
-import top.tobyprime.mcedia.core.DecoderConfiguration;
-import top.tobyprime.mcedia.core.Media;
-import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.provider.MediaProviderRegistry;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
@@ -45,6 +42,7 @@ public class PlayerAgent {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
 
+    private static final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+)");
     private final ArmorStand entity;
     public String playingUrl;
     private ItemStack preOffHandItemStack = ItemStack.EMPTY;
@@ -55,6 +53,8 @@ public class PlayerAgent {
     private float audioMaxVolume = 5f;
 
     private final MediaPlayer player;
+    private final VideoCacheManager cacheManager;
+    private boolean shouldCacheForLoop = false;
     private final AudioSource audioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
     @Nullable
     private VideoTexture texture = null;
@@ -75,6 +75,7 @@ public class PlayerAgent {
     public PlayerAgent(ArmorStand entity) {
         LOGGER.info("在 {} 注册了一个 Mcedia Player 实例", entity.position());
         this.entity = entity;
+        this.cacheManager = new VideoCacheManager(Mcedia.getCacheDirectory());
         player = new MediaPlayer();
         player.setDecoderConfiguration(new DecoderConfiguration(new DecoderConfiguration.Builder()));
         player.bindAudioSource(audioSource);
@@ -115,21 +116,26 @@ public class PlayerAgent {
                 return;
             }
             this.inputContent = firstPageContent;
+
             if (firstPageContent == null || firstPageContent.isBlank()) {
                 open(null);
                 return;
             }
-            var args = firstPageContent.split("\n");
-            var url = args[0].trim();
-            if (!url.toLowerCase().startsWith("http")) {
-                LOGGER.warn("无效的输入URL: '{}'，将停止播放。", url);
-                open(null);
-                return;
+
+            // 使用正则表达式从页面内容中提取链接
+            Matcher matcher = URL_PATTERN.matcher(firstPageContent);
+            if (matcher.find()) {
+                String url = matcher.group(1); // 获取第一个匹配到的链接
+                if (!Objects.equals(url, playingUrl)) {
+                    open(url);
+                }
+            } else {
+                // 如果第一页找不到任何链接，并且之前正在播放，则停止播放
+                if (playingUrl != null) {
+                    LOGGER.warn("在书中未找到有效链接，将停止播放。");
+                    open(null);
+                }
             }
-            if (Objects.equals(url, playingUrl)) {
-                return;
-            }
-            open(url);
         } catch (Exception e) {
             LOGGER.error("Failed to update input URL", e);
         }
@@ -200,7 +206,16 @@ public class PlayerAgent {
     }
 
     public void updateOther(String flags) {
-        this.player.setLooping(flags.contains("looping"));
+        boolean looping = flags.contains("looping");
+        this.player.setLooping(looping);
+
+        this.shouldCacheForLoop = looping && McediaConfig.CACHING_ENABLED; // 只有开启循环时，我们才启用缓存
+
+        // 如果关闭了循环，但之前有缓存，则清理掉
+        if (!looping && cacheManager.isCached()) {
+            LOGGER.info("循环模式已关闭，正在清理视频缓存...");
+            cacheManager.cleanup();
+        }
     }
 
     public void updateOffset(String offset) {
@@ -289,7 +304,7 @@ public class PlayerAgent {
         update();
 
         Media currentMedia = player.getMedia();
-        if (currentMedia != null && !currentMedia.isLiveStream() && currentMedia.isEnded()) {
+        if (currentMedia != null && currentMedia.isEnded()) {
             // 检查是否需要循环，并确保没有正在进行的循环操作
             if (player.looping && !this.isLoopingInProgress) {
                 // 设置标志位，防止重复触发
@@ -413,6 +428,8 @@ public class PlayerAgent {
             return;
         }
 
+        cacheManager.cleanup();
+
         this.timestampFromUrlUs = 0;
         if (mediaUrl != null) {
             Pattern pattern = Pattern.compile("[?&]t=([^&]+)");
@@ -426,26 +443,52 @@ public class PlayerAgent {
 
         playingUrl = mediaUrl;
         this.isLoopingInProgress = false;
-        startPlayback(false);
+        startPlayback(false); // 第一次播放总是非循环状态
     }
 
     private void startPlayback(boolean isLooping) {
+        if (isLooping && McediaConfig.CACHING_ENABLED && cacheManager.isCaching()) {
+            if (isLooping && McediaConfig.CACHING_ENABLED && cacheManager.isCached()) {
+                LOGGER.info("正在从缓存循环播放...");
+                VideoInfo cachedInfo = cacheManager.getCachedVideoInfo();
+                if (cachedInfo != null) {
+                    player.closeSync();
+                    player.openSync(cachedInfo, null);
+                    player.play();
+                    player.setSpeed(speed);
+                    this.isLoopingInProgress = false;
+                    return;
+                } else {
+                    LOGGER.warn("缓存文件丢失，将重新从网络加载。");
+                    cacheManager.cleanup(); // 清理无效的缓存状态
+                }
+            } else if (cacheManager.isCaching()) {
+                // 如果正在缓存中，则本次循环也从网络加载，不打断缓存
+                LOGGER.info("视频仍在后台缓存中，本次循环将从网络加载...");
+                // 此处不return，会继续执行下面的网络加载流程
+            }
+        }
+
         if (playingUrl == null) {
             close();
             return;
         }
 
+        // 开始新的播放前必须先关闭并清理旧的播放实例！
+        player.closeAsync(); // 使用同步关闭确保资源被完全释放
+
         long duration = isLooping ? 0 : getDuration();
-        LOGGER.info(isLooping ? "Looping playback..." : "准备播放 {}，清晰度: {}，起始时间: {} us", playingUrl, desiredQuality, duration);
+        LOGGER.info(isLooping ? "正在重新加载以进行循环..." : "准备播放 {}，清晰度: {}，起始时间: {} us", playingUrl, desiredQuality, duration);
 
         final String finalMediaUrl = playingUrl;
+
         CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(() -> {
             try {
                 return MediaProviderRegistry.getInstance().resolve(finalMediaUrl, McediaConfig.BILIBILI_COOKIE, this.desiredQuality);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
-        }, () -> McediaConfig.BILIBILI_COOKIE);
+        }, () -> McediaConfig.BILIBILI_COOKIE, duration);
 
         videoInfoFuture.handle((videoInfo, throwable) -> {
             if (throwable != null) {
@@ -463,7 +506,34 @@ public class PlayerAgent {
                 }
                 this.isLoopingInProgress = false;
             } else {
+
+                if (shouldCacheForLoop && !cacheManager.isCached() && !cacheManager.isCaching()) {
+                    LOGGER.info("正在为循环播放在后台缓存视频...");
+                    Mcedia.msgToPlayer("§e[Mcedia] §f正在为循环播放在后台缓存视频...");
+
+                    cacheManager.cacheVideoAsync(videoInfo, McediaConfig.BILIBILI_COOKIE)
+                            .handle((unused, cacheThrowable) -> {
+                                if (cacheThrowable != null) {
+                                    LOGGER.warn("后台缓存视频失败", cacheThrowable.getCause());
+                                    Mcedia.msgToPlayer("§e[Mcedia] §c视频后台缓存失败，下次循环将重试。");
+                                } else {
+                                    LOGGER.info("后台缓存成功。");
+                                    Mcedia.msgToPlayer("§a[Mcedia] §f视频已成功缓存，下次循环将从本地播放。");
+                                }
+                                return null;
+                            });
+                }
+
                 // 播放成功
+                if (shouldCacheForLoop && !cacheManager.isCached()) {
+                    LOGGER.info("正在为循环播放在后台缓存视频...");
+                    cacheManager.cacheVideoAsync(videoInfo, McediaConfig.BILIBILI_COOKIE)
+                            .exceptionally(ex -> {
+                                LOGGER.warn("后台缓存失败", ex);
+                                return null;
+                            });
+                }
+
                 if (!isLooping) {
                     Style clickableStyle = Style.EMPTY
                             .withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)))
@@ -474,10 +544,10 @@ public class PlayerAgent {
                             .append(Component.literal(videoInfo.getAuthor()).withStyle(clickableStyle.withColor(ChatFormatting.AQUA)));
                     Mcedia.msgToPlayer(message);
                 }
-                if (duration > 100_000L) { // 100_000 us = 100 ms
-                    LOGGER.info("检测到非零起始时间，正在移动到 {} us", duration);
-                    player.seek(duration);
-                }
+//                if (duration > 100_000L) {
+//                    LOGGER.info("检测到非零起始时间，正在设置初始跳转到 {} us", duration);
+//                    player.setInitialSeek(duration); // 不再调用 player.seek()
+//                }
                 player.play();
                 player.setSpeed(speed);
 
@@ -497,12 +567,18 @@ public class PlayerAgent {
     public void close() {
         playingUrl = null;
         isLoopingInProgress = false;
+        cacheManager.cleanup();
         player.closeAsync();
     }
 
     public void closeSync() {
         playingUrl = null;
         isLoopingInProgress = false;
+        cacheManager.cleanup();
         player.closeSync();
+    }
+
+    public ArmorStand getEntity() {
+        return this.entity;
     }
 }

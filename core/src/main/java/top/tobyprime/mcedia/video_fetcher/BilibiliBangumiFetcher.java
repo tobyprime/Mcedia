@@ -13,6 +13,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -137,7 +138,37 @@ public class BilibiliBangumiFetcher {
         if (streams == null || streams.length() == 0) {
             return null;
         }
-        if ("自动".equals(desiredQuality) || formats == null || formats.length() == 0) {
+
+        // --- 自动清晰度逻辑 ---
+        if ("自动".equals(desiredQuality)) {
+            if (formats == null || formats.length() == 0) {
+                return streams.getJSONObject(0);
+            }
+            List<String> preferredQualities = List.of(
+                    "1080P 60帧", "1080P 高码率", "1080P 高清", "1080P",
+                    "720P 60帧", "720P", "720P 准高清", "高清 720P","480P", "480P 标清","360P", "360P 流畅"
+            );
+            Map<String, Integer> availableQualityMap = new HashMap<>();
+            for (int i = 0; i < formats.length(); i++) {
+                JSONObject format = formats.getJSONObject(i);
+                availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
+            }
+            for (String preferred : preferredQualities) {
+                Integer targetId = availableQualityMap.get(preferred);
+                if (targetId != null) {
+                    JSONObject stream = findStreamByIdAndCodec(streams, targetId);
+                    if (stream != null) {
+                        LOGGER.info("自动清晰度选择: 找到最佳匹配 '{}'", preferred);
+                        return stream;
+                    }
+                }
+            }
+            LOGGER.warn("自动清晰度选择: 未在偏好列表中找到匹配项，将使用API提供的最高画质。");
+            return streams.getJSONObject(0);
+        }
+
+        // --- 手动指定清晰度逻辑 ---
+        if (formats == null || formats.length() == 0) {
             return streams.getJSONObject(0);
         }
         Map<String, Integer> qualityMap = new HashMap<>();
@@ -147,37 +178,37 @@ public class BilibiliBangumiFetcher {
         }
         Integer targetQualityId = qualityMap.get(desiredQuality);
         if (targetQualityId != null) {
-            JSONObject bestStream = null;
-            int bestCodecScore = -1; // -1：未找到；1：AV1；2：HEVC；3：AVC（H.264）
+            JSONObject stream = findStreamByIdAndCodec(streams, targetQualityId);
+            if (stream != null) {
+                return stream;
+            }
+        }
 
-            for (int i = 0; i < streams.length(); i++) {
-                JSONObject stream = streams.getJSONObject(i);
-                if (stream.getInt("id") == targetQualityId) {
-                    String codecs = stream.optString("codecs", "");
-                    int currentCodecScore = 0;
+        LOGGER.warn("未找到指定的清晰度 '{}'，将使用最高可用清晰度。", desiredQuality);
+        return streams.getJSONObject(0);
+    }
 
-                    if (codecs.contains("avc1")) { // H.264 是最优先的
-                        currentCodecScore = 3;
-                    } else if (codecs.contains("hev1")) { // H.265 其次
-                        currentCodecScore = 2;
-                    } else if (codecs.contains("av01")) { // AV1 优先级最低
-                        currentCodecScore = 1;
-                    }
+    // [新增] 辅助方法，用于根据ID查找流并选择最佳编码
+    private static JSONObject findStreamByIdAndCodec(JSONArray streams, int targetId) {
+        JSONObject bestStream = null;
+        int bestCodecScore = -1; // -1: 未找到, 1: AV1, 2: HEVC, 3: AVC (H.264)
 
-                    if (currentCodecScore > bestCodecScore) {
-                        bestStream = stream;
-                        bestCodecScore = currentCodecScore;
-                    }
-                }
+        for (int i = 0; i < streams.length(); i++) {
+            JSONObject stream = streams.getJSONObject(i);
+            if (stream.getInt("id") == targetId) {
+                String codecs = stream.optString("codecs", "");
+                int currentCodecScore = 0;
+                if (codecs.contains("avc1")) currentCodecScore = 3;
+                else if (codecs.contains("hev1")) currentCodecScore = 2;
+                else if (codecs.contains("av01")) currentCodecScore = 1;
+                else currentCodecScore = 0; // 未知编码
 
-                if (bestStream != null) {
-                    String chosenCodec = bestCodecScore == 3 ? "H.264/AVC" : (bestCodecScore == 2 ? "H.265/HEVC" : "AV1");
-                    LOGGER.info("找到匹配清晰度 '{}' (ID: {})，并优先选择 {} 编码。", desiredQuality, targetQualityId, chosenCodec);
-                    return bestStream;
+                if (currentCodecScore > bestCodecScore) {
+                    bestStream = stream;
+                    bestCodecScore = currentCodecScore;
                 }
             }
         }
-        LOGGER.warn("未找到清晰度 '{}'，将使用最高可用清晰度。", desiredQuality);
-        return streams.getJSONObject(0);
+        return bestStream;
     }
 }

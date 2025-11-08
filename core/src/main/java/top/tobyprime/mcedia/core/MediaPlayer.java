@@ -99,12 +99,29 @@ public class MediaPlayer {
         return CompletableFuture.runAsync(() -> openInternal(inputMediaSupplier.get()), executor);
     }
 
-    public CompletableFuture<VideoInfo> openAsyncWithVideoInfo(Supplier<VideoInfo> videoInfoSupplier, @Nullable Supplier<String> cookieSupplier) {
+    public void openSync(VideoInfo info, @Nullable String cookie) {
+        openSync(info, cookie, 0);
+    }
+
+    public void openSync(VideoInfo info, @Nullable String cookie, long initialSeekUs) {
+        lock.lock();
+        try {
+            closeInternal();
+            if (info == null) return;
+            // 调用新的 Media 构造函数
+            var newMedia = new Media(info, cookie, decoderConfiguration, initialSeekUs);
+            bindResourcesToMedia(newMedia);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public CompletableFuture<VideoInfo> openAsyncWithVideoInfo(Supplier<VideoInfo> videoInfoSupplier, @Nullable Supplier<String> cookieSupplier, long initialSeekUs) {
         return CompletableFuture.supplyAsync(() -> {
             // supplyAsync 需要一个返回值
             VideoInfo info = videoInfoSupplier.get();
             String cookie = (cookieSupplier != null) ? cookieSupplier.get() : null;
-            openInternal(info, cookie);
+            openInternal(info, cookie, initialSeekUs);
             return info; // 将解析到的 VideoInfo 返回给 CompletableFuture
         }, executor);
     }
@@ -132,12 +149,12 @@ public class MediaPlayer {
         }
     }
 
-    private void openInternal(VideoInfo info, @Nullable String cookie) {
+    private void openInternal(VideoInfo info, @Nullable String cookie, long initialSeekUs) {
         lock.lock();
         try {
             closeInternal();
             if (info == null) return;
-            var newMedia = new Media(info, cookie, decoderConfiguration);
+            var newMedia = new Media(info, cookie, decoderConfiguration, initialSeekUs);
             bindResourcesToMedia(newMedia);
         } finally {
             lock.unlock();
