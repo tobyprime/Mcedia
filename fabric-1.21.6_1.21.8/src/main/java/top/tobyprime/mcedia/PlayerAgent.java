@@ -305,20 +305,20 @@ public class PlayerAgent {
         audioSource.setPos(((float) state.x + audioOffsetRotated.x), ((float) state.y + audioOffsetRotated.y), ((float) state.z + audioOffsetRotated.z));
 
         poseStack.pushPose();
-        poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
-        poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.x()), (float) Math.toRadians(-state.headPose.y()), (float) Math.toRadians(-state.headPose.z())));
-        poseStack.translate(offsetX, offsetY + 1.02 * state.scale, offsetZ + 0.6 * state.scale);
-        poseStack.scale(size, size, size);
-        renderScreen(poseStack, bufferSource, i);
-        renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
-        poseStack.popPose();
-        renderScreen(poseStack, bufferSource, i);
+        try {
+            poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
+            poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.headPose.x()), (float) Math.toRadians(-state.headPose.y()), (float) Math.toRadians(-state.headPose.z())));
+            poseStack.translate(offsetX, offsetY + 1.02 * state.scale, offsetZ + 0.6 * state.scale);
+            poseStack.scale(size, size, size);
 
-        if (player.getMedia() != null && this.isTextureReady.get()) {
-            renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
+            renderScreen(poseStack, bufferSource, i);
+
+            if (player.getMedia() != null && this.isTextureReady.get()) {
+                renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
+            }
+        } finally {
+            poseStack.popPose();
         }
-
-        poseStack.popPose();
     }
 
     private void renderScreen(PoseStack poseStack, MultiBufferSource bufferSource, int i) {
