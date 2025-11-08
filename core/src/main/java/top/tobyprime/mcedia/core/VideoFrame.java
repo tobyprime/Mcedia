@@ -33,6 +33,19 @@ public class VideoFrame implements Closeable {
         this(buffer, width, height, ptsUs, null);
     }
 
+    /**
+     * [新增] 创建一个用于预热 GPU 渲染管线的全黑视频帧
+     * @param width 视频宽度
+     * @param height 视频高度
+     * @return 一个新的 VideoFrame 实例，其 ByteBuffer 需要手动管理（例如通过 try-with-resources）
+     */
+    public static VideoFrame createBlack(int width, int height) {
+        // 分配一块新的堆外内存，默认填充为0（即黑色 RGBA(0,0,0,0)）
+        ByteBuffer blackBuffer = MemoryUtil.memAlloc(width * height * 4);
+        // 因为没有池，所以 pool 参数传 null
+        return new VideoFrame(blackBuffer, width, height, -1L, null);
+    }
+
     @Override
     public String toString() {
         return "VideoFrame{" +

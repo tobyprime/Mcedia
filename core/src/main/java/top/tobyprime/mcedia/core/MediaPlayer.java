@@ -78,10 +78,6 @@ public class MediaPlayer {
         }, executor);
     }
 
-    /**
-     * 同步关闭。此方法会阻塞，直到所有资源被释放。
-     * 主要用于游戏退出等需要确保清理完成的场景。
-     */
     public void closeSync() {
         lock.lock();
         try {
@@ -118,11 +114,10 @@ public class MediaPlayer {
 
     public CompletableFuture<VideoInfo> openAsyncWithVideoInfo(Supplier<VideoInfo> videoInfoSupplier, @Nullable Supplier<String> cookieSupplier, long initialSeekUs) {
         return CompletableFuture.supplyAsync(() -> {
-            // supplyAsync 需要一个返回值
             VideoInfo info = videoInfoSupplier.get();
             String cookie = (cookieSupplier != null) ? cookieSupplier.get() : null;
             openInternal(info, cookie, initialSeekUs);
-            return info; // 将解析到的 VideoInfo 返回给 CompletableFuture
+            return info;
         }, executor);
     }
 
@@ -137,12 +132,14 @@ public class MediaPlayer {
     }
     float speed = 1;
 
+    // [已修正] 此方法现在会正确调用新的Media构造函数
     private void openInternal(String inputMedia) {
         lock.lock();
         try {
             closeInternal();
             if (inputMedia == null) return;
-            var newMedia = new Media(inputMedia, decoderConfiguration);
+            // [修改] 将简单的URL字符串包装成VideoInfo对象，并为cookie和initialSeekUs提供默认值
+            var newMedia = new Media(new VideoInfo(inputMedia, null), null, decoderConfiguration, 0);
             bindResourcesToMedia(newMedia);
         } finally {
             lock.unlock();
@@ -175,5 +172,5 @@ public class MediaPlayer {
 
     public synchronized void setSpeed(float speed) { this.speed = speed; if (media != null) media.setSpeed(speed); }
     public synchronized void setLooping(boolean looping) { this.looping = looping; if (media != null) media.setLooping(looping); }
-    public synchronized float getProgress() { if (media != null && media.getLengthUs() > 0) { return (float) media.getDurationUs() / media.getLengthUs(); } return 0; }
+    public synchronized float getProgress() { if (media != null && media.getLengthUs() > 0) { return (float) (getMedia().getDurationUs() / (double) getMedia().getLengthUs()); } return 0; }
 }

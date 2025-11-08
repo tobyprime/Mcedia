@@ -106,7 +106,7 @@ public class Mcedia implements ModInitializer {
                 new Thread(() -> {
                     try {
                         Thread.sleep(3000);
-                        Mcedia.msgToPlayer("§e[Mcedia] §f提示: 部分视频需要登录B站才能播放，请使用 §a/mcedia login");
+                        Mcedia.msgToPlayer("§e[Mcedia] §f提示: 部分视频需要登录B站才能播放，可以请使用 §a/mcedia login");
                     } catch (InterruptedException ignored) {}
                 }).start();
             }

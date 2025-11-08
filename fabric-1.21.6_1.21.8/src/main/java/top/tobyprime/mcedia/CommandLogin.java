@@ -32,7 +32,7 @@ public class CommandLogin {
                 // `/mcedia logout` 指令
                 .then(ClientCommandManager.literal("logout")
                         .executes(context -> {
-                            McediaConfig.saveCookie(""); // 清空Cookie并保存
+                            BilibiliAuthManager.getInstance().logout();
                             Mcedia.msgToPlayer("§a[Mcedia] §f好耶！成功退出登录惹。");
                             return 1;
                         })

@@ -12,17 +12,11 @@ import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.McediaConfig;
 
 import java.net.URI;
-import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
-
-import static com.mojang.datafixers.kinds.IdF.create;
 
 public class BilibiliAuthManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliAuthManager.class);
@@ -47,6 +41,21 @@ public class BilibiliAuthManager {
         return this.username;
     }
 
+    /**
+     * [新增] 登出方法，同步更新内存和配置文件
+     */
+    public void logout() {
+        LOGGER.info("正在执行登出操作...");
+        // 1. 更新内存中的状态
+        this.isLoggedIn = false;
+        this.username = "";
+
+        // 2. 清空配置文件中的Cookie
+        McediaConfig.saveCookie("");
+
+        Mcedia.msgToPlayer("§a[Mcedia] §f已成功登出Bilibili账号。");
+    }
+
     // 检查 cookie 状态
     public void checkCookieValidityAndNotifyPlayer() {
         if (McediaConfig.BILIBILI_COOKIE == null || McediaConfig.BILIBILI_COOKIE.isEmpty()) {
@@ -67,12 +76,11 @@ public class BilibiliAuthManager {
                 .thenAccept(body -> {
                     try {
                         JsonObject json = gson.fromJson(body, JsonObject.class);
-                        // code为0表示cookie有效，非0表示无效
                         if (json.get("code").getAsInt() != 0) {
                             this.isLoggedIn = false;
                             this.username = "";
                             Mcedia.msgToPlayer("§e[Mcedia] §f你的Bilibili登录已过期，请使用 §a/mcedia login §f重新登录。");
-                            McediaConfig.saveCookie(""); // 清空无效的cookie
+                            McediaConfig.saveCookie("");
                         } else {
                             this.isLoggedIn = true;
                             this.username = json.getAsJsonObject("data").get("uname").getAsString();
@@ -150,22 +158,19 @@ public class BilibiliAuthManager {
                 int code = data.get("code").getAsInt();
 
                 if (code == 0) { // 登录成功
-                    // 从HTTP响应头中获取完整Cookie
                     List<String> cookieHeaders = response.headers().allValues("Set-Cookie");
                     if (cookieHeaders.isEmpty()) {
                         Mcedia.msgToPlayer("§c[Mcedia] §f登录成功，但未能获取到Cookie，请重试。");
                         return;
                     }
 
-                    // 将所有Set-Cookie头中的cookie值（分号前的部分）拼接起来
                     String fullCookie = cookieHeaders.stream()
                             .map(header -> header.split(";", 2)[0])
                             .collect(Collectors.joining("; "));
 
-                    this.isLoggedIn = true;
                     McediaConfig.saveCookie(fullCookie);
                     Mcedia.msgToPlayer("§a[Mcedia] §f登录成功！Cookie已自动更新。");
-                    checkCookieValidityAndNotifyPlayer(); // 立即检查并显示用户名
+                    checkCookieValidityAndNotifyPlayer();
                     return;
                 } else if (code == 86038) { // 链接过期
                     Mcedia.msgToPlayer("§c[Mcedia] §f链接已过期，请重新执行 /mcedia login。");

@@ -11,46 +11,39 @@ import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.io.Closeable;
 import java.util.ArrayList;
-import java.util.concurrent.ConcurrentLinkedQueue; // [新增] 导入线程安全的队列
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class Media implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(Media.class);
 
-    private MediaDecoder decoder;
-    private Thread audioThread;
+    private final MediaDecoder decoder;
+    private final Thread audioThread;
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
-    @Nullable
-    private ITexture texture;
-    @Nullable
-    private VideoFramePool videoFramePool;
+    @Nullable private ITexture texture;
+    @Nullable private final VideoFramePool videoFramePool;
 
-    private boolean paused = true;
+    private volatile boolean paused = true;
     private boolean isLiveStream = false;
     private float speed = 1;
     private boolean looping = false;
+    private volatile boolean isBuffering = true;
+
+    private long baseTime;
+    private long baseDuration;
+    private long lastAudioPts = -1;
 
     private final ConcurrentLinkedQueue<VideoFrame> videoFrameQueue = new ConcurrentLinkedQueue<>();
-
     private final AtomicLong currentPtsUs = new AtomicLong(0);
 
-    private boolean isBuffering = true;
     private static final int AUDIO_BUFFER_TARGET = 512;
     private static final int VIDEO_BUFFER_TARGET = 90;
     private static final int VIDEO_BUFFER_LOW_WATERMARK = 42;
 
-    public Media(String url, DecoderConfiguration config) {
-        this(new VideoInfo(url, null), null, config, 0);
-    }
-
-    public Media(VideoInfo info, DecoderConfiguration config) {
-        this(info, null, config, 0);
-    }
 
     public Media(VideoInfo info, @Nullable String cookie, DecoderConfiguration config, long initialSeekUs) {
-        // 只有需要视频时才创建内存池
         if (config.enableVideo) {
-            this.videoFramePool = new VideoFramePool(120, 3840 * 2160 * 4); // 使用硬编码值
+            this.videoFramePool = new VideoFramePool(120, 3840 * 2160 * 4);
         } else {
             this.videoFramePool = null;
         }
@@ -58,10 +51,13 @@ public class Media implements Closeable {
         try {
             decoder = new MediaDecoder(info, cookie, config, this.videoFramePool, initialSeekUs);
             isLiveStream = decoder.getDuration() <= 0 || Double.isInfinite(decoder.getDuration());
-            // 如果有初始跳转，将时钟设置为跳转时间
-            if (initialSeekUs > 0) {
-                currentPtsUs.set(initialSeekUs);
+
+            if (initialSeekUs > 0 && !isLiveStream) {
+                this.baseDuration = initialSeekUs;
+                this.lastAudioPts = initialSeekUs;
+                this.currentPtsUs.set(initialSeekUs);
             }
+
             LOGGER.info("检测到 {}流: {}", isLiveStream ? "直播" : "点播", info.getVideoUrl());
         } catch (FFmpegFrameGrabber.Exception e) {
             if (this.videoFramePool != null) {
@@ -84,24 +80,19 @@ public class Media implements Closeable {
                     continue;
                 }
 
-                // 初始缓冲 或 重新缓冲
-                // 如果需要缓冲（isBuffering为true），则持续等待直到满足条件
                 if (isBuffering) {
-                    // 缓冲完成的条件：解码结束，或者音视频队列都超过目标的一半
                     boolean hasEnoughBuffer = decoder.isEof() ||
                             (decoder.audioQueue.size() > AUDIO_BUFFER_TARGET / 2 && decoder.videoQueue.size() > VIDEO_BUFFER_TARGET / 2);
                     if (hasEnoughBuffer) {
-                        isBuffering = false; // 退出缓冲状态
-                        nextPlayTime = System.nanoTime(); // 重置播放时钟
+                        isBuffering = false;
+                        nextPlayTime = System.nanoTime();
                         LOGGER.debug("缓冲完成，恢复播放。");
                     } else {
-                        Thread.sleep(50); // 等待解码器填充数据
+                        Thread.sleep(50);
                         continue;
                     }
                 }
 
-                // 正常播放
-                // 在播放过程中，如果视频帧被耗尽，则触发重新缓冲
                 if (decoder.videoQueue.size() < VIDEO_BUFFER_LOW_WATERMARK && !decoder.isEof()) {
                     LOGGER.warn("视频队列低于水位线 ({})，重新进入缓冲状态...", VIDEO_BUFFER_LOW_WATERMARK);
                     isBuffering = true;
@@ -111,17 +102,23 @@ public class Media implements Closeable {
                 Frame currFrame = decoder.audioQueue.poll();
                 if (currFrame == null) {
                     if (decoder.isEof()) {
-                        break;
+                        if (looping && !isLiveStream && getLengthUs() > 0) {
+                            LOGGER.info("循环播放：回到起点。");
+                            seek(0);
+                            continue;
+                        } else {
+                            break;
+                        }
                     }
                     Thread.sleep(5);
                     continue;
                 }
 
-                this.currentPtsUs.set(currFrame.timestamp);
+                long pts = currFrame.timestamp;
+                this.lastAudioPts = pts;
+                this.currentPtsUs.set(pts);
 
-                // 视频帧处理逻辑
-                // 将所有时间戳小于等于当前音频帧的视频帧放入待上传队列
-                while (!decoder.videoQueue.isEmpty() && decoder.videoQueue.peek().ptsUs <= currFrame.timestamp) {
+                while (!decoder.videoQueue.isEmpty() && decoder.videoQueue.peek().ptsUs <= pts) {
                     VideoFrame frameToQueue = decoder.videoQueue.poll();
                     if (frameToQueue != null) {
                         if (videoFrameQueue.size() >= VIDEO_BUFFER_TARGET) {
@@ -134,7 +131,7 @@ public class Media implements Closeable {
                 uploadBuffer(currFrame);
 
                 Frame nextFrame = decoder.audioQueue.peek();
-                long intervalUs = (nextFrame != null) ? (long) ((nextFrame.timestamp - currFrame.timestamp) / speed) : 20_000L;
+                long intervalUs = (nextFrame != null) ? (long) ((nextFrame.timestamp - pts) / speed) : 20_000L;
                 if (intervalUs <= 0) intervalUs = 20_000L;
                 nextPlayTime += intervalUs * 1000L;
                 long sleepNanos = nextPlayTime - System.nanoTime();
@@ -151,26 +148,19 @@ public class Media implements Closeable {
 
     public void uploadVideo() {
         if (paused || texture == null) return;
-
         VideoFrame frameToUpload = null;
-
-        // 丢弃所有过时的帧，只保留最接近当前音频时钟的那一帧进行渲染
-        while (!videoFrameQueue.isEmpty() && videoFrameQueue.peek().ptsUs <= this.currentPtsUs.get()) {
-            // 从队列中移除一帧
+        long currentAudioPts = this.currentPtsUs.get();
+        while (!videoFrameQueue.isEmpty() && videoFrameQueue.peek().ptsUs <= currentAudioPts) {
             VideoFrame potentialFrame = videoFrameQueue.poll();
-
-            // 如果队列空了，或者下一帧的时间戳在未来，那么我们手上这帧就是最合适的
-            if (videoFrameQueue.isEmpty() || videoFrameQueue.peek().ptsUs > this.currentPtsUs.get()) {
+            if (videoFrameQueue.isEmpty() || videoFrameQueue.peek().ptsUs > currentAudioPts) {
                 frameToUpload = potentialFrame;
                 break;
             } else {
-                // 否则，意味着还有更合适的帧（时间戳更晚，但仍然<=音频时钟），丢弃当前帧
                 if (potentialFrame != null) {
                     potentialFrame.close();
                 }
             }
         }
-
         if (frameToUpload != null) {
             try {
                 if (frameToUpload.buffer != null && frameToUpload.buffer.hasRemaining()) {
@@ -184,23 +174,90 @@ public class Media implements Closeable {
         }
     }
 
+    public void play() {
+        LOGGER.info("开始播放");
+        if (paused) {
+            baseTime = System.currentTimeMillis();
+            if (!isLiveStream) {
+                baseDuration = lastAudioPts > 0 ? lastAudioPts : (baseDuration > 0 ? baseDuration : 0);
+            } else {
+                baseDuration = 0;
+                lastAudioPts = -1;
+            }
+            paused = false;
+        }
+    }
+
+    public void pause() {
+        LOGGER.info("暂停播放");
+        if (!paused) {
+            paused = true;
+            if (!isLiveStream) {
+                baseDuration = getDurationUs();
+            }
+        }
+    }
+
+    public long getDurationUs() {
+        if (paused) {
+            return isLiveStream ? 0 : baseDuration;
+        }
+        if (isLiveStream) {
+            return lastAudioPts < 0 ? 0 : lastAudioPts;
+        }
+        return baseDuration + (long)((System.currentTimeMillis() - baseTime) * 1000L * speed);
+    }
+
+    /**
+     * [最终修复]
+     * 跳转到指定时间戳 (微秒)
+     */
+    public void seek(long targetUs) {
+        if (isLiveStream) {
+            LOGGER.warn("直播流不支持seek操作");
+            return;
+        }
+        LOGGER.info("移动到 {} us", targetUs);
+        try {
+            long length = getLengthUs();
+            targetUs = Math.max(0, Math.min(targetUs, length));
+
+            // 1. 发送异步seek指令到底层解码器
+            decoder.seek(targetUs);
+
+            // 2. [关键修复] 强制、同步地清空当前所有队列，防止播放线程消费旧数据
+            decoder.audioQueue.forEach(Frame::close); // 释放内存
+            decoder.audioQueue.clear();
+
+            videoFrameQueue.forEach(VideoFrame::close); // 释放内存
+            videoFrameQueue.clear();
+
+            // 3. 同步重置所有时钟变量到目标时间
+            baseDuration = targetUs;
+            baseTime = System.currentTimeMillis();
+            lastAudioPts = targetUs;
+            currentPtsUs.set(targetUs);
+
+            // 4. 强制进入缓冲状态，等待新数据填充队列
+            isBuffering = true;
+            LOGGER.debug("Seek 完成，队列已清空，等待数据流恢复...");
+
+        } catch (Exception e) {
+            LOGGER.error("Seek failed", e);
+        }
+    }
 
     public void setLooping(boolean looping) { this.looping = looping; }
-//    public void setInitialSeek(long us) {this.initialSeekUs = us;}
-    public void play() {LOGGER.info("开始播放");paused = false;}
-    public void pause() { LOGGER.info("暂停播放"); paused = true; }
-    public long getDurationUs() { if (decoder.audioQueue.isEmpty()) return 0; Frame lastFrame = decoder.audioQueue.peekLast(); return (lastFrame != null) ? lastFrame.timestamp : 0; }
     public long getLengthUs() { return decoder.getDuration(); }
     public void setSpeed(float speed) { if (speed == this.speed) return; this.speed = speed; this.audioSources.forEach(s -> s.setPitch(speed)); }
-    public void seek(long targetUs) { if (isLiveStream) { LOGGER.warn("直播流不支持seek操作"); return; } LOGGER.info("移动到 {} us", targetUs); try { if (targetUs > getLengthUs()) targetUs = getLengthUs(); if (targetUs < 0) targetUs = 0; decoder.seek(targetUs); isBuffering = true; } catch (Exception e) { LOGGER.error("Seek failed", e); } }
     public void bindTexture(ITexture texture) { this.texture = texture; }
     public void unbindTexture() { this.texture = null; }
     public void bindAudioSource(IAudioSource audioBuffer) { this.audioSources.add(audioBuffer); }
     public void unbindAudioSource(IAudioSource audioBuffer) { this.audioSources.remove(audioBuffer); }
     private void uploadBuffer(Frame frame) { for (var audioSource : audioSources) { audioSource.upload(AudioDataConverter.AsAudioData(frame, -1)); } }
-    public boolean isPlaying() { return !paused && !decoder.isEnded(); }
+    public boolean isPlaying() { return !paused; }
     public boolean isPaused() { return paused; }
-    public boolean isEnded() { return !isLiveStream && !audioThread.isAlive(); }
+    public boolean isEnded() { return !isLiveStream && decoder.isEof() && decoder.audioQueue.isEmpty(); }
     public boolean isLiveStream() { return isLiveStream; }
     public int getWidth() { return decoder.getWidth(); }
     public int getHeight() { return decoder.getHeight(); }
@@ -211,22 +268,18 @@ public class Media implements Closeable {
         audioThread.interrupt();
         this.audioSources.forEach(s -> s.setPitch(1));
         try {
-            audioThread.join(500); // 等待音频线程结束
+            audioThread.join(500);
         } catch (InterruptedException e) {
             LOGGER.warn("音频上传线程停止异常", e);
         }
         audioSources.forEach(IAudioSource::clearBuffer);
-
-        // 清理队列中所有剩余的帧
         while (!videoFrameQueue.isEmpty()) {
             VideoFrame frame = videoFrameQueue.poll();
             if (frame != null) {
                 frame.close();
             }
         }
-
         decoder.close();
-
         if (videoFramePool != null) {
             videoFramePool.close();
         }
