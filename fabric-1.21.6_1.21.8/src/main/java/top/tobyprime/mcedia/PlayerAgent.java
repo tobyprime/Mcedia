@@ -283,7 +283,7 @@ public class PlayerAgent {
 
     private float halfW = 1.777f;
     public void render(ArmorStandRenderState state, MultiBufferSource bufferSource, PoseStack poseStack, int i) {
-        if (!this.isTextureReady.get()) return;
+//        if (!this.isTextureReady.get()) return;
 
         var size = state.scale * scale;
         var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
@@ -312,11 +312,20 @@ public class PlayerAgent {
         renderScreen(poseStack, bufferSource, i);
         renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
         poseStack.popPose();
+        renderScreen(poseStack, bufferSource, i);
+
+        if (player.getMedia() != null && this.isTextureReady.get()) {
+            renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
+        }
+
+        poseStack.popPose();
     }
 
     private void renderScreen(PoseStack poseStack, MultiBufferSource bufferSource, int i) {
         if (texture == null) return;
-        ResourceLocation screenTexture = (player.getMedia() != null && player.getMedia().getWidth() > 0) ? this.texture.getResourceLocation() : idleScreen;
+        ResourceLocation screenTexture = (player.getMedia() != null && this.isTextureReady.get())
+                ? this.texture.getResourceLocation()
+                : idleScreen;
         VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(screenTexture));
         var matrix = poseStack.last().pose();
         consumer.addVertex(matrix, -halfW, -1, 0).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1).setLight(i);
