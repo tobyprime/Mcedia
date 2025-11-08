@@ -35,9 +35,9 @@ public class Media implements Closeable {
     private final AtomicLong currentPtsUs = new AtomicLong(0);
 
     private boolean isBuffering = true;
-    private static final int AUDIO_BUFFER_TARGET = 256;
-    private static final int VIDEO_BUFFER_TARGET = 60;
-    private static final int VIDEO_BUFFER_LOW_WATERMARK = 10;
+    private static final int AUDIO_BUFFER_TARGET = 512;
+    private static final int VIDEO_BUFFER_TARGET = 90;
+    private static final int VIDEO_BUFFER_LOW_WATERMARK = 42;
 
     public Media(String url, DecoderConfiguration config) {
         this(new VideoInfo(url, null), null, config, 0);

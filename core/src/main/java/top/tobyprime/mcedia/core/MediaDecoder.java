@@ -1,4 +1,3 @@
-// MediaDecoder.java
 package top.tobyprime.mcedia.core;
 
 import org.bytedeco.ffmpeg.global.avutil;
@@ -22,12 +21,12 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MediaDecoder implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
 
-    private static final int MAX_VIDEO_FRAMES = 60;
-    private static final int MAX_AUDIO_FRAMES = 512;
+    private static final int MAX_VIDEO_FRAMES = 120;
+    private static final int MAX_AUDIO_FRAMES = 1024;
     private static final int VIDEO_BUFFER_CAPACITY = 120; // 预缓冲120帧视频
     private static final int AUDIO_BUFFER_CAPACITY = 1024; // 预缓冲1024帧音频
 
-    // [修改] 队列现在直接存储我们自己的、内存安全的VideoFrame对象
+    // 队列现在直接存储我们自己的、内存安全的VideoFrame对象
     public final LinkedBlockingDeque<VideoFrame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
     public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>(MAX_AUDIO_FRAMES);
 
@@ -59,6 +58,9 @@ public class MediaDecoder implements Closeable {
             // 在这里完成启动和跳转
             for (FFmpegFrameGrabber grabber : grabbers) {
                 grabber.start();
+                if (configuration.useHardwareDecoding && grabbers.indexOf(grabber) == 0) {
+                    LOGGER.info("硬件解码模式: {}", grabber.getVideoCodecName());
+                }
                 // 只有当提供了大于0的跳转时间，并且当前流不是直播时，才执行跳转
                 if (initialSeekUs > 0 && grabber.getLengthInTime() > 0) {
                     LOGGER.debug("为 grabber 设置初始时间戳: {} us", initialSeekUs);
@@ -128,12 +130,16 @@ public class MediaDecoder implements Closeable {
 
                     // 检查解码器输出的跨距是否已经合适
                     if (stride == tightStride) {
+                        // 如果跨度一致，直接进行一次性的、最高效的内存块复制
                         copiedBuffer.put(rawBuffer);
                     } else {
-                        byte[] rowData = new byte[tightStride];
+                        // 如果跨度不一致，采用高效的逐行 ByteBuffer 复制
                         for (int y = 0; y < height; y++) {
-                            rawBuffer.get(y * stride, rowData, 0, tightStride);
-                            copiedBuffer.put(rowData);
+                            // 设置源缓冲区的读取范围，使其精确地指向当前行的数据
+                            rawBuffer.position(y * stride);
+                            rawBuffer.limit(y * stride + tightStride);
+                            // 将这一行的数据直接复制到目标缓冲区
+                            copiedBuffer.put(rawBuffer);
                         }
                     }
 
@@ -178,7 +184,7 @@ public class MediaDecoder implements Closeable {
         grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
-        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
+        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "dxva2");
         if (isVideoGrabber) {
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);

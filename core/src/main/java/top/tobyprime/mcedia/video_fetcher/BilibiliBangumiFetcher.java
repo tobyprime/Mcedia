@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
 public class BilibiliBangumiFetcher {
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliBangumiFetcher.class);
+    private static final int QUALITY_ID_4K = 120;
 
     public static VideoInfo fetch(String bangumiUrl, @Nullable String cookie, String desiredQuality) throws Exception {
         // 从 URL 中提取 ep 号
@@ -141,30 +142,28 @@ public class BilibiliBangumiFetcher {
 
         // --- 自动清晰度逻辑 ---
         if ("自动".equals(desiredQuality)) {
-            // 如果 formats 信息不可用，安全地回退到 API 默认提供的第一个流（通常是最高画质）
             if (formats == null || formats.length() == 0) {
                 LOGGER.warn("自动清晰度选择: 缺少 formats 信息，将使用 API 提供的默认最高画质。");
                 return streams.getJSONObject(0);
             }
-            // 遍历 formats 数组，找到 quality ID 最高的对象
             int bestQualityId = -1;
             String bestQualityDescription = "N/A";
             for (int i = 0; i < formats.length(); i++) {
                 JSONObject format = formats.getJSONObject(i);
                 int currentQuality = format.getInt("quality");
-                if (currentQuality > bestQualityId) {
+                if (currentQuality < QUALITY_ID_4K && currentQuality > bestQualityId) {
                     bestQualityId = currentQuality;
                     bestQualityDescription = format.getString("new_description");
                 }
             }
             if (bestQualityId != -1) {
-                LOGGER.info("自动清晰度选择: API 中可用的最高画质为 '{}' (ID: {})", bestQualityDescription, bestQualityId);
+                LOGGER.info("自动清晰度选择: 找到最佳的4K以下画质为 '{}' (ID: {})", bestQualityDescription, bestQualityId);
                 JSONObject stream = findStreamByIdAndCodec(streams, bestQualityId);
                 if (stream != null) {
                     return stream;
                 }
             }
-            LOGGER.warn("自动清晰度选择: 未能在 streams 数组中找到 ID 为 {} 的流，将使用 API 提供的默认最高画质。", bestQualityId);
+            LOGGER.warn("自动清晰度选择: 未找到合适的4K以下画质，将使用 API 提供的默认最高画质。");
             return streams.getJSONObject(0);
         }
 

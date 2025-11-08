@@ -1,14 +1,15 @@
 package top.tobyprime.mcedia.core;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.McediaConfig;
 
 public class DecoderConfiguration {
     public final @Nullable String userAgent;
     public final boolean enableVideo;
     public final boolean enableAudio;
-    public final int cacheDuration ;
+    public final int cacheDuration;
     public final boolean useHardwareDecoding;
-    public final boolean videoAlpha ;
+    public final boolean videoAlpha;
     public final int audioSampleRate;
 
     public final int timeout;
@@ -29,64 +30,71 @@ public class DecoderConfiguration {
         this.probesize = builder.probesize;
     }
 
-
     public static class Builder {
-        private @Nullable String userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
+        private @Nullable String userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
         private boolean enableVideo = true;
         private boolean enableAudio = true;
-
-        private int cacheDuration = 2000000; // 1s 缓冲区
-
-        private boolean useHardwareDecoding = true;
+        private int cacheDuration = 2000000; // 2s 缓冲区
+        private boolean useHardwareDecoding = true; // 默认开启硬件解码，对4K至关重要
         private boolean videoAlpha = true;
-
         private int audioSampleRate = 44100;
 
+        private int timeout = McediaConfig.FFMPEG_TIMEOUT;
+        private int bufferSize = McediaConfig.FFMPEG_BUFFER_SIZE;
+        private int probesize = McediaConfig.FFMPEG_PROBE_SIZE;
 
-        private int timeout = 5000000; // 5s time out
-        private int bufferSize = 262144; // 256kb 缓冲区
-        private int probesize = 5000000;
-        public void disableVideo() {
-            this.enableVideo = false;
+        public Builder setEnableVideo(boolean enableVideo) {
+            this.enableVideo = enableVideo;
+            return this;
         }
 
-        public Builder disableAudio() {
-            this.enableAudio = false;
+        public Builder setEnableAudio(boolean enableAudio) {
+            this.enableAudio = enableAudio;
             return this;
         }
-        public Builder disableHardwareDecoding() {
-            this.useHardwareDecoding = false;
+
+        public Builder setUseHardwareDecoding(boolean useHardwareDecoding) {
+            this.useHardwareDecoding = McediaConfig.HARDWARE_DECODING_ENABLED;
             return this;
         }
-        public Builder disableVideoAlpha() {
-            this.videoAlpha = false;
+
+        public Builder setVideoAlpha(boolean videoAlpha) {
+            this.videoAlpha = videoAlpha;
             return this;
         }
-        public Builder userAgent(@Nullable String userAgent) {
+
+        public Builder setUserAgent(@Nullable String userAgent) {
             this.userAgent = userAgent;
             return this;
         }
-        public Builder cacheDuration(int cacheDuration) {
+
+        public Builder setCacheDuration(int cacheDuration) {
             this.cacheDuration = cacheDuration;
             return this;
         }
 
-        public Builder audioSampleRate(int audioSampleRate) {
+        public Builder setAudioSampleRate(int audioSampleRate) {
             this.audioSampleRate = audioSampleRate;
             return this;
         }
-        public Builder bufferSize(int bufferSize) {
+
+        public Builder setBufferSize(int bufferSize) {
             this.bufferSize = bufferSize;
             return this;
         }
-        public Builder timeout(int timeout) {
+
+        public Builder setTimeout(int timeout) {
             this.timeout = timeout;
             return this;
         }
-        public Builder probesize(int probesize) {
+
+        public Builder setProbesize(int probesize) {
             this.probesize = probesize;
             return this;
         }
 
+        public DecoderConfiguration build() {
+            return new DecoderConfiguration(this);
+        }
     }
 }

@@ -28,8 +28,8 @@ public class AudioDataConverter {
         // 从 Frame 中获取原始的音频数据缓冲区 (通常是 ShortBuffer)
         Buffer originalBuffer = frame.samples[0];
 
-        // 我们必须创建一个此缓冲区的独立副本。
-        // 这是因为这个 buffer 将被异步地上传到 OpenAL，而原始的 frame 对象
+        // 必须创建一个此缓冲区的独立副本。
+        // 因为这个 buffer 将被异步地上传到 OpenAL，而原始的 frame 对象
         // 及其内部的 buffer 可能会在下一个解码周期中被 FFmpeg 重用或覆盖。
         // 如果不创建副本，可能会导致音频数据损坏或程序崩溃。
 

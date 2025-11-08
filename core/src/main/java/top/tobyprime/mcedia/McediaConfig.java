@@ -1,12 +1,9 @@
-// McediaConfig.java (最终、完整的版本)
 package top.tobyprime.mcedia;
 
 import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,36 +13,45 @@ import java.util.Properties;
 public class McediaConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger("McediaConfig");
 
-    // [修改] 配置文件和Cookie文件分离
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
     private static final Path COOKIE_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.cookie.properties");
 
     private static final Properties properties = new Properties();
 
-    // --- 配置项 ---
+    // --- 配置项及其默认值 ---
     public static String BILIBILI_COOKIE = "";
-
     // 缓存设置
-    public static boolean CACHING_ENABLED = true;
-
+    public static boolean CACHING_ENABLED = false;
     // 性能设置
     public static boolean HARDWARE_DECODING_ENABLED = true;
 
+    // FFmpeg 网络性能配置项
+    // 默认262k网络缓冲区
+    public static int FFMPEG_BUFFER_SIZE = 262144;
+    // 默认10MB探测大小
+    public static int FFMPEG_PROBE_SIZE = 10 * 1024 * 1024;
+    // 默认10微妙网络超时
+    public static int FFMPEG_TIMEOUT = 10_000_000;
+
+
     public static void load() {
         // 加载主配置文件
-        try {
-            if (Files.notExists(CONFIG_PATH)) {
-                // 如果文件不存在，则使用默认值并保存，以创建文件
-                LOGGER.info("Mcedia config not found, creating a new one with default values.");
-                save();
-            } else {
-                // 如果文件存在，则加载它
+        if (Files.exists(CONFIG_PATH)) {
+            try {
                 properties.load(Files.newInputStream(CONFIG_PATH));
                 CACHING_ENABLED = Boolean.parseBoolean(properties.getProperty("caching.enabled", "true"));
                 HARDWARE_DECODING_ENABLED = Boolean.parseBoolean(properties.getProperty("performance.hardwareDecoding", "true"));
+                FFMPEG_BUFFER_SIZE = Integer.parseInt(properties.getProperty("performance.ffmpeg.bufferSize", String.valueOf(FFMPEG_BUFFER_SIZE)));
+                FFMPEG_PROBE_SIZE = Integer.parseInt(properties.getProperty("performance.ffmpeg.probeSize", String.valueOf(FFMPEG_PROBE_SIZE)));
+                FFMPEG_TIMEOUT = Integer.parseInt(properties.getProperty("performance.ffmpeg.timeout", String.valueOf(FFMPEG_TIMEOUT)));
+
+            } catch (IOException | NumberFormatException e) {
+                LOGGER.error("Failed to load Mcedia config, using default values.", e);
+                save();
             }
-        } catch (IOException | NumberFormatException e) {
-            LOGGER.error("Failed to load Mcedia config, using default values.", e);
+        } else {
+            LOGGER.info("Mcedia config not found, creating a new one with default values.");
+            save();
         }
 
         // 加载 Cookie 文件
@@ -62,8 +68,16 @@ public class McediaConfig {
 
     public static void save() {
         properties.setProperty("caching.enabled", String.valueOf(CACHING_ENABLED));
+        properties.setProperty("performance.hardwareDecoding", String.valueOf(HARDWARE_DECODING_ENABLED));
+        properties.setProperty("performance.ffmpeg.bufferSize", String.valueOf(FFMPEG_BUFFER_SIZE));
+        properties.setProperty("performance.ffmpeg.probeSize", String.valueOf(FFMPEG_PROBE_SIZE));
+        properties.setProperty("performance.ffmpeg.timeout", String.valueOf(FFMPEG_TIMEOUT));
+
         try (FileWriter writer = new FileWriter(CONFIG_PATH.toFile())) {
-            properties.store(writer, "Mcedia Configuration");
+            String header = " Mcedia Configuration File\n"
+                    + " For performance.ffmpeg.* settings, higher values may improve fluency on high-resolution videos (like 4K)\n"
+                    + " but will increase memory usage and initial loading time. Adjust them if you experience stuttering.\n";
+            properties.store(writer, header);
         } catch (IOException e) {
             LOGGER.error("Failed to save Mcedia config", e);
         }
