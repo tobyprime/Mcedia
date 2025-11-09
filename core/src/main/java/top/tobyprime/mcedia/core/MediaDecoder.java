@@ -36,6 +36,7 @@ public class MediaDecoder implements Closeable {
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final AtomicBoolean isSeeking = new AtomicBoolean(false);
+    private final AtomicLong seekTargetUs = new AtomicLong(-1);
 
     private volatile int runningDecoders = 0;
 
@@ -102,10 +103,17 @@ public class MediaDecoder implements Closeable {
 
                 // 在 grab() 之后，检查 seek 标志
                 // compareAndSet 是原子操作，能确保这个逻辑块只在 seek 后被执行一次
-                if (this.isSeeking.compareAndSet(true, false)) {
-                    // 这是 seek 后的第一帧！现在是清空旧队列的最佳时机。
-                    LOGGER.debug("Seek 完成，已抓取到新时间点的第一帧，正在清理旧队列...");
-                    clearQueue();
+                if (isSeeking.get()) {
+                    long target = seekTargetUs.get();
+                    // 如果当前帧的时间戳在我们的目标之前，就直接丢弃，继续下一次循环
+                    if (target != -1 && frame.timestamp < target) {
+                        continue;
+                    } else {
+                        // 找到了第一帧在目标时间戳之后的帧，跳转阶段结束
+                        isSeeking.set(false);
+                        seekTargetUs.set(-1);
+                        LOGGER.debug("Seek target reached. Resuming normal decoding.");
+                    }
                 }
 
                 if (isClosed.get()) {
@@ -238,7 +246,8 @@ public class MediaDecoder implements Closeable {
         if (getDuration() <= 0) return;
         timestamp = Math.max(0, timestamp);
         timestamp = Math.min(timestamp, getDuration());
-        // clearQueue();
+        clearQueue();
+        this.seekTargetUs.set(timestamp);
         this.isSeeking.set(true);
         try {
             // seek操作也应该同步，防止与grab()冲突
@@ -249,6 +258,7 @@ public class MediaDecoder implements Closeable {
             }
         } catch (FFmpegFrameGrabber.Exception e) {
             this.isSeeking.set(false);
+            this.seekTargetUs.set(-1);
             throw new RuntimeException("Seek failed", e);
         }
     }
