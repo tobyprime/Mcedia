@@ -19,15 +19,15 @@ public class YhdmFetcher {
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Gson gson = new Gson();
 
-    // 正则1: 用于从原始URL中提取视频ID和剧集ID
+    // 用于从原始URL中提取视频ID和剧集ID
     private static final Pattern URL_PARTS_PATTERN = Pattern.compile("yhdm\\.one/vod-play/([^/]+)/([^.]+)\\.html");
-    // 正则2: 用于从主页面HTML中提取标题
+    // 用于从主页面HTML中提取标题
     private static final Pattern TITLE_PATTERN = Pattern.compile("<title>(.*?)</title>");
 
     public static VideoInfo fetch(String url) throws Exception {
         LOGGER.info("正在从 YHDM 获取视频信息: {}", url);
 
-        // --- 阶段 1: 解析URL，获取视频ID和剧集ID ---
+        // --- 解析URL，获取视频ID和剧集ID ---
         Matcher partsMatcher = URL_PARTS_PATTERN.matcher(url);
         if (!partsMatcher.find()) {
             throw new Exception("无法从URL中解析视频ID和剧集ID: " + url);
@@ -35,7 +35,7 @@ public class YhdmFetcher {
         String videoId = partsMatcher.group(1);
         String episodeId = partsMatcher.group(2);
 
-        // --- 阶段 2: (可选) 请求主页面，仅为获取标题 ---
+        // --- 请求主页面，仅为获取标题 ---
         String title = "未知视频";
         try {
             HttpRequest mainPageRequest = HttpRequest.newBuilder().uri(URI.create(url)).build();
@@ -48,7 +48,7 @@ public class YhdmFetcher {
             LOGGER.warn("获取页面标题失败，将使用默认标题。", e);
         }
 
-        // --- 阶段 3: 模拟JavaScript API请求 ---
+        // --- 模拟JavaScript API请求 ---
         String apiUrl = String.format("https://yhdm.one/_get_plays/%s/%s", videoId, episodeId);
         LOGGER.info("正在请求 YHDM API: {}", apiUrl);
 
@@ -62,7 +62,7 @@ public class YhdmFetcher {
         String jsonResponse = apiResponse.body();
 
         try {
-            // --- 阶段 4: 解析API返回的JSON ---
+            // --- 解析API返回的JSON ---
             JsonObject responseJson = gson.fromJson(jsonResponse, JsonObject.class);
             JsonArray videoPlays = responseJson.getAsJsonArray("video_plays");
 
