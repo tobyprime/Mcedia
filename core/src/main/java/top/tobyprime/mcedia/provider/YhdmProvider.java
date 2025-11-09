@@ -1,5 +1,6 @@
 package top.tobyprime.mcedia.provider;
 
+import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.video_fetcher.YhdmFetcher;
 
 public class YhdmProvider implements IMediaProvider {
@@ -22,12 +23,17 @@ public class YhdmProvider implements IMediaProvider {
      */
     @Override
     public VideoInfo resolve(String url, String cookie, String desiredQuality) throws Exception {
-        // 直接调用我们的Fetcher来完成工作
         return YhdmFetcher.fetch(url);
     }
 
     @Override
     public boolean isSeekSupported() {
         return false;
+    }
+
+    @Override
+    @Nullable
+    public String getSafetyWarning() {
+        return "§a[Mcedia] §e提示: 不要轻信视频中的广告，注意甄别，防止上当受骗。";
     }
 }

@@ -35,6 +35,11 @@ public class Mcedia implements ModInitializer {
     private static Mcedia INSTANCE;
     private final ConcurrentHashMap<ArmorStand, PlayerAgent> entityToPlayer = new ConcurrentHashMap<>();
     private final Queue<ArmorStand> pendingAgents = new ConcurrentLinkedQueue<>();
+    private VideoCacheManager globalCacheManager;
+
+    public VideoCacheManager getCacheManager() {
+        return this.globalCacheManager;
+    }
 
     public static Mcedia getInstance() {
         return INSTANCE;
@@ -58,6 +63,15 @@ public class Mcedia implements ModInitializer {
     public void onInitialize() {
         INSTANCE = this;
         McediaConfig.load();
+        try {
+            java.nio.file.Path cacheDir = Minecraft.getInstance().gameDirectory.toPath().resolve("mcedia_cache");
+            java.nio.file.Files.createDirectories(cacheDir);
+            this.globalCacheManager = new VideoCacheManager(cacheDir);
+            LOGGER.info("Mcedia 全局缓存管理器已初始化。");
+        } catch (IOException e) {
+            LOGGER.error("无法创建或访问Mcedia缓存目录！缓存功能将不可用。", e);
+            this.globalCacheManager = new VideoCacheManager(null);
+        }
         BiliBiliVideoFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         BilibiliBangumiFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();

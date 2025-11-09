@@ -25,4 +25,9 @@ public interface IMediaProvider {
     default boolean isSeekSupported() {
         return  true;
     }
+
+    @Nullable
+    default String getSafetyWarning() {
+        return null;
+    }
 }

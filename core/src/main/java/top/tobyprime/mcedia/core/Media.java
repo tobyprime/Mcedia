@@ -123,13 +123,7 @@ public class Media implements Closeable {
             Frame currFrame = decoder.audioQueue.poll();
             if (currFrame == null) {
                 if (decoder.isEof()) {
-                    if (looping && getLengthUs() > 0) {
-                        LOGGER.info("循环播放：回到起点。");
-                        seek(0);
-                        continue;
-                    } else {
-                        break; // 播放结束
-                    }
+                        break;
                 }
                 Thread.sleep(5);
                 continue;

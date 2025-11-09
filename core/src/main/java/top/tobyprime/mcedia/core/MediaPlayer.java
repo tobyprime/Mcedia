@@ -1,5 +1,6 @@
 package top.tobyprime.mcedia.core;
 
+import org.bytedeco.javacv.FFmpegLogCallback;
 import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 import top.tobyprime.mcedia.interfaces.ITexture;
@@ -12,12 +13,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
+import static org.bytedeco.ffmpeg.global.avutil.AV_LOG_ERROR;
+import static org.bytedeco.ffmpeg.global.avutil.av_log_set_level;
+
 public class MediaPlayer {
     private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MediaPlayer-Async");
         t.setDaemon(true);
         return t;
     });
+    static {
+        FFmpegLogCallback.set();
+        av_log_set_level(AV_LOG_ERROR);
+    }
 
     private final ReentrantLock lock = new ReentrantLock();
 
@@ -79,11 +87,23 @@ public class MediaPlayer {
     }
 
     public void closeSync() {
+        Media preMedia;
+        // 使用锁来确保同一时间只有一个线程在进行开启或关闭操作
         lock.lock();
         try {
-            closeInternal();
+            synchronized (this) {
+                if (media == null) return;
+                preMedia = media;
+                media = null;
+            }
         } finally {
             lock.unlock();
+        }
+
+        // [CRITICAL FIX] 将 close() 调用移出锁和同步块
+        // 这样可以避免在持有锁的情况下等待线程 join，防止死锁
+        if (preMedia != null) {
+            preMedia.close(); // 这个 close 方法内部会等待线程结束
         }
     }
 
@@ -145,9 +165,9 @@ public class MediaPlayer {
     }
 
     private void openInternal(VideoInfo info, @Nullable String cookie, long initialSeekUs) {
+        closeSync();
         lock.lock();
         try {
-            closeInternal();
             if (info == null) return;
             var newMedia = new Media(info, cookie, decoderConfiguration, initialSeekUs);
             bindResourcesToMedia(newMedia);
@@ -166,6 +186,10 @@ public class MediaPlayer {
         }
         media.setSpeed(speed);
         media.setLooping(looping);
+    }
+
+    public void bindResourcesToCurrentMedia(Media newMedia) {
+        this.bindResourcesToMedia(newMedia);
     }
 
     public synchronized void setSpeed(float speed) { this.speed = speed; if (media != null) media.setSpeed(speed); }
