@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.*;
 import top.tobyprime.mcedia.BilibiliAuthRequiredException;
+import top.tobyprime.mcedia.provider.IMediaProvider;
 import top.tobyprime.mcedia.provider.MediaProviderRegistry;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
@@ -264,14 +265,24 @@ public class PlayerAgent {
             Mcedia.msgToPlayer(msg);
         }
 
-        if (media.isLiveStream()) {
-            LOGGER.info("直播流加载成功，直接开始播放。");
-        } else {
-            long durationToSeek = isLooping ? 0 : getDuration();
-            LOGGER.info("视频加载成功，将在 {} us 处开始播放。", durationToSeek);
-            if (durationToSeek > 0) {
-                player.seek(durationToSeek);
+        if (!media.isLiveStream()) { // 首先，直播流绝对不能跳转
+            IMediaProvider provider = MediaProviderRegistry.getInstance().getProviderForUrl(finalMediaUrl);
+
+            // 其次，只有当提供者明确表示支持跳转时，我们才执行跳转
+            if (provider != null && provider.isSeekSupported()) {
+                long durationToSeek = isLooping ? 0 : getDuration();
+                if (durationToSeek > 0) {
+                    LOGGER.info("视频加载成功，将在 {} us 处开始播放 (支持跳转)。", durationToSeek);
+                    player.seek(durationToSeek);
+                } else {
+                    LOGGER.info("视频加载成功，将从头开始播放。");
+                }
+            } else {
+                // 如果提供者不支持跳转 (比如YhdmProvider)，则打印警告并从头播放
+                LOGGER.warn("当前视频源 ({}) 不支持跳转操作，将从头开始播放。", provider != null ? provider.getClass().getSimpleName() : "未知直链");
             }
+        } else {
+            LOGGER.info("直播流加载成功，直接开始播放。");
         }
 
         player.play();

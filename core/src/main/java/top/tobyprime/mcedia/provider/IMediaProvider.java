@@ -21,4 +21,8 @@ public interface IMediaProvider {
      * @throws Exception 解析失败时抛出异常
      */
     VideoInfo resolve(String url, @Nullable String cookie, String desiredQuality) throws Exception;
+
+    default boolean isSeekSupported() {
+        return  true;
+    }
 }

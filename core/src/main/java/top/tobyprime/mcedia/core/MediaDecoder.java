@@ -156,44 +156,34 @@ public class MediaDecoder implements Closeable {
                         for (int y = 0; y < height; y++) {
                             int rowStart = y * stride;
 
-                            if (rowStart >= rawBuffer.capacity()) {
-                                LOGGER.warn("损坏的视频帧：行起始点 {} 超出缓冲区容量 {}。", rowStart, rawBuffer.capacity());
-                                break;
-                            }
-                            if (rawBuffer.capacity() - rowStart < tightStride) {
-                                LOGGER.warn("损坏的视频帧：行数据不足。从 {} 开始，需要 {} 字节，但只有 {} 字节可用。", rowStart, tightStride, rawBuffer.capacity() - rowStart);
+                            // 所有的边界检查都必须基于 .limit()
+                            if (rowStart >= rawBuffer.limit() || rowStart + tightStride > rawBuffer.limit()) {
+                                LOGGER.warn("检测到损坏或不规范的视频帧 (行: {}, stride: {})，该行数据超出缓冲区有效数据范围 (limit: {})。跳过此帧。", y, stride, rawBuffer.limit());
+                                copiedBuffer.limit(0);
                                 break;
                             }
 
+                            // 只有在绝对安全的情况下才进行操作
                             rawBuffer.position(rowStart);
                             rawBuffer.limit(rowStart + tightStride);
-
-                            if (copiedBuffer.hasRemaining()) {
-                                copiedBuffer.put(rawBuffer);
-                            } else {
-                                break;
-                            }
+                            copiedBuffer.put(rawBuffer);
+                            rawBuffer.limit(rawBuffer.capacity()); // 恢复limit以便下一轮循环的计算
                         }
                     }
 
-                    copiedBuffer.rewind();
+                    if (copiedBuffer.limit() > 0) {
+                        copiedBuffer.rewind();
+                        videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool));
+                    } else {
+                        videoFramePool.release(copiedBuffer);
+                    }
                     rawBuffer.clear();
-
-                    // 将这个内存安全的 VideoFrame 对象放入队列
-                    VideoFrame videoFrame = new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool);
-                    videoQueue.put(videoFrame);
                 } else if (isAudio) {
-                    // 对于音频，javacv的Frame.clone()是安全的，因为它会创建新的数组
                     audioQueue.put(frame.clone());
                 }
-                // grabber返回的原始frame可以被内部重用了，我们已经复制了我们需要的数据
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            if (!isClosed.get()) {
-                LOGGER.error("Error in decoder loop", e);
-            }
+            if (!isClosed.get()) LOGGER.error("Error in decoder loop", e);
         } finally {
             runningDecoders--;
         }

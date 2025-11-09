@@ -13,14 +13,11 @@ import net.minecraft.world.level.pathfinder.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.auth_manager.BilibiliAuthManager;
+import top.tobyprime.mcedia.provider.*;
 import top.tobyprime.mcedia.video_fetcher.BiliBiliVideoFetcher;
 import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
-import top.tobyprime.mcedia.provider.BilibiliBangumiProvider;
-import top.tobyprime.mcedia.provider.BilibiliLiveProvider;
-import top.tobyprime.mcedia.provider.BilibiliVideoProvider;
-import top.tobyprime.mcedia.provider.MediaProviderRegistry;
 
 import java.io.File;
 import java.io.IOException;
@@ -74,6 +71,7 @@ public class Mcedia implements ModInitializer {
         registry.register(new BilibiliVideoProvider());
         registry.register(new BilibiliBangumiProvider());
         registry.register(new BilibiliLiveProvider());
+        registry.register(new YhdmProvider());
     }
 
     private void registerCommands() {

@@ -22,7 +22,9 @@ public class MediaProviderRegistry {
     }
 
     public void register(IMediaProvider provider) {
-        providers.add(provider);
+        if (provider != null && !providers.contains(provider)) {
+            providers.add(provider);
+        }
     }
 
     public Optional<IMediaProvider> findProvider(String url) {
@@ -35,5 +37,15 @@ public class MediaProviderRegistry {
         IMediaProvider provider = findProvider(url)
                 .orElseThrow(() -> new RuntimeException("No suitable provider found for URL: " + url));
         return provider.resolve(url, cookie, desiredQuality);
+    }
+
+    @Nullable
+    public IMediaProvider getProviderForUrl(String url) {
+        for (IMediaProvider provider : providers) {
+            if (provider.isSupported(url)) {
+                return provider;
+            }
+        }
+        return null;
     }
 }
