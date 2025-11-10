@@ -50,6 +50,8 @@ public class PlayerAgent {
     private static final ResourceLocation loadingScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/loading.png");
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
     private static final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+)");
+    private static final String RICKROLL_URL = "https://www.bilibili.com/video/BV1GJ411x7h7";
+    private static final String BAD_APPLE_URL = "https://www.bilibili.com/video/BV1xx411c79H";
     private long timestampFromUrlUs = 0;
     private boolean isPausedByBasePlate = false;
     private final Queue<String> playlist = new LinkedList<>();
@@ -230,12 +232,21 @@ public class PlayerAgent {
         for (String pageContent : pages) {
             if (pageContent == null || pageContent.isBlank()) continue;
 
-            Matcher matcher = URL_PATTERN.matcher(pageContent);
-            while (matcher.find()) {
-                String url = matcher.group(0).trim();
-                playlist.offer(url);
+            String trimmedContent = pageContent.trim();
+            if (trimmedContent.equalsIgnoreCase("rickroll")) {
+                playlist.offer(RICKROLL_URL);
                 playlistOriginalSize++;
-                LOGGER.info("已将链接/路径添加到播放列表: {}", url);
+            } else if (trimmedContent.equalsIgnoreCase("badapple")) {
+                playlist.offer(BAD_APPLE_URL);
+                playlistOriginalSize++;
+            } else {
+                Matcher matcher = URL_PATTERN.matcher(pageContent);
+                while (matcher.find()) {
+                    String url = matcher.group(0).trim();
+                    playlist.offer(url);
+                    playlistOriginalSize++;
+                    LOGGER.info("已将链接/路径添加到播放列表: {}", url);
+                }
             }
         }
         LOGGER.info("播放列表更新完成，共找到 {} 个媒体项目。", playlistOriginalSize);
@@ -288,6 +299,7 @@ public class PlayerAgent {
     }
 
     private void startPlayback(boolean isLooping) {
+        this.currentStatus = PlaybackStatus.LOADING;
         // 1. 为本次播放请求生成一个唯一的令牌
         final long currentToken = this.playbackToken.incrementAndGet();
 
@@ -351,6 +363,7 @@ public class PlayerAgent {
     }
 
     private void fallbackToNetworkPlayback(String initialUrl, boolean isLooping, long currentToken) {
+        this.currentStatus = PlaybackStatus.LOADING;
         UrlExpander.expand(initialUrl)
                 .thenAccept(expandedUrl -> {
                     // 在每个异步回调的开始，都检查令牌
@@ -569,7 +582,7 @@ public class PlayerAgent {
         speed = speedFactor < 0.1f ? 1f : (speedFactor > 0.5f ? 1f - (1f - speedFactor) * 2f : (speedFactor - 0.1f) / 0.4f * 8f);
         player.setSpeed(speed);
 
-        float yRotRadians = state.yRot * 0.017453f;
+        float yRotRadians = (float) -Math.toRadians(state.yRot);
         var primaryAudioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(yRotRadians);
         primaryAudioSource.setVolume(audioMaxVolume * volumeFactor);
         primaryAudioSource.setRange(audioRangeMin, audioRangeMax);
