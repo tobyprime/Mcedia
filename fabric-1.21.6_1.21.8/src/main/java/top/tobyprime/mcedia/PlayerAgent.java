@@ -85,6 +85,7 @@ public class PlayerAgent {
     private boolean shouldCacheForLoop = false;
     private volatile boolean isLoopingInProgress = false;
     private final AtomicBoolean isTextureReady = new AtomicBoolean(false);
+    private boolean isTextureInitialized = false;
 
     private enum PlaybackStatus {
         IDLE,      // 空闲，无播放任务
@@ -350,7 +351,7 @@ public class PlayerAgent {
     }
 
     private void fallbackToNetworkPlayback(String initialUrl, boolean isLooping, long currentToken) {
-        UrlExpander.expand(initialUrl, Mcedia.getInstance().getHttpClient())
+        UrlExpander.expand(initialUrl)
                 .thenAccept(expandedUrl -> {
                     // 在每个异步回调的开始，都检查令牌
                     if (playbackToken.get() != currentToken) {
@@ -360,47 +361,71 @@ public class PlayerAgent {
 
                     this.timestampFromUrlUs = parseTimestampFromUrl(expandedUrl);
                     IMediaProvider provider = MediaProviderRegistry.getInstance().getProviderForUrl(expandedUrl);
-                    if (provider != null) {
+
+                    if (provider == null) {
+                        // 如果没有找到特定的provider，可能是一个直接链接，尝试直接播放
+                        LOGGER.info("未找到特定Provider，尝试作为直接链接播放: {}", expandedUrl);
+                        // 这种情况下我们不知道是否需要cookie，所以不传
+                        CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(
+                                () -> new VideoInfo(expandedUrl, null),
+                                () -> null, // 无Cookie
+                                0
+                        );
+                        // ... (此处省略handle部分，与下面类似)
+                    } else {
+                        // 找到了特定的Provider
                         String warning = provider.getSafetyWarning();
                         if (warning != null && !warning.isEmpty()) Mcedia.msgToPlayer(warning);
-                    }
 
-                    LOGGER.info(isLooping ? "正在重新加载循环..." : "准备从网络播放 {}...", expandedUrl);
+                        LOGGER.info(isLooping ? "正在重新加载循环..." : "准备从网络播放 {}...", expandedUrl);
 
-                    // openAsyncWithVideoInfo 内部现在会安全地关闭旧实例
-                    CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(
-                            () -> {
-                                // 在耗时的网络操作前再次检查令牌
-                                if (playbackToken.get() != currentToken) {
-                                    // 抛出异常以中断 CompletableFuture 链
-                                    throw new IllegalStateException("Playback aborted by new request before resolving URL.");
-                                }
-                                try {
-                                    return MediaProviderRegistry.getInstance().resolve(expandedUrl, McediaConfig.BILIBILI_COOKIE, this.desiredQuality);
-                                } catch (Exception e) {
-                                    throw new RuntimeException(e);
-                                }
-                            },
-                            () -> McediaConfig.BILIBILI_COOKIE, 0
-                    );
-
-                    videoInfoFuture.handle((videoInfo, throwable) -> {
-                        // 最终回调，同样需要检查令牌
-                        if (playbackToken.get() != currentToken) {
-                            LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
-                            return null;
-                        }
-
-                        if (throwable != null) {
-                            // 检查是否是我们自己为了中止流程而抛出的异常
-                            if (!(throwable.getCause() instanceof IllegalStateException)) {
-                                handlePlaybackFailure(throwable, expandedUrl, isLooping);
-                            }
+                        // 动态决定是否需要Cookie
+                        final String cookie;
+                        // 这里我们通过类名来判断，这是一个简单有效的方法
+                        if (provider.getClass().getSimpleName().toLowerCase().contains("bilibili")) {
+                            cookie = McediaConfig.BILIBILI_COOKIE;
+                            LOGGER.debug("检测到Bilibili Provider，将使用配置的Cookie。");
                         } else {
-                            handlePlaybackSuccess(videoInfo, expandedUrl, isLooping, provider);
+                            cookie = null;
                         }
-                        return null;
-                    });
+
+                        // openAsyncWithVideoInfo 内部现在会安全地关闭旧实例
+                        CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(
+                                () -> {
+                                    // 在耗时的网络操作前再次检查令牌
+                                    if (playbackToken.get() != currentToken) {
+                                        // 抛出异常以中断 CompletableFuture 链
+                                        throw new IllegalStateException("Playback aborted by new request before resolving URL.");
+                                    }
+                                    try {
+                                        // 将动态决定的cookie传递给resolve方法
+                                        return provider.resolve(expandedUrl, cookie, this.desiredQuality);
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                },
+                                () -> cookie, // 同样将动态决定的cookie传递给播放器核心
+                                0
+                        );
+
+                        videoInfoFuture.handle((videoInfo, throwable) -> {
+                            // 最终回调，同样需要检查令牌
+                            if (playbackToken.get() != currentToken) {
+                                LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
+                                return null;
+                            }
+
+                            if (throwable != null) {
+                                // 检查是否是我们自己为了中止流程而抛出的异常
+                                if (!(throwable.getCause() instanceof IllegalStateException)) {
+                                    handlePlaybackFailure(throwable, expandedUrl, isLooping);
+                                }
+                            } else {
+                                handlePlaybackSuccess(videoInfo, expandedUrl, isLooping, provider);
+                            }
+                            return null;
+                        });
+                    }
                 })
                 .exceptionally(ex -> {
                     if (playbackToken.get() == currentToken) { // 只报告当前任务的错误
@@ -462,6 +487,7 @@ public class PlayerAgent {
 
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping, @Nullable IMediaProvider provider) {
         this.currentStatus = PlaybackStatus.PLAYING;
+        this.isTextureInitialized = false;
         Media media = player.getMedia();
         if (media == null) {
             LOGGER.error("视频加载成功但Media对象为空，这是一个严重错误。");
@@ -477,9 +503,9 @@ public class PlayerAgent {
                         return null;
                     });
         }
-        if (media != null && texture != null && media.getWidth() > 0) {
-            texture.prepareAndPrewarm(media.getWidth(), media.getHeight(), () -> this.isTextureReady.set(true));
-        }
+//        if (media != null && texture != null && media.getWidth() > 0) {
+//            texture.prepareAndPrewarm(media.getWidth(), media.getHeight(), () -> this.isTextureReady.set(true));
+//        }
         if (!isLooping) {
             Style style = Style.EMPTY.withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)));
             Component msg = Component.literal("§a[Mcedia] §f播放: ").append(Component.literal(videoInfo.getTitle()).withStyle(style.withColor(ChatFormatting.YELLOW)));
@@ -523,6 +549,11 @@ public class PlayerAgent {
 //        if (!this.isTextureReady.get()) return;
         Media media = player.getMedia();
         if (media != null) {
+            if (!isTextureInitialized && texture != null && media.getWidth() > 0 && media.getHeight() > 0) {
+                LOGGER.debug("检测到视频尺寸 ({}x{}), 正在初始化纹理...", media.getWidth(), media.getHeight());
+                texture.prepareAndPrewarm(media.getWidth(), media.getHeight(), () -> this.isTextureReady.set(true));
+                isTextureInitialized = true;
+            }
             boolean shouldBePaused = !state.showBasePlate;
             if (shouldBePaused && !media.isPaused()) {
                 player.pause();
@@ -538,17 +569,17 @@ public class PlayerAgent {
         speed = speedFactor < 0.1f ? 1f : (speedFactor > 0.5f ? 1f - (1f - speedFactor) * 2f : (speedFactor - 0.1f) / 0.4f * 8f);
         player.setSpeed(speed);
 
-        var primaryAudioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
+        float yRotRadians = state.yRot * 0.017453f;
+        var primaryAudioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(yRotRadians);
         primaryAudioSource.setVolume(audioMaxVolume * volumeFactor);
         primaryAudioSource.setRange(audioRangeMin, audioRangeMax);
         primaryAudioSource.setPos(((float) state.x + primaryAudioOffsetRotated.x), ((float) state.y + primaryAudioOffsetRotated.y), ((float) state.z + primaryAudioOffsetRotated.z));
         if (isSecondarySourceActive) {
-            var secondaryAudioOffsetRotated = new Vector3f(audioOffsetX2, audioOffsetY2, audioOffsetZ2).rotateY(state.yRot);
+            var secondaryAudioOffsetRotated = new Vector3f(audioOffsetX2, audioOffsetY2, audioOffsetZ2).rotateY(yRotRadians);
             secondaryAudioSource.setVolume(audioMaxVolume2 * volumeFactor);
             secondaryAudioSource.setRange(audioRangeMin2, audioRangeMax2);
             secondaryAudioSource.setPos(((float) state.x + secondaryAudioOffsetRotated.x), ((float) state.y + secondaryAudioOffsetRotated.y), ((float) state.z + secondaryAudioOffsetRotated.z));
         }
-
         synchronized (player) {
             Media currentMedia = player.getMedia();
             if (media != null) {

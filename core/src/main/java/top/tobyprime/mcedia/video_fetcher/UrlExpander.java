@@ -7,55 +7,58 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 
 public class UrlExpander {
     private static final Logger LOGGER = LoggerFactory.getLogger(UrlExpander.class);
+    private static final String MOBILE_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
 
-    // 创建一个特殊配置的HttpClient，它不会自动跟随重定向
+    // 匹配 b23.tv 和 v.douyin.com 的短链接
+    private static final Pattern SHORT_URL_PATTERN = Pattern.compile("https://(b23\\.tv|v\\.douyin\\.com)/\\S+");
+
     private static final HttpClient client = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NEVER)
+            .followRedirects(HttpClient.Redirect.ALWAYS) // 关键：让HttpClient自动处理重定向
+            .connectTimeout(Duration.ofSeconds(10))
             .build();
 
     /**
-     * 异步展开URL。如果不是b23.tv短链接，则直接返回原URL。
-     * @param url 原始URL
-     * @return 一个包含最终URL的 CompletableFuture
+     * 异步展开短链接
+     * @param url 输入的URL
+     * @return 返回一个包含最终URL的CompletableFuture。如果不是短链接，则直接返回原始URL。
      */
-    public static CompletableFuture<String> expand(String url, HttpClient client) {
-        if (url == null || !url.contains("b23.tv")) {
-            return CompletableFuture.completedFuture(url);
+    public static CompletableFuture<String> expand(String url) {
+        if (url == null || !SHORT_URL_PATTERN.matcher(url).find()) {
+            return CompletableFuture.completedFuture(url); // 如果不是已知的短链接，直接返回
         }
 
-        LOGGER.info("检测到B站短链接，正在展开: {}", url);
+        LOGGER.info("正在展开短链接: {}", url);
 
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .method("HEAD", HttpRequest.BodyPublishers.noBody()) // 使用HEAD请求，更高效，我们只需要响应头
-                    .header("User-Agent", "Mozilla/5.0")
-                    .build();
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("User-Agent", MOBILE_USER_AGENT)
+                        .GET()
+                        .build();
 
-            return client.sendAsync(request, HttpResponse.BodyHandlers.discarding())
-                    .thenApply(response -> {
-                        // B站短链接会返回 302 状态码，并在 "Location" 头中包含完整URL
-                        if (response.statusCode() == 302) {
-                            String expandedUrl = response.headers().firstValue("Location").orElse(url);
-                            LOGGER.info("短链接展开成功: {}", expandedUrl);
-                            return expandedUrl;
-                        }
-                        // 如果不是302，可能链接已失效，返回原URL让后续流程处理
-                        LOGGER.warn("展开短链接失败，服务器返回状态码: {}", response.statusCode());
-                        return url;
-                    })
-                    .exceptionally(ex -> {
-                        LOGGER.error("展开短链接时发生网络错误", ex);
-                        return url; // 出现异常时也返回原URL
-                    });
+                // 发送请求，BodyHandlers.discarding()表示我们不关心响应体，只关心最终的URI
+                HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
 
-        } catch (Exception e) {
-            LOGGER.error("创建短链接展开请求失败", e);
-            return CompletableFuture.completedFuture(url);
-        }
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    String finalUrl = response.uri().toString();
+                    LOGGER.info("短链接 {} 展开为 -> {}", url, finalUrl);
+                    return finalUrl;
+                } else {
+                    LOGGER.warn("展开短链接失败，状态码: {}", response.statusCode());
+                    return url; // 失败时返回原始URL
+                }
+            } catch (Exception e) {
+                LOGGER.error("展开短链接时发生异常", e);
+                return url; // 异常时返回原始URL
+            }
+        });
     }
 }

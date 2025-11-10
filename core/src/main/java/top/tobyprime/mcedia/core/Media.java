@@ -28,6 +28,7 @@ public class Media implements Closeable {
     private float speed = 1;
     private boolean looping = false;
     private volatile boolean isBuffering = true;
+    private volatile boolean needsTimeReset = false;
 
     private long baseTime;
     private long baseDuration;
@@ -36,7 +37,7 @@ public class Media implements Closeable {
     private final ConcurrentLinkedQueue<VideoFrame> videoFrameQueue = new ConcurrentLinkedQueue<>();
     private final AtomicLong currentPtsUs = new AtomicLong(0);
 
-    private static final int AUDIO_BUFFER_TARGET = 512;
+    private static final int AUDIO_BUFFER_TARGET = 256;
     private static final int VIDEO_BUFFER_TARGET = 90;
     private static final int VIDEO_BUFFER_LOW_WATERMARK = 42;
 
@@ -101,14 +102,20 @@ public class Media implements Closeable {
                 continue;
             }
 
+            if (needsTimeReset) {
+                nextPlayTime = System.nanoTime();
+                needsTimeReset = false;
+                LOGGER.debug("从暂停中恢复，已重置播放节拍器。");
+            }
             if (isBuffering) {
                 boolean hasEnoughBuffer = decoder.isEof() ||
                         (decoder.audioQueue.size() > AUDIO_BUFFER_TARGET / 2 && decoder.videoQueue.size() > VIDEO_BUFFER_TARGET / 2);
                 if (hasEnoughBuffer) {
                     isBuffering = false;
                     nextPlayTime = System.nanoTime();
-                    LOGGER.debug("缓冲完成，恢复播放。");
+                    LOGGER.info("缓冲完成，恢复播放。音频队列: {}, 视频队列: {}", decoder.audioQueue.size(), decoder.videoQueue.size());
                 } else {
+                    LOGGER.info("正在缓冲，等待数据... 音频队列: {}, 视频队列: {}", decoder.audioQueue.size(), decoder.videoQueue.size());
                     Thread.sleep(50);
                     continue;
                 }
@@ -251,6 +258,8 @@ public class Media implements Closeable {
             if (isLiveStream) {
                 LOGGER.info("正在从暂停中恢复直播，将同步到最新时间...");
                 isBuffering = true;
+            } else {
+                this.needsTimeReset = true;
             }
             paused = false;
         }
@@ -260,20 +269,11 @@ public class Media implements Closeable {
         LOGGER.info("暂停播放");
         if (!paused) {
             paused = true;
-            if (!isLiveStream) {
-                baseDuration = getDurationUs();
-            }
         }
     }
 
     public long getDurationUs() {
-        if (paused) {
-            return isLiveStream ? 0 : baseDuration;
-        }
-        if (isLiveStream) {
-            return lastAudioPts < 0 ? 0 : lastAudioPts;
-        }
-        return baseDuration + (long)((System.currentTimeMillis() - baseTime) * 1000L * speed);
+        return currentPtsUs.get();
     }
 
     /**
@@ -297,9 +297,6 @@ public class Media implements Closeable {
             videoFrameQueue.forEach(VideoFrame::close);
             videoFrameQueue.clear();
 
-            baseDuration = targetUs;
-            baseTime = System.currentTimeMillis();
-            lastAudioPts = targetUs;
             currentPtsUs.set(targetUs);
 
             isBuffering = true;

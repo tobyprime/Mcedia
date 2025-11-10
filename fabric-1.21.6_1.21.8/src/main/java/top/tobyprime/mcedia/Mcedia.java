@@ -21,10 +21,7 @@ import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.http.HttpClient;
 import java.nio.file.Files;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -39,8 +36,6 @@ public class Mcedia implements ModInitializer {
     private final ConcurrentHashMap<ArmorStand, PlayerAgent> entityToPlayer = new ConcurrentHashMap<>();
     private final Queue<ArmorStand> pendingAgents = new ConcurrentLinkedQueue<>();
     private VideoCacheManager globalCacheManager;
-    private HttpClient globalHttpClient;
-    private ExecutorService httpExecutor;
 
     public VideoCacheManager getCacheManager() {
         return this.globalCacheManager;
@@ -57,9 +52,6 @@ public class Mcedia implements ModInitializer {
     public ConcurrentHashMap<ArmorStand, PlayerAgent> getEntityToPlayerMap() {
         return entityToPlayer;
     }
-    public HttpClient getHttpClient() {
-        return this.globalHttpClient;
-    }
 
     public SoundEngineExecutor getAudioExecutor() {
         var manager = (ISoundManagerBridge) Minecraft.getInstance().getSoundManager();
@@ -70,24 +62,15 @@ public class Mcedia implements ModInitializer {
     @Override
     public void onInitialize() {
         INSTANCE = this;
-        this.httpExecutor = Executors.newCachedThreadPool(runnable -> {
-            Thread thread = new Thread(runnable, "Mcedia-Http-Client-Thread");
-            thread.setDaemon(true);
-            return thread;
-        });
-        this.globalHttpClient = HttpClient.newBuilder()
-                .executor(this.httpExecutor)
-                .followRedirects(HttpClient.Redirect.ALWAYS)
-                .build();
         McediaConfig.load();
         try {
             java.nio.file.Path cacheDir = Minecraft.getInstance().gameDirectory.toPath().resolve("mcedia_cache");
             java.nio.file.Files.createDirectories(cacheDir);
-            this.globalCacheManager = new VideoCacheManager(cacheDir, this.globalHttpClient);
+            this.globalCacheManager = new VideoCacheManager(cacheDir);
             LOGGER.info("Mcedia 全局缓存管理器已初始化。");
         } catch (IOException e) {
             LOGGER.error("无法创建或访问Mcedia缓存目录！缓存功能将不可用。", e);
-            this.globalCacheManager = new VideoCacheManager(null, this.globalHttpClient);
+            this.globalCacheManager = new VideoCacheManager(null);
         }
         BiliBiliVideoFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         BilibiliBangumiFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
@@ -102,6 +85,7 @@ public class Mcedia implements ModInitializer {
         registry.register(new BilibiliVideoProvider());
         registry.register(new BilibiliBangumiProvider());
         registry.register(new BilibiliLiveProvider());
+        registry.register(new DouyinVideoProvider());
         registry.register(new YhdmProvider());
     }
 
@@ -130,24 +114,19 @@ public class Mcedia implements ModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> cleanupAllAgents());
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            // 登录成功或失败的消息会在 checkCookieValidityAndNotifyPlayer 的回调中显示
             if (!BilibiliAuthManager.getInstance().isLoggedIn()) {
                 new Thread(() -> {
                     try {
                         Thread.sleep(3000);
-                        Mcedia.msgToPlayer("§e[Mcedia] §f提示: 部分视频需要登录B站才能播放，可以使用 §a/mcedia login 登录");
+                        Mcedia.msgToPlayer("§e[Mcedia] §f提示: 部分视频需要登录B站才能播放，可以请使用 §a/mcedia login");
                     } catch (InterruptedException ignored) {}
                 }).start();
             }
         });
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
-            if (this.globalCacheManager != null) {
-                this.globalCacheManager.cleanup();
-            }
-            if (this.httpExecutor != null) {
-                LOGGER.info("正在关闭 Mcedia 的 Http 客户端...");
-                this.httpExecutor.shutdownNow();
-            }
+            cleanupCacheDirectory();
         });
     }
 
