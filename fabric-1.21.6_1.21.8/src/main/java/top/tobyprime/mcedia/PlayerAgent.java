@@ -175,20 +175,20 @@ public class PlayerAgent {
         return 0;
     }
 
-    public long getServerDuration() {
-        try {
-            var args = entity.getMainHandItem().getDisplayName().getString().split(":");
-            var duration = System.currentTimeMillis() - Long.parseLong(args[1].substring(0, args[1].length() - 1));
-            if (duration < 1000) return 0;
-            return duration * 1000;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
+//    public long getServerDuration() {
+//        try {
+//            var args = entity.getMainHandItem().getDisplayName().getString().split(":");
+//            var duration = System.currentTimeMillis() - Long.parseLong(args[1].substring(0, args[1].length() - 1));
+//            if (duration < 1000) return 0;
+//            return duration * 1000;
+//        } catch (Exception e) {
+//            return 0;
+//        }
+//    }
 
     public long getDuration(String forUrl) {
         long baseDuration = getBaseDurationForUrl(forUrl);
-        return baseDuration + getServerDuration() + this.timestampFromUrlUs;
+        return baseDuration  + this.timestampFromUrlUs;
     }
 
     public void update() {
@@ -231,30 +231,32 @@ public class PlayerAgent {
         for (String pageContent : pages) {
             if (pageContent == null || pageContent.isBlank()) continue;
             String[] lines = pageContent.split("\n");
-            for (String line : lines) {
-                String trimmedLine = line.trim();
+            for (String originalLine : lines) {
+                String trimmedLine = originalLine.trim();
                 if (trimmedLine.isEmpty()) continue;
+                String cleanedLine = trimmedLine.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
 
                 boolean isEasterEgg = false;
-                if (trimmedLine.equalsIgnoreCase("rickroll")) {
+                if (cleanedLine.contains("rickroll")) {
                     playlist.offer(RICKROLL_URL);
                     playlistOriginalSize++;
                     LOGGER.info("§d[彩蛋] Rickroll'd! 已添加到播放列表。");
                     isEasterEgg = true;
-                } else if (trimmedLine.equalsIgnoreCase("badapple")) {
+                } else if (cleanedLine.contains("badapple")) {
                     playlist.offer(BAD_APPLE_URL);
                     playlistOriginalSize++;
                     LOGGER.info("§d[彩蛋] Bad Apple!! 已添加到播放列表。");
                     isEasterEgg = true;
                 }
-                if (!isEasterEgg) {
-                    Matcher matcher = URL_PATTERN.matcher(trimmedLine);
-                    if (matcher.find()) {
-                        String url = matcher.group(0).trim();
-                        playlist.offer(url);
-                        playlistOriginalSize++;
-                        LOGGER.info("已将链接/路径添加到播放列表: {}", url);
-                    }
+                if (isEasterEgg) {
+                    continue;
+                }
+                Matcher matcher = URL_PATTERN.matcher(trimmedLine);
+                if (matcher.find()) {
+                    String url = matcher.group(0).trim();
+                    playlist.offer(url);
+                    playlistOriginalSize++;
+                    LOGGER.info("已将链接/路径添加到播放列表: {}", url);
                 }
             }
         }
