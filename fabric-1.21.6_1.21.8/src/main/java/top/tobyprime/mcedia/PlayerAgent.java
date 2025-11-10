@@ -228,24 +228,33 @@ public class PlayerAgent {
             open(null);
             return;
         }
-
         for (String pageContent : pages) {
             if (pageContent == null || pageContent.isBlank()) continue;
+            String[] lines = pageContent.split("\n");
+            for (String line : lines) {
+                String trimmedLine = line.trim();
+                if (trimmedLine.isEmpty()) continue;
 
-            String trimmedContent = pageContent.trim();
-            if (trimmedContent.equalsIgnoreCase("rickroll")) {
-                playlist.offer(RICKROLL_URL);
-                playlistOriginalSize++;
-            } else if (trimmedContent.equalsIgnoreCase("badapple")) {
-                playlist.offer(BAD_APPLE_URL);
-                playlistOriginalSize++;
-            } else {
-                Matcher matcher = URL_PATTERN.matcher(pageContent);
-                while (matcher.find()) {
-                    String url = matcher.group(0).trim();
-                    playlist.offer(url);
+                boolean isEasterEgg = false;
+                if (trimmedLine.equalsIgnoreCase("rickroll")) {
+                    playlist.offer(RICKROLL_URL);
                     playlistOriginalSize++;
-                    LOGGER.info("已将链接/路径添加到播放列表: {}", url);
+                    LOGGER.info("§d[彩蛋] Rickroll'd! 已添加到播放列表。");
+                    isEasterEgg = true;
+                } else if (trimmedLine.equalsIgnoreCase("badapple")) {
+                    playlist.offer(BAD_APPLE_URL);
+                    playlistOriginalSize++;
+                    LOGGER.info("§d[彩蛋] Bad Apple!! 已添加到播放列表。");
+                    isEasterEgg = true;
+                }
+                if (!isEasterEgg) {
+                    Matcher matcher = URL_PATTERN.matcher(trimmedLine);
+                    if (matcher.find()) {
+                        String url = matcher.group(0).trim();
+                        playlist.offer(url);
+                        playlistOriginalSize++;
+                        LOGGER.info("已将链接/路径添加到播放列表: {}", url);
+                    }
                 }
             }
         }
