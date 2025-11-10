@@ -19,6 +19,7 @@ import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 
+import org.json.JSONObject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -74,7 +75,6 @@ public class Mcedia implements ModInitializer {
         }
         BiliBiliVideoFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         BilibiliBangumiFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
-        BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
         initializeProviders();
         registerCommands();
         registerEvents();
@@ -98,10 +98,7 @@ public class Mcedia implements ModInitializer {
     private void registerEvents() {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.level == null) return;
-
             processPendingAgents();
-
-            // 只负责 tick 存活的 agent。清理工作已移交给 Mixin 和 disconnect 事件。
             for (PlayerAgent agent : entityToPlayer.values()) {
                 if (agent.getEntity().isRemoved()) {
                     removePlayerAgent(agent.getEntity());
@@ -110,21 +107,10 @@ public class Mcedia implements ModInitializer {
                 }
             }
         });
-
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> cleanupAllAgents());
-
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            // 登录成功或失败的消息会在 checkCookieValidityAndNotifyPlayer 的回调中显示
-            if (!BilibiliAuthManager.getInstance().isLoggedIn()) {
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(3000);
-                        Mcedia.msgToPlayer("§e[Mcedia] §f提示: 部分视频需要登录B站才能播放，可以请使用 §a/mcedia login");
-                    } catch (InterruptedException ignored) {}
-                }).start();
-            }
+            BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
         });
-
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
             cleanupCacheDirectory();
         });

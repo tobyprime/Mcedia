@@ -2,6 +2,7 @@ package top.tobyprime.mcedia.auth_manager;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
@@ -58,44 +59,46 @@ public class BilibiliAuthManager {
 
     // 检查 cookie 状态
     public void checkCookieValidityAndNotifyPlayer() {
-        if (McediaConfig.BILIBILI_COOKIE == null || McediaConfig.BILIBILI_COOKIE.isEmpty()) {
+        String cookie = McediaConfig.BILIBILI_COOKIE;
+        if (cookie == null || cookie.isEmpty()) {
             this.isLoggedIn = false;
             this.username = "";
-            return; // 没有Cookie，无需检查
+            return;
         }
-
         LOGGER.info("正在检查Bilibili Cookie有效性...");
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("https://api.bilibili.com/x/web-interface/nav"))
                 .header("User-Agent", "Mozilla/5.0")
-                .header("Cookie", McediaConfig.BILIBILI_COOKIE)
+                .header("Cookie", cookie)
                 .build();
-
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(HttpResponse::body)
                 .thenAccept(body -> {
                     try {
                         JsonObject json = gson.fromJson(body, JsonObject.class);
-                        if (json.get("code").getAsInt() != 0) {
-                            this.isLoggedIn = false;
-                            this.username = "";
-                            Mcedia.msgToPlayer("§e[Mcedia] §f你的Bilibili登录已过期，请使用 §a/mcedia login §f重新登录。");
-                            McediaConfig.saveCookie("");
-                        } else {
+                        if (json.get("code").getAsInt() == 0 && json.getAsJsonObject("data").get("isLogin").getAsBoolean()) {
                             this.isLoggedIn = true;
                             this.username = json.getAsJsonObject("data").get("uname").getAsString();
                             LOGGER.info("Bilibili Cookie有效，当前登录用户: {}", username);
-                            Mcedia.msgToPlayer("§a[Mcedia] §fBilibili账号已登录: " + username);
+                            Component successMessage = Component.literal("§a[Mcedia] §fBilibili Cookie 有效！当前登录用户: §b" + username);
+                            Minecraft.getInstance().execute(() -> Mcedia.msgToPlayer(successMessage));
+                        } else {
+                            throw new Exception("API返回未登录状态或错误码: " + json.get("code").getAsInt());
                         }
                     } catch (Exception e) {
                         this.isLoggedIn = false;
                         this.username = "";
-                        LOGGER.error("检查Bilibili Cookie时解析响应失败", e);
+                        LOGGER.warn("检查Bilibili Cookie时失败: {}", e.getMessage());
+                        Component errorMessage = Component.literal("§e[Mcedia] §f你的Bilibili登录已过期，请使用 §a/mcedia login §f重新登录。");
+                        Minecraft.getInstance().execute(() -> Mcedia.msgToPlayer(errorMessage));
+                        McediaConfig.saveCookie("");
                     }
                 }).exceptionally(e -> {
                     this.isLoggedIn = false;
                     this.username = "";
                     LOGGER.error("检查Bilibili Cookie时发生网络错误", e);
+                    Component networkErrorMessage = Component.literal("§c[Mcedia] §f检查Bilibili登录状态时发生网络错误。");
+                    Minecraft.getInstance().execute(() -> Mcedia.msgToPlayer(networkErrorMessage));
                     return null;
                 });
     }

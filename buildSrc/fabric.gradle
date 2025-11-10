@@ -22,6 +22,7 @@ dependencies {
     modImplementation include("com.google.code.gson:gson:2.10.1")
     implementation "com.google.zxing:core:3.5.3"
     modImplementation "com.google.zxing:core:3.5.3"
+    modImplementation include('org.json:json:20231013')
 }
 
 processResources {
