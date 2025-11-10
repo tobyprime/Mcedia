@@ -58,6 +58,7 @@ public class PlayerAgent {
     private String currentPlaylistContent = "";
     private int playlistOriginalSize = 0;
     private final AtomicLong playbackToken = new AtomicLong(0);
+    private volatile boolean isReconnecting = false;
 
     private final ArmorStand entity;
     private final MediaPlayer player;
@@ -263,28 +264,36 @@ public class PlayerAgent {
 
     public void tick() {
         update();
-
         Media currentMedia = player.getMedia();
-        if (currentMedia != null && currentMedia.isEnded() && !this.isLoopingInProgress) {
+        if (currentMedia != null && !isReconnecting) {
+            if (currentMedia.needsReconnect()) {
+                LOGGER.warn("检测到媒体流中断，正在尝试自动重连: {}", playingUrl);
+                isReconnecting = true;
+                this.open(playingUrl);
+                this.startPlayback(false);
+                return;
+            }
+            if (currentMedia.isEnded() && !this.isLoopingInProgress) {
+                if (player.looping && playingUrl != null) {
+                    this.isLoopingInProgress = true;
 
-            if (player.looping && playingUrl != null) {
-                // [CRITICAL FIX] 统一处理所有循环逻辑
-                this.isLoopingInProgress = true;
-
-                if (playlistOriginalSize > 1) {
-                    LOGGER.info("列表循环: 重新将 '{}' 添加到队尾并播放下一个。", playingUrl);
-                    playlist.offer(playingUrl);
+                    if (playlistOriginalSize > 1) {
+                        LOGGER.info("列表循环: 重新将 '{}' 添加到队尾并播放下一个。", playingUrl);
+                        playlist.offer(playingUrl);
+                        playNextInQueue();
+                    } else {
+                        LOGGER.info("单曲循环: 重新播放 '{}'。", playingUrl);
+                        this.open(playingUrl);
+                        this.startPlayback(true);
+                    }
+                } else if (!player.looping && !playlist.isEmpty()) {
+                    LOGGER.info("当前视频播放结束，尝试播放列表中的下一个。");
                     playNextInQueue();
                 } else {
-                    LOGGER.info("单曲循环: 重新播放 '{}'。", playingUrl);
-                    open(playingUrl);
+                    LOGGER.info("播放列表已为空或单个视频播放结束，停止播放。");
+                    open(null);
+                    player.closeAsync();
                 }
-            } else if (!player.looping && !playlist.isEmpty()) {
-                LOGGER.info("当前视频播放结束，尝试播放列表中的下一个。");
-                playNextInQueue();
-            } else {
-                LOGGER.info("播放列表已为空，播放结束。");
-                open(null);
             }
         }
     }
@@ -305,43 +314,36 @@ public class PlayerAgent {
     public void open(@Nullable String mediaUrl) {
         playingUrl = mediaUrl;
         isLoopingInProgress = false;
+        isReconnecting = false;
     }
 
     private void startPlayback(boolean isLooping) {
+        this.isReconnecting = false;
         this.currentStatus = PlaybackStatus.LOADING;
-        // 1. 为本次播放请求生成一个唯一的令牌
         final long currentToken = this.playbackToken.incrementAndGet();
-
         this.isTextureReady.set(false);
         this.isPausedByBasePlate = false;
-
-        // 2. 将关闭操作作为异步链的第一步，以避免阻塞主线程
         player.closeAsync().thenRun(() -> {
-            // 3. 在关闭完成后，立刻检查令牌是否已过时。如果过时，则中止后续所有操作。
             if (playbackToken.get() != currentToken) {
                 LOGGER.debug("Playback token {} is outdated, aborting start.", currentToken);
                 return;
             }
 
             if (playingUrl == null) {
-                return; // URL为空，关闭后无事可做
+                return;
             }
 
             final String initialUrl = playingUrl;
-
-            // 4. 检查缓存
             if (McediaConfig.CACHING_ENABLED && cacheManager.isCached(initialUrl)) {
                 VideoInfo cachedInfo = cacheManager.getCachedVideoInfo(initialUrl);
                 if (cachedInfo != null) {
                     LOGGER.info("正在从缓存播放: {}", initialUrl);
 
-                    // 使用 openSync，因为它是一个快速的本地操作
                     player.openSync(cachedInfo, null, 0);
 
                     Media media = player.getMedia();
                     if (media != null) {
                         if (texture != null && media.getWidth() > 0) {
-                            // 纹理准备依然需要异步，并捕获令牌
                             texture.prepareAndPrewarm(media.getWidth(), media.getHeight(), () -> {
                                 if (playbackToken.get() == currentToken) {
                                     this.isTextureReady.set(true);
@@ -362,11 +364,9 @@ public class PlayerAgent {
                         LOGGER.error("从缓存打开媒体后未能获取Media实例，回退到网络播放。");
                         fallbackToNetworkPlayback(initialUrl, isLooping, currentToken);
                     }
-                    return; // 从缓存播放成功，返回
+                    return;
                 }
             }
-
-            // 5. 如果缓存未命中，则回退到网络播放流程
             fallbackToNetworkPlayback(initialUrl, isLooping, currentToken);
         });
     }

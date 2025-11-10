@@ -42,9 +42,9 @@ public class BiliBiliLiveFetcher {
             String realRoomId = String.valueOf(initData.getInt("room_id"));
 
             // 获取直播间详细信息 (标题和主播UID)
-            String title = "未知直播间";
+            String title = "Bilibili 直播";
             String author = "未知主播";
-            long uid = 0;
+            long ruid = 0;
             String roomInfoApi = "https://api.live.bilibili.com/room/v1/Room/get_info?room_id=" + realRoomId;
             HttpRequest roomInfoRequest = HttpRequest.newBuilder().uri(URI.create(roomInfoApi)).build();
             HttpResponse<String> roomInfoResponse = client.send(roomInfoRequest, HttpResponse.BodyHandlers.ofString());
@@ -52,17 +52,22 @@ public class BiliBiliLiveFetcher {
             if (roomInfoJson.optInt("code") == 0) {
                 JSONObject roomData = roomInfoJson.getJSONObject("data");
                 title = roomData.optString("title", "未知直播间");
-                uid = roomData.optLong("uid", 0);
+                ruid = roomData.optLong("ruid", 0);
             }
 
             // 如果获取到了 UID, 则通过新 API 获取主播名字
-            if (uid > 0) {
-                String userInfoApi = "https://api.bilibili.com/x/space/acc/info?mid=" + uid;
-                HttpRequest userInfoRequest = HttpRequest.newBuilder().uri(URI.create(userInfoApi)).build();
-                HttpResponse<String> userInfoResponse = client.send(userInfoRequest, HttpResponse.BodyHandlers.ofString());
-                JSONObject userInfoJson = new JSONObject(userInfoResponse.body());
-                if (userInfoJson.optInt("code") == 0) {
-                    author = userInfoJson.getJSONObject("data").optString("name", "未知主播");
+            if (ruid > 0) {
+                try {
+                    String userInfoApi = "https://api.bilibili.com/x/space/acc/info?mid=" + ruid;
+                    HttpRequest userInfoRequest = HttpRequest.newBuilder().uri(URI.create(userInfoApi)).build();
+                    HttpResponse<String> userInfoResponse = client.send(userInfoRequest, HttpResponse.BodyHandlers.ofString());
+                    JSONObject userInfoJson = new JSONObject(userInfoResponse.body());
+                    if (userInfoJson.optInt("code") == 0) {
+                        author = userInfoJson.getJSONObject("data").optString("name", "未知主播");
+                        LOGGER.info("成功获取到主播昵称: {}", author);
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("根据UID获取B站用户名失败，将使用默认值。", e);
                 }
             }
 

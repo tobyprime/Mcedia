@@ -12,6 +12,7 @@ import top.tobyprime.mcedia.provider.VideoInfo;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class Media implements Closeable {
@@ -38,10 +39,12 @@ public class Media implements Closeable {
 
     private final ConcurrentLinkedQueue<VideoFrame> videoFrameQueue = new ConcurrentLinkedQueue<>();
     private final AtomicLong currentPtsUs = new AtomicLong(0);
+    private final AtomicBoolean needsReconnect = new AtomicBoolean(false);
 
     private static final int AUDIO_BUFFER_TARGET = 256;
     private static final int VIDEO_BUFFER_TARGET = 90;
     private static final int VIDEO_BUFFER_LOW_WATERMARK = 42;
+    private static final long STREAM_STALL_TIMEOUT_MS = 5000;
 
 
     public Media(VideoInfo info, @Nullable String cookie, DecoderConfiguration config, long initialSeekUs) {
@@ -74,6 +77,10 @@ public class Media implements Closeable {
         audioThread.start();
     }
 
+    public boolean needsReconnect() {
+        return needsReconnect.get();
+    }
+
     /**
      * 主播放循环分发器
      * 根据是否为直播流，选择不同的播放逻辑。
@@ -98,6 +105,7 @@ public class Media implements Closeable {
      */
     private void playLoopVOD() throws InterruptedException {
         long nextPlayTime = System.nanoTime();
+        long lastFrameTime = System.currentTimeMillis();
         while (!Thread.currentThread().isInterrupted()) {
             if (paused) {
                 Thread.sleep(10);
@@ -131,6 +139,11 @@ public class Media implements Closeable {
             Frame currFrame = decoder.audioQueue.poll();
             if (currFrame == null) {
                 if (decoder.isEof()) {
+                    break;
+                }
+                if (System.currentTimeMillis() - lastFrameTime > 5000) {
+                    LOGGER.warn("直播流或视频流中断，触发重连...");
+                    needsReconnect.set(true);
                     break;
                 }
                 Thread.sleep(5);
@@ -173,6 +186,7 @@ public class Media implements Closeable {
     private void playLoopLive() throws InterruptedException {
         long streamStartTimeNs = -1;
         long firstPtsUs = -1;
+        long lastDataTime = System.currentTimeMillis();
 
         isBuffering = true;
 
@@ -180,6 +194,24 @@ public class Media implements Closeable {
             if (paused) {
                 streamStartTimeNs = -1;
                 Thread.sleep(10);
+                continue;
+            }
+
+            boolean hasData = !decoder.audioQueue.isEmpty() || !decoder.videoQueue.isEmpty();
+
+            if (hasData) {
+                lastDataTime = System.currentTimeMillis();
+            } else {
+                if (decoder.isEof()) {
+                    LOGGER.info("直播流已正常结束。");
+                    break;
+                }
+                if (System.currentTimeMillis() - lastDataTime > STREAM_STALL_TIMEOUT_MS) {
+                    LOGGER.warn("直播流数据中断超过 {} 毫秒，触发重连...", STREAM_STALL_TIMEOUT_MS);
+                    needsReconnect.set(true);
+                    break;
+                }
+                Thread.sleep(20);
                 continue;
             }
 
