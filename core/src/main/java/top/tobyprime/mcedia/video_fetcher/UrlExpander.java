@@ -22,9 +22,8 @@ public class UrlExpander {
      * @param url 原始URL
      * @return 一个包含最终URL的 CompletableFuture
      */
-    public static CompletableFuture<String> expand(String url) {
+    public static CompletableFuture<String> expand(String url, HttpClient client) {
         if (url == null || !url.contains("b23.tv")) {
-            // 如果不是B站短链接，直接完成
             return CompletableFuture.completedFuture(url);
         }
 

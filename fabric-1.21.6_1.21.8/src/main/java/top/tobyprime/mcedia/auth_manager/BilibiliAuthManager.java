@@ -42,7 +42,7 @@ public class BilibiliAuthManager {
     }
 
     /**
-     * [新增] 登出方法，同步更新内存和配置文件
+     *  登出方法，同步更新内存和配置文件
      */
     public void logout() {
         LOGGER.info("正在执行登出操作...");

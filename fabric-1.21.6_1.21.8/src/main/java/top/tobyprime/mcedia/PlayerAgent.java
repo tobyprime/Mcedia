@@ -350,7 +350,7 @@ public class PlayerAgent {
     }
 
     private void fallbackToNetworkPlayback(String initialUrl, boolean isLooping, long currentToken) {
-        UrlExpander.expand(initialUrl)
+        UrlExpander.expand(initialUrl, Mcedia.getInstance().getHttpClient())
                 .thenAccept(expandedUrl -> {
                     // 在每个异步回调的开始，都检查令牌
                     if (playbackToken.get() != currentToken) {

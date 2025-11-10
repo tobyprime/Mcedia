@@ -24,11 +24,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     }
 
     /**
-     * [最终修复] 新的统一入口方法，负责准备和预热纹理。
-     * 它将所有 GPU 操作安全地调度到渲染线程，并保证执行顺序。
-     */
-    /**
-     * [最终修复] 新的统一入口方法，接受一个回调函数。
+     * 新的统一入口方法，接受一个回调函数。
      */
     public void prepareAndPrewarm(int width, int height, Runnable onReadyCallback) {
         Minecraft.getInstance().execute(() -> {

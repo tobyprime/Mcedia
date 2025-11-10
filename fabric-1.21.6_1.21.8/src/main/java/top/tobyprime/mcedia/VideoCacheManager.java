@@ -22,14 +22,15 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class VideoCacheManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(VideoCacheManager.class);
-    private static final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
+    private final HttpClient client;
     private final Path cacheDir;
 
     // 使用 ConcurrentHashMap 作为缓存索引，以原始URL为键，存储缓存文件路径数组
     private final Map<String, Path[]> cachedFiles = new ConcurrentHashMap<>();
 
-    public VideoCacheManager(Path cacheDirectory) {
+    public VideoCacheManager(Path cacheDirectory, HttpClient httpClient) {
         this.cacheDir = cacheDirectory;
+        this.client = Mcedia.getInstance().getHttpClient();
         if (this.cacheDir != null) {
             try {
                 Files.createDirectories(this.cacheDir);
