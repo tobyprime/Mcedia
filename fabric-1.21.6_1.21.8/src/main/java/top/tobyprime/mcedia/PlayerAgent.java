@@ -175,20 +175,20 @@ public class PlayerAgent {
         return 0;
     }
 
-//    public long getServerDuration() {
-//        try {
-//            var args = entity.getMainHandItem().getDisplayName().getString().split(":");
-//            var duration = System.currentTimeMillis() - Long.parseLong(args[1].substring(0, args[1].length() - 1));
-//            if (duration < 1000) return 0;
-//            return duration * 1000;
-//        } catch (Exception e) {
-//            return 0;
-//        }
-//    }
+    public long getServerDuration() {
+        try {
+            var args = entity.getMainHandItem().getDisplayName().getString().split(":");
+            var duration = System.currentTimeMillis() - Long.parseLong(args[1].substring(0, args[1].length() - 1));
+            if (duration < 1000) return 0;
+            return duration * 1000;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
 
     public long getDuration(String forUrl) {
         long baseDuration = getBaseDurationForUrl(forUrl);
-        return baseDuration  + this.timestampFromUrlUs;
+        return baseDuration + getServerDuration() + this.timestampFromUrlUs;
     }
 
     public void update() {
@@ -228,36 +228,27 @@ public class PlayerAgent {
             open(null);
             return;
         }
-        for (String pageContent : pages) {
-            if (pageContent == null || pageContent.isBlank()) continue;
-            String[] lines = pageContent.split("\n");
-            for (String originalLine : lines) {
-                String trimmedLine = originalLine.trim();
-                if (trimmedLine.isEmpty()) continue;
-                String cleanedLine = trimmedLine.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
-
-                boolean isEasterEgg = false;
-                if (cleanedLine.contains("rickroll")) {
-                    playlist.offer(RICKROLL_URL);
-                    playlistOriginalSize++;
-                    LOGGER.info("§d[彩蛋] Rickroll'd! 已添加到播放列表。");
-                    isEasterEgg = true;
-                } else if (cleanedLine.contains("badapple")) {
-                    playlist.offer(BAD_APPLE_URL);
-                    playlistOriginalSize++;
-                    LOGGER.info("§d[彩蛋] Bad Apple!! 已添加到播放列表。");
-                    isEasterEgg = true;
-                }
-                if (isEasterEgg) {
-                    continue;
-                }
-                Matcher matcher = URL_PATTERN.matcher(trimmedLine);
-                if (matcher.find()) {
-                    String url = matcher.group(0).trim();
-                    playlist.offer(url);
-                    playlistOriginalSize++;
-                    LOGGER.info("已将链接/路径添加到播放列表: {}", url);
-                }
+        String fullContent = String.join("\n", pages);
+        // Pattern.CASE_INSENSITIVE 使得匹配不区分大小写
+        Pattern combinedPattern = Pattern.compile(
+                "(https?://\\S+)|(rick\\s*roll)|(bad\\s*apple)",
+                Pattern.CASE_INSENSITIVE
+        );
+        Matcher matcher = combinedPattern.matcher(fullContent);
+        while (matcher.find()) {
+            if (matcher.group(1) != null) {
+                String url = matcher.group(1).trim();
+                playlist.offer(url);
+                playlistOriginalSize++;
+                LOGGER.info("已将链接/路径添加到播放列表: {}", url);
+            } else if (matcher.group(2) != null) {
+                playlist.offer(RICKROLL_URL);
+                playlistOriginalSize++;
+                LOGGER.info("§d[彩蛋] Rickroll'd! 按顺序添加到播放列表。");
+            } else if (matcher.group(3) != null) {
+                playlist.offer(BAD_APPLE_URL);
+                playlistOriginalSize++;
+                LOGGER.info("§d[彩蛋] Bad Apple!! 按顺序添加到播放列表。");
             }
         }
         LOGGER.info("播放列表更新完成，共找到 {} 个媒体项目。", playlistOriginalSize);
