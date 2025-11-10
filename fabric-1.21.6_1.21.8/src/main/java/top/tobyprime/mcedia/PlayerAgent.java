@@ -46,7 +46,8 @@ import java.util.stream.Collectors;
 
 public class PlayerAgent {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
-    private static final ResourceLocation errorScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/error.jpg");
+    private static final ResourceLocation errorScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/error.png");
+    private static final ResourceLocation loadingScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/loading.png");
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
     private static final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+)");
     private long timestampFromUrlUs = 0;
@@ -68,10 +69,17 @@ public class PlayerAgent {
 
     private float offsetX = 0, offsetY = 0, offsetZ = 0;
     private float scale = 1;
+    private final AudioSource primaryAudioSource;
+    private final AudioSource secondaryAudioSource;
+    private boolean isSecondarySourceActive = false;
     private float audioOffsetX = 0, audioOffsetY = 0, audioOffsetZ = 0;
     private float audioMaxVolume = 5f;
     private float audioRangeMin = 2;
     private float audioRangeMax = 500;
+    private float audioOffsetX2 = 0, audioOffsetY2 = 0, audioOffsetZ2 = 0;
+    private float audioMaxVolume2 = 5f;
+    private float audioRangeMin2 = 2;
+    private float audioRangeMax2 = 500;
     public float speed = 1;
     private String desiredQuality = "自动";
     private boolean shouldCacheForLoop = false;
@@ -92,7 +100,9 @@ public class PlayerAgent {
         this.cacheManager = Mcedia.getInstance().getCacheManager();
         this.player = new MediaPlayer();
         player.setDecoderConfiguration(new DecoderConfiguration(new DecoderConfiguration.Builder()));
-        player.bindAudioSource(audioSource);
+        this.primaryAudioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
+        this.secondaryAudioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
+        player.bindAudioSource(primaryAudioSource);
     }
 
     public void initializeGraphics() {
@@ -512,10 +522,7 @@ public class PlayerAgent {
 //        if (!this.isTextureReady.get()) return;
         Media media = player.getMedia();
         if (media != null) {
-            // [THE FINAL FIX] 使用 state.showBasePlate 字段
-            // shouldBePaused 为 true 当且仅当 底座不显示 (!state.showBasePlate)
             boolean shouldBePaused = !state.showBasePlate;
-
             if (shouldBePaused && !media.isPaused()) {
                 player.pause();
                 this.isPausedByBasePlate = true;
@@ -525,12 +532,21 @@ public class PlayerAgent {
             }
         }
         var size = state.scale * scale;
-        var audioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
         var volumeFactor = 1 - (state.leftArmPose.x() < 0 ? -state.leftArmPose.x() / 360f : (360.0f - state.leftArmPose.x()) / 360f);
         var speedFactor = state.leftArmPose.y() < 0 ? -state.leftArmPose.y() / 360f : (360.0f - state.leftArmPose.y()) / 360f;
         speed = speedFactor < 0.1f ? 1f : (speedFactor > 0.5f ? 1f - (1f - speedFactor) * 2f : (speedFactor - 0.1f) / 0.4f * 8f);
         player.setSpeed(speed);
-        var volume = volumeFactor * audioMaxVolume;
+
+        var primaryAudioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(state.yRot);
+        primaryAudioSource.setVolume(audioMaxVolume * volumeFactor);
+        primaryAudioSource.setRange(audioRangeMin, audioRangeMax);
+        primaryAudioSource.setPos(((float) state.x + primaryAudioOffsetRotated.x), ((float) state.y + primaryAudioOffsetRotated.y), ((float) state.z + primaryAudioOffsetRotated.z));
+        if (isSecondarySourceActive) {
+            var secondaryAudioOffsetRotated = new Vector3f(audioOffsetX2, audioOffsetY2, audioOffsetZ2).rotateY(state.yRot);
+            secondaryAudioSource.setVolume(audioMaxVolume2 * volumeFactor);
+            secondaryAudioSource.setRange(audioRangeMin2, audioRangeMax2);
+            secondaryAudioSource.setPos(((float) state.x + secondaryAudioOffsetRotated.x), ((float) state.y + secondaryAudioOffsetRotated.y), ((float) state.z + secondaryAudioOffsetRotated.z));
+        }
 
         synchronized (player) {
             Media currentMedia = player.getMedia();
@@ -539,9 +555,6 @@ public class PlayerAgent {
                 if (media.getHeight() > 0) halfW = media.getAspectRatio();
             } else halfW = 1.777f;
         }
-        audioSource.setVolume(volume);
-        audioSource.setRange(audioRangeMin, audioRangeMax);
-        audioSource.setPos(((float) state.x + audioOffsetRotated.x), ((float) state.y + audioOffsetRotated.y), ((float) state.z + audioOffsetRotated.z));
 
         poseStack.pushPose();
         try {
@@ -564,6 +577,9 @@ public class PlayerAgent {
         if (texture == null) return;
         ResourceLocation screenTexture;
         switch (currentStatus) {
+            case LOADING:
+                screenTexture = loadingScreen;
+                break;
             case FAILED:
                 screenTexture = errorScreen;
                 break;
@@ -571,12 +587,10 @@ public class PlayerAgent {
                 if (player.getMedia() != null && this.isTextureReady.get()) {
                     screenTexture = this.texture.getResourceLocation();
                 } else {
-                    // 如果正在播放但纹理未就绪，则暂时显示空闲屏幕（作为加载中的替代）
-                    screenTexture = idleScreen;
+                    screenTexture = loadingScreen;
                 }
                 break;
             case IDLE:
-            case LOADING:
             default:
                 screenTexture = idleScreen;
                 break;
@@ -632,5 +646,42 @@ public class PlayerAgent {
     public void updateOther(String flags) { boolean looping = flags.contains("looping"); this.player.setLooping(looping); this.shouldCacheForLoop = looping && McediaConfig.CACHING_ENABLED; if (!looping && cacheManager.isCached(playingUrl)) cacheManager.cleanup(); }
     public void updateQuality(String quality) { this.desiredQuality = (quality == null || quality.isBlank()) ? "自动" : quality.trim(); }
     public void updateOffset(String offset) { try { var vars = offset.split("\n"); offsetX = Float.parseFloat(vars[0]); offsetY = Float.parseFloat(vars[1]); offsetZ = Float.parseFloat(vars[2]); scale = Float.parseFloat(vars[3]); } catch (Exception ignored) {} }
-    public void updateAudioOffset(String config) { try { var vars = config.split("\n"); audioOffsetX = Float.parseFloat(vars[0]); audioOffsetY = Float.parseFloat(vars[1]); audioOffsetZ = Float.parseFloat(vars[2]); audioMaxVolume = Float.parseFloat(vars[3]); audioRangeMin = Float.parseFloat(vars[4]); audioRangeMax = Float.parseFloat(vars[5]); } catch (Exception ignored) {} }
+    public void updateAudioOffset(String config) {
+        if (config == null) return;
+        String[] blocks = config.split("\\n\\s*\\n");
+
+        try {
+            if (blocks.length > 0 && !blocks[0].isBlank()) {
+                String[] vars = blocks[0].split("\n");
+                audioOffsetX = Float.parseFloat(vars[0]);
+                audioOffsetY = Float.parseFloat(vars[1]);
+                audioOffsetZ = Float.parseFloat(vars[2]);
+                audioMaxVolume = Float.parseFloat(vars[3]);
+                audioRangeMin = Float.parseFloat(vars[4]);
+                audioRangeMax = Float.parseFloat(vars[5]);
+            }
+            if (blocks.length > 1 && !blocks[1].isBlank()) {
+                String[] vars = blocks[1].split("\n");
+                audioOffsetX2 = Float.parseFloat(vars[0]);
+                audioOffsetY2 = Float.parseFloat(vars[1]);
+                audioOffsetZ2 = Float.parseFloat(vars[2]);
+                audioMaxVolume2 = Float.parseFloat(vars[3]);
+                audioRangeMin2 = Float.parseFloat(vars[4]);
+                audioRangeMax2 = Float.parseFloat(vars[5]);
+                if (!isSecondarySourceActive) {
+                    player.bindAudioSource(secondaryAudioSource);
+                    isSecondarySourceActive = true;
+                    LOGGER.info("已启用并配置副声源。");
+                }
+            } else {
+                if (isSecondarySourceActive) {
+                    player.unbindAudioSource(secondaryAudioSource);
+                    isSecondarySourceActive = false;
+                    LOGGER.info("已禁用副声源。");
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("解析声源配置失败，请检查格式。", e);
+        }
+    }
 }
