@@ -20,8 +20,10 @@ public class Media implements Closeable {
     private final MediaDecoder decoder;
     private final Thread audioThread;
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
-    @Nullable private ITexture texture;
-    @Nullable private final VideoFramePool videoFramePool;
+    @Nullable
+    private ITexture texture;
+    @Nullable
+    private final VideoFramePool videoFramePool;
 
     private volatile boolean paused = true;
     private boolean isLiveStream = false;
@@ -115,7 +117,6 @@ public class Media implements Closeable {
                     nextPlayTime = System.nanoTime();
                     LOGGER.info("缓冲完成，恢复播放。音频队列: {}, 视频队列: {}", decoder.audioQueue.size(), decoder.videoQueue.size());
                 } else {
-                    LOGGER.info("正在缓冲，等待数据... 音频队列: {}, 视频队列: {}", decoder.audioQueue.size(), decoder.videoQueue.size());
                     Thread.sleep(50);
                     continue;
                 }
@@ -130,7 +131,7 @@ public class Media implements Closeable {
             Frame currFrame = decoder.audioQueue.poll();
             if (currFrame == null) {
                 if (decoder.isEof()) {
-                        break;
+                    break;
                 }
                 Thread.sleep(5);
                 continue;
@@ -193,8 +194,8 @@ public class Media implements Closeable {
                 VideoFrame firstVideo = decoder.videoQueue.peek();
                 firstPtsUs = Long.MAX_VALUE;
 
-                if(firstAudio != null) firstPtsUs = Math.min(firstPtsUs, firstAudio.timestamp);
-                if(firstVideo != null) firstPtsUs = Math.min(firstPtsUs, firstVideo.ptsUs);
+                if (firstAudio != null) firstPtsUs = Math.min(firstPtsUs, firstAudio.timestamp);
+                if (firstVideo != null) firstPtsUs = Math.min(firstPtsUs, firstVideo.ptsUs);
 
                 streamStartTimeNs = System.nanoTime();
                 isBuffering = false; // 缓冲完成
@@ -307,21 +308,77 @@ public class Media implements Closeable {
         }
     }
 
-    public void setLooping(boolean looping) { this.looping = looping; }
-    public long getLengthUs() { return decoder.getDuration(); }
-    public void setSpeed(float speed) { if (speed == this.speed) return; this.speed = speed; this.audioSources.forEach(s -> s.setPitch(speed)); }
-    public void bindTexture(ITexture texture) { this.texture = texture; }
-    public void unbindTexture() { this.texture = null; }
-    public void bindAudioSource(IAudioSource audioBuffer) { this.audioSources.add(audioBuffer); }
-    public void unbindAudioSource(IAudioSource audioBuffer) { this.audioSources.remove(audioBuffer); }
-    private void uploadBuffer(Frame frame) { for (var audioSource : audioSources) { audioSource.upload(AudioDataConverter.AsAudioData(frame, -1)); } }
-    public boolean isPlaying() { return !paused; }
-    public boolean isPaused() { return paused; }
-    public boolean isEnded() { return !isLiveStream && decoder.isEof() && decoder.audioQueue.isEmpty(); }
-    public boolean isLiveStream() { return isLiveStream; }
-    public int getWidth() { return decoder.getWidth(); }
-    public int getHeight() { return decoder.getHeight(); }
-    public float getAspectRatio() { if (getHeight() == 0) return 16f / 9f; return (float) getWidth() / getHeight(); }
+    public void setLooping(boolean looping) {
+        this.looping = looping;
+    }
+
+    public long getLengthUs() {
+        return decoder.getDuration();
+    }
+
+    public void setSpeed(float speed) {
+        if (speed == this.speed) return;
+        this.speed = speed;
+        this.audioSources.forEach(s -> s.setPitch(speed));
+    }
+
+    public void bindTexture(ITexture texture) {
+        this.texture = texture;
+    }
+
+    public void unbindTexture() {
+        this.texture = null;
+    }
+
+    public void bindAudioSource(IAudioSource audioBuffer) {
+        this.audioSources.add(audioBuffer);
+    }
+
+    public void unbindAudioSource(IAudioSource audioBuffer) {
+        this.audioSources.remove(audioBuffer);
+    }
+
+    private void uploadBuffer(Frame frame) {
+        for (var audioSource : audioSources) {
+            audioSource.upload(AudioDataConverter.AsAudioData(frame, -1));
+        }
+    }
+
+    public boolean isPlaying() {
+        return !paused;
+    }
+
+    public boolean isPaused() {
+        return paused;
+    }
+
+    public boolean isBuffering() {
+        if (isLiveStream) {
+            return false;
+        }
+        return this.isBuffering;
+    }
+
+    public boolean isEnded() {
+        return !isLiveStream && decoder.isEof() && decoder.audioQueue.isEmpty();
+    }
+
+    public boolean isLiveStream() {
+        return isLiveStream;
+    }
+
+    public int getWidth() {
+        return decoder.getWidth();
+    }
+
+    public int getHeight() {
+        return decoder.getHeight();
+    }
+
+    public float getAspectRatio() {
+        if (getHeight() == 0) return 16f / 9f;
+        return (float) getWidth() / getHeight();
+    }
 
     @Override
     public void close() {

@@ -22,6 +22,7 @@ public class MediaPlayer {
         t.setDaemon(true);
         return t;
     });
+
     static {
         FFmpegLogCallback.set();
         av_log_set_level(AV_LOG_ERROR);
@@ -58,8 +59,13 @@ public class MediaPlayer {
         executor.shutdownNow();
     }
 
-    public DecoderConfiguration getDecoderConfiguration() { return decoderConfiguration; }
-    public void setDecoderConfiguration(DecoderConfiguration decoderConfiguration) { this.decoderConfiguration = decoderConfiguration; }
+    public DecoderConfiguration getDecoderConfiguration() {
+        return decoderConfiguration;
+    }
+
+    public void setDecoderConfiguration(DecoderConfiguration decoderConfiguration) {
+        this.decoderConfiguration = decoderConfiguration;
+    }
 
     private void closeInternal() {
         Media preMedia;
@@ -72,8 +78,11 @@ public class MediaPlayer {
     }
 
     public boolean looping = false;
+
     @Nullable
-    public synchronized Media getMedia() { return media; }
+    public synchronized Media getMedia() {
+        return media;
+    }
 
     public CompletableFuture<?> closeAsync() {
         return CompletableFuture.runAsync(() -> {
@@ -141,15 +150,22 @@ public class MediaPlayer {
         }, executor);
     }
 
-    public synchronized void play() { if (media != null) media.play(); }
-    public synchronized void pause() { if (media != null) media.pause(); }
+    public synchronized void play() {
+        if (media != null) media.play();
+    }
+
+    public synchronized void pause() {
+        if (media != null) media.pause();
+    }
+
     public void seek(long us) {
         Media currentMedia;
-        synchronized(this) {
+        synchronized (this) {
             currentMedia = this.media;
         }
         if (currentMedia != null) currentMedia.seek(us);
     }
+
     float speed = 1;
 
     private void openInternal(String inputMedia) {
@@ -192,7 +208,27 @@ public class MediaPlayer {
         this.bindResourcesToMedia(newMedia);
     }
 
-    public synchronized void setSpeed(float speed) { this.speed = speed; if (media != null) media.setSpeed(speed); }
-    public synchronized void setLooping(boolean looping) { this.looping = looping; if (media != null) media.setLooping(looping); }
-    public synchronized float getProgress() { if (media != null && media.getLengthUs() > 0) { return (float) (getMedia().getDurationUs() / (double) getMedia().getLengthUs()); } return 0; }
+    public synchronized void setSpeed(float speed) {
+        this.speed = speed;
+        if (media != null) media.setSpeed(speed);
+    }
+
+    public synchronized void setLooping(boolean looping) {
+        this.looping = looping;
+        if (media != null) media.setLooping(looping);
+    }
+
+    public synchronized float getProgress() {
+        if (media != null && media.getLengthUs() > 0) {
+            return (float) (getMedia().getDurationUs() / (double) getMedia().getLengthUs());
+        }
+        return 0;
+    }
+
+    public synchronized boolean isBuffering() {
+        if (media != null) {
+            return media.isBuffering();
+        }
+        return false;
+    }
 }

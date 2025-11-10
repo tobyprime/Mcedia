@@ -34,7 +34,7 @@ public class VideoFrame implements Closeable {
     }
 
     /**
-     * [新增] 创建一个用于预热 GPU 渲染管线的全黑视频帧
+     * 创建一个用于预热 GPU 渲染管线的全黑视频帧
      * @param width 视频宽度
      * @param height 视频高度
      * @return 一个新的 VideoFrame 实例，其 ByteBuffer 需要手动管理（例如通过 try-with-resources）

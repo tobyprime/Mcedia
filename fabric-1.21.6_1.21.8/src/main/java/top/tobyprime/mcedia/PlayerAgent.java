@@ -95,6 +95,7 @@ public class PlayerAgent {
         PLAYING,   // 正在播放或暂停
         FAILED     // 上一个加载任务失败
     }
+
     private volatile PlaybackStatus currentStatus = PlaybackStatus.IDLE;
 
     public PlayerAgent(ArmorStand entity) {
@@ -124,9 +125,14 @@ public class PlayerAgent {
         int hours = 0, minutes = 0, seconds = 0;
         try {
             if (len == 1) hours = Integer.parseInt(parts[0]);
-            else if (len == 2) { hours = Integer.parseInt(parts[0]); minutes = Integer.parseInt(parts[1]); }
-            else if (len == 3) { hours = Integer.parseInt(parts[0]); minutes = Integer.parseInt(parts[1]); seconds = Integer.parseInt(parts[2]); }
-            else throw new IllegalArgumentException("Invalid time format: " + timeStr);
+            else if (len == 2) {
+                hours = Integer.parseInt(parts[0]);
+                minutes = Integer.parseInt(parts[1]);
+            } else if (len == 3) {
+                hours = Integer.parseInt(parts[0]);
+                minutes = Integer.parseInt(parts[1]);
+                seconds = Integer.parseInt(parts[2]);
+            } else throw new IllegalArgumentException("Invalid time format: " + timeStr);
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Invalid number in time string: " + timeStr, e);
         }
@@ -218,7 +224,8 @@ public class PlayerAgent {
                     updateQuality("自动");
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private void updatePlaylist(List<String> pages) {
@@ -365,10 +372,8 @@ public class PlayerAgent {
     }
 
     private void fallbackToNetworkPlayback(String initialUrl, boolean isLooping, long currentToken) {
-        this.currentStatus = PlaybackStatus.LOADING;
         UrlExpander.expand(initialUrl)
                 .thenAccept(expandedUrl -> {
-                    // 在每个异步回调的开始，都检查令牌
                     if (playbackToken.get() != currentToken) {
                         LOGGER.debug("Playback token {} is outdated, aborting URL expansion callback.", currentToken);
                         return;
@@ -377,75 +382,54 @@ public class PlayerAgent {
                     this.timestampFromUrlUs = parseTimestampFromUrl(expandedUrl);
                     IMediaProvider provider = MediaProviderRegistry.getInstance().getProviderForUrl(expandedUrl);
 
-                    if (provider == null) {
-                        // 如果没有找到特定的provider，可能是一个直接链接，尝试直接播放
-                        LOGGER.info("未找到特定Provider，尝试作为直接链接播放: {}", expandedUrl);
-                        // 这种情况下我们不知道是否需要cookie，所以不传
-                        CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(
-                                () -> new VideoInfo(expandedUrl, null),
-                                () -> null, // 无Cookie
-                                0
-                        );
-                        // ... (此处省略handle部分，与下面类似)
-                    } else {
-                        // 找到了特定的Provider
+                    if (provider != null) {
                         String warning = provider.getSafetyWarning();
                         if (warning != null && !warning.isEmpty()) Mcedia.msgToPlayer(warning);
+                    }
 
-                        LOGGER.info(isLooping ? "正在重新加载循环..." : "准备从网络播放 {}...", expandedUrl);
+                    LOGGER.info(isLooping ? "正在重新加载循环..." : "准备从网络播放 {}...", expandedUrl);
 
-                        // 动态决定是否需要Cookie
-                        final String cookie;
-                        // 这里我们通过类名来判断，这是一个简单有效的方法
-                        if (provider.getClass().getSimpleName().toLowerCase().contains("bilibili")) {
-                            cookie = McediaConfig.BILIBILI_COOKIE;
-                            LOGGER.debug("检测到Bilibili Provider，将使用配置的Cookie。");
-                        } else {
-                            cookie = null;
+                    final String cookie = (provider != null && provider.getClass().getSimpleName().toLowerCase().contains("bilibili"))
+                            ? McediaConfig.BILIBILI_COOKIE
+                            : null;
+
+                    CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(
+                            () -> {
+                                if (playbackToken.get() != currentToken) {
+                                    throw new IllegalStateException("Playback aborted by new request before resolving URL.");
+                                }
+                                try {
+                                    if (provider == null) {
+                                        throw new UnsupportedOperationException("No provider found for URL: " + expandedUrl);
+                                    }
+                                    return provider.resolve(expandedUrl, cookie, this.desiredQuality);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(e);
+                                }
+                            },
+                            () -> cookie, 0
+                    );
+
+                    videoInfoFuture.handle((videoInfo, throwable) -> {
+                        if (playbackToken.get() != currentToken) {
+                            LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
+                            return null;
                         }
 
-                        // openAsyncWithVideoInfo 内部现在会安全地关闭旧实例
-                        CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(
-                                () -> {
-                                    // 在耗时的网络操作前再次检查令牌
-                                    if (playbackToken.get() != currentToken) {
-                                        // 抛出异常以中断 CompletableFuture 链
-                                        throw new IllegalStateException("Playback aborted by new request before resolving URL.");
-                                    }
-                                    try {
-                                        // 将动态决定的cookie传递给resolve方法
-                                        return provider.resolve(expandedUrl, cookie, this.desiredQuality);
-                                    } catch (Exception e) {
-                                        throw new RuntimeException(e);
-                                    }
-                                },
-                                () -> cookie, // 同样将动态决定的cookie传递给播放器核心
-                                0
-                        );
-
-                        videoInfoFuture.handle((videoInfo, throwable) -> {
-                            // 最终回调，同样需要检查令牌
-                            if (playbackToken.get() != currentToken) {
-                                LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
-                                return null;
+                        if (throwable != null) {
+                            if (!(throwable.getCause() instanceof IllegalStateException)) {
+                                handlePlaybackFailure(throwable, initialUrl, expandedUrl, isLooping);
                             }
-
-                            if (throwable != null) {
-                                // 检查是否是我们自己为了中止流程而抛出的异常
-                                if (!(throwable.getCause() instanceof IllegalStateException)) {
-                                    handlePlaybackFailure(throwable, expandedUrl, isLooping);
-                                }
-                            } else {
-                                handlePlaybackSuccess(videoInfo, expandedUrl, isLooping, provider);
-                            }
-                            return null;
-                        });
-                    }
+                        } else {
+                            handlePlaybackSuccess(videoInfo, expandedUrl, isLooping, provider);
+                        }
+                        return null;
+                    });
                 })
                 .exceptionally(ex -> {
-                    if (playbackToken.get() == currentToken) { // 只报告当前任务的错误
+                    if (playbackToken.get() == currentToken) {
                         LOGGER.error("处理URL时发生严重错误: {}", initialUrl, ex);
-                        handlePlaybackFailure(ex, initialUrl, isLooping);
+                        handlePlaybackFailure(ex, initialUrl, initialUrl, isLooping);
                     }
                     return null;
                 });
@@ -503,6 +487,7 @@ public class PlayerAgent {
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping, @Nullable IMediaProvider provider) {
         this.currentStatus = PlaybackStatus.PLAYING;
         this.isTextureInitialized = false;
+
         Media media = player.getMedia();
         if (media == null) {
             LOGGER.error("视频加载成功但Media对象为空，这是一个严重错误。");
@@ -511,19 +496,24 @@ public class PlayerAgent {
 
         if (shouldCacheForLoop && !media.isLiveStream() && !cacheManager.isCached(finalMediaUrl) && !cacheManager.isCaching(finalMediaUrl)) {
             LOGGER.info("正在为循环播放在后台缓存视频: {}", finalMediaUrl);
-            cacheManager.cacheVideoAsync(finalMediaUrl, videoInfo, McediaConfig.BILIBILI_COOKIE)
+            String cookie = (provider != null && provider.getClass().getSimpleName().toLowerCase().contains("bilibili"))
+                    ? McediaConfig.BILIBILI_COOKIE
+                    : null;
+            cacheManager.cacheVideoAsync(finalMediaUrl, videoInfo, cookie)
                     .handle((unused, cacheThrowable) -> {
-                        if (cacheThrowable != null) Mcedia.msgToPlayer("§e[Mcedia] §c视频后台缓存失败: " + finalMediaUrl);
+                        if (cacheThrowable != null)
+                            Mcedia.msgToPlayer("§e[Mcedia] §c视频后台缓存失败: " + finalMediaUrl);
                         else Mcedia.msgToPlayer("§a[Mcedia] §f视频已缓存: " + finalMediaUrl);
                         return null;
                     });
         }
-//        if (media != null && texture != null && media.getWidth() > 0) {
-//            texture.prepareAndPrewarm(media.getWidth(), media.getHeight(), () -> this.isTextureReady.set(true));
-//        }
+
         if (!isLooping) {
-            Style style = Style.EMPTY.withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)));
-            Component msg = Component.literal("§a[Mcedia] §f播放: ").append(Component.literal(videoInfo.getTitle()).withStyle(style.withColor(ChatFormatting.YELLOW)));
+            Style clickableStyle = Style.EMPTY.withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)));
+            Component msg = Component.literal("§a[Mcedia] §f播放: ")
+                    .append(Component.literal(videoInfo.getTitle()).withStyle(clickableStyle.withColor(ChatFormatting.YELLOW)))
+                    .append(Component.literal(" - ").withStyle(ChatFormatting.WHITE))
+                    .append(Component.literal(videoInfo.getAuthor()).withStyle(clickableStyle.withColor(ChatFormatting.AQUA)));
             Mcedia.msgToPlayer(msg);
         }
 
@@ -548,18 +538,19 @@ public class PlayerAgent {
         this.isLoopingInProgress = false;
     }
 
-    private void handlePlaybackFailure(Throwable throwable, String finalMediaUrl, boolean isLooping) {
+    private void handlePlaybackFailure(Throwable throwable, String initialUrl, String finalMediaUrl, boolean isLooping) {
         this.currentStatus = PlaybackStatus.FAILED;
-        LOGGER.warn("打开视频失败", throwable.getCause());
+        LOGGER.warn("打开视频失败, 原始链接: {}", initialUrl, throwable.getCause());
         if (throwable.getCause() instanceof BilibiliAuthRequiredException) {
             Mcedia.msgToPlayer("§e[Mcedia] §f该视频需要登录或会员。请使用 §a/mcedia login §f登录。");
         } else if (!isLooping) {
-            Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + finalMediaUrl);
+            Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + initialUrl);
         }
         this.isLoopingInProgress = false;
     }
 
     private float halfW = 1.777f;
+
     public void render(ArmorStandRenderState state, MultiBufferSource bufferSource, PoseStack poseStack, int i) {
 //        if (!this.isTextureReady.get()) return;
         Media media = player.getMedia();
@@ -631,7 +622,9 @@ public class PlayerAgent {
                 screenTexture = errorScreen;
                 break;
             case PLAYING:
-                if (player.getMedia() != null && this.isTextureReady.get()) {
+                if (player.isBuffering()) {
+                    screenTexture = loadingScreen;
+                } else if (player.getMedia() != null && this.isTextureReady.get()) {
                     screenTexture = this.texture.getResourceLocation();
                 } else {
                     screenTexture = loadingScreen;
@@ -667,7 +660,13 @@ public class PlayerAgent {
         }
     }
 
-    public void close() { playingUrl = null; isLoopingInProgress = false; cacheManager.cleanup(); player.closeAsync(); }
+    public void close() {
+        playingUrl = null;
+        isLoopingInProgress = false;
+        cacheManager.cleanup();
+        player.closeAsync();
+    }
+
     public void closeSync() {
         this.currentStatus = PlaybackStatus.IDLE;
         playingUrl = null;
@@ -675,7 +674,11 @@ public class PlayerAgent {
         player.closeSync();
         LOGGER.info("PlayerAgent已关闭，实体位于 {}", entity.position());
     }
-    public ArmorStand getEntity() { return this.entity; }
+
+    public ArmorStand getEntity() {
+        return this.entity;
+    }
+
     @Nullable
     private List<String> getBookPages(ItemStack bookStack) {
         boolean isTextFilteringEnabled = Minecraft.getInstance().isTextFilteringEnabled();
@@ -684,15 +687,50 @@ public class PlayerAgent {
             if (content != null) return content.getPages(isTextFilteringEnabled).toList();
         } else if (bookStack.is(Items.WRITTEN_BOOK)) {
             WrittenBookContent content = bookStack.get(DataComponents.WRITTEN_BOOK_CONTENT);
-            if (content != null) return content.getPages(isTextFilteringEnabled).stream().map(Component::getString).collect(Collectors.toList());
+            if (content != null)
+                return content.getPages(isTextFilteringEnabled).stream().map(Component::getString).collect(Collectors.toList());
         }
         return null;
     }
-    public void resetOffset() { this.offsetX = 0; this.offsetY = 0; this.offsetZ = 0; this.scale = 1; }
-    public void resetAudioOffset() { this.audioOffsetX = 0; this.audioOffsetY = 0; this.audioOffsetZ = 0; this.audioMaxVolume = 5; this.audioRangeMin = 2; this.audioRangeMax = 500; }
-    public void updateOther(String flags) { boolean looping = flags.contains("looping"); this.player.setLooping(looping); this.shouldCacheForLoop = looping && McediaConfig.CACHING_ENABLED; if (!looping && cacheManager.isCached(playingUrl)) cacheManager.cleanup(); }
-    public void updateQuality(String quality) { this.desiredQuality = (quality == null || quality.isBlank()) ? "自动" : quality.trim(); }
-    public void updateOffset(String offset) { try { var vars = offset.split("\n"); offsetX = Float.parseFloat(vars[0]); offsetY = Float.parseFloat(vars[1]); offsetZ = Float.parseFloat(vars[2]); scale = Float.parseFloat(vars[3]); } catch (Exception ignored) {} }
+
+    public void resetOffset() {
+        this.offsetX = 0;
+        this.offsetY = 0;
+        this.offsetZ = 0;
+        this.scale = 1;
+    }
+
+    public void resetAudioOffset() {
+        this.audioOffsetX = 0;
+        this.audioOffsetY = 0;
+        this.audioOffsetZ = 0;
+        this.audioMaxVolume = 5;
+        this.audioRangeMin = 2;
+        this.audioRangeMax = 500;
+    }
+
+    public void updateOther(String flags) {
+        boolean looping = flags.contains("looping");
+        this.player.setLooping(looping);
+        this.shouldCacheForLoop = looping && McediaConfig.CACHING_ENABLED;
+        if (!looping && cacheManager.isCached(playingUrl)) cacheManager.cleanup();
+    }
+
+    public void updateQuality(String quality) {
+        this.desiredQuality = (quality == null || quality.isBlank()) ? "自动" : quality.trim();
+    }
+
+    public void updateOffset(String offset) {
+        try {
+            var vars = offset.split("\n");
+            offsetX = Float.parseFloat(vars[0]);
+            offsetY = Float.parseFloat(vars[1]);
+            offsetZ = Float.parseFloat(vars[2]);
+            scale = Float.parseFloat(vars[3]);
+        } catch (Exception ignored) {
+        }
+    }
+
     public void updateAudioOffset(String config) {
         if (config == null) return;
         String[] blocks = config.split("\\n\\s*\\n");

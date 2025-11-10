@@ -132,9 +132,16 @@ public class MediaDecoder implements Closeable {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
                 Frame frame;
                 try {
-                    frame = grabber.grab();
+                    synchronized (this) {
+                        if (isClosed.get()) break;
+                        frame = grabber.grab();
+                    }
                 } catch (FFmpegFrameGrabber.Exception e) {
-                    try { Thread.sleep(50); } catch (InterruptedException interruptedException) { Thread.currentThread().interrupt(); }
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException interruptedException) {
+                        Thread.currentThread().interrupt();
+                    }
                     continue;
                 }
 
@@ -142,20 +149,20 @@ public class MediaDecoder implements Closeable {
                     break;
                 }
 
-                if (isSeeking.get()) {
-                    long target = seekTargetUs.get();
-                    if (target != -1 && frame.timestamp < target) {
-                        continue;
-                    } else {
-                        isSeeking.set(false);
-                        seekTargetUs.set(-1);
-                        LOGGER.debug("Seek target reached. Resuming normal decoding.");
-                    }
-                }
-
                 if (isClosed.get()) {
                     break;
                 }
+
+//                if (isSeeking.get()) {
+//                    long target = seekTargetUs.get();
+//                    if (target != -1 && frame.timestamp < target) {
+//                        continue;
+//                    } else {
+//                        isSeeking.set(false);
+//                        seekTargetUs.set(-1);
+//                        LOGGER.debug("Seek target reached. Resuming normal decoding.");
+//                    }
+//                }
 
                 boolean isVideo = frame.image != null && configuration.enableVideo;
                 boolean isAudio = frame.samples != null && configuration.enableAudio;
@@ -224,30 +231,44 @@ public class MediaDecoder implements Closeable {
     public boolean isEnded() {
         return isEof() && audioQueue.isEmpty() && videoQueue.isEmpty();
     }
-    public long getDuration() { return primaryGrabber.getLengthInTime(); }
-    public int getWidth() { return primaryGrabber.getImageWidth(); }
-    public int getHeight() { return primaryGrabber.getImageHeight(); }
-    public int getSampleRate() { return primaryGrabber.getSampleRate(); }
-    public int getChannels() { return primaryGrabber.getAudioChannels(); }
+
+    public long getDuration() {
+        return primaryGrabber.getLengthInTime();
+    }
+
+    public int getWidth() {
+        return primaryGrabber.getImageWidth();
+    }
+
+    public int getHeight() {
+        return primaryGrabber.getImageHeight();
+    }
+
+    public int getSampleRate() {
+        return primaryGrabber.getSampleRate();
+    }
+
+    public int getChannels() {
+        return primaryGrabber.getAudioChannels();
+    }
+
     public void seek(long timestamp) {
         if (getDuration() <= 0) return;
-        timestamp = Math.max(0, timestamp);
-        timestamp = Math.min(timestamp, getDuration());
+        timestamp = Math.max(0, Math.min(timestamp, getDuration()));
         clearQueue();
-        this.seekTargetUs.set(timestamp);
-        this.isSeeking.set(true);
         try {
             synchronized (this) {
                 for (FFmpegFrameGrabber grabber : grabbers) {
+                    // 调用FFmpeg的原生跳转功能
                     grabber.setTimestamp(timestamp, true);
                 }
             }
+            LOGGER.debug("FFmpeg grabbers have been seeked to {} us.", timestamp);
         } catch (FFmpegFrameGrabber.Exception e) {
-            this.isSeeking.set(false);
-            this.seekTargetUs.set(-1);
             throw new RuntimeException("Seek failed", e);
         }
     }
+
     @Override
     public void close() {
         if (!isClosed.compareAndSet(false, true)) {
@@ -259,14 +280,15 @@ public class MediaDecoder implements Closeable {
                 try {
                     grabber.stop();
                 } catch (Exception e) {
-                    LOGGER.warn("Error stopping grabber", e);
+                    LOGGER.warn("停止 grabber 时出错", e);
                 }
             }
         }
         for (Thread thread : decoderThreads) {
             try {
                 thread.join(500);
-            } catch (InterruptedException ignored) {}
+            } catch (InterruptedException ignored) {
+            }
         }
         clearQueue();
         if (videoFramePool != null) {
@@ -275,19 +297,11 @@ public class MediaDecoder implements Closeable {
         new Thread(() -> {
             for (FFmpegFrameGrabber grabber : grabbers) {
                 try {
-                    grabber.stop();
                     grabber.release();
                 } catch (Exception e) {
-                    LOGGER.error("Error stopping or releasing grabber", e);
+                    LOGGER.error("释放 grabber 时出错", e);
                 }
             }
-
-            for (Thread thread : decoderThreads) {
-                try {
-                    thread.join(200);
-                } catch (InterruptedException ignored) {}
-            }
-
             clearQueue();
         }, "Mcedia-Grabber-Closer").start();
     }
