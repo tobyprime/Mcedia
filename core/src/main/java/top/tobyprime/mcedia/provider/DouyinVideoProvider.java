@@ -6,7 +6,7 @@ import java.net.http.HttpClient;
 import java.util.Map;
 
 public class DouyinVideoProvider implements IMediaProvider {
-    private static final String DOUYIN_MOBILE_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
+    private static final String DOUYIN_MOBILE_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
 
     public DouyinVideoProvider() {
     }
@@ -21,19 +21,20 @@ public class DouyinVideoProvider implements IMediaProvider {
 
     @Override
     public VideoInfo resolve(String url, @Nullable String cookie, String desiredQuality) throws Exception {
-        // 'url' 在这里是展开后的长链接, e.g., "https://www.iesdouyin.com/share/video/..."
-        String directVideoUrl = DouyinVideoFetcher.fetch(url);
-        if (directVideoUrl == null) {
-            throw new Exception("解析抖音视频失败，未能获取到直接播放链接: " + url);
+        // [关键修改] 接收 DouyinVideoDetails 对象
+        DouyinVideoFetcher.DouyinVideoDetails details = DouyinVideoFetcher.fetch(url);
+
+        if (details == null) {
+            throw new Exception("解析抖音视频失败，未能获取到视频详情: " + url);
         }
 
-        // [关键修改] 将完整的网页URL作为Referer
         Map<String, String> customHeaders = Map.of(
                 "User-Agent", DOUYIN_MOBILE_USER_AGENT,
-                "Referer", url // 使用完整的、展开后的URL作为Referer
+                "Referer", url
         );
 
-        return new VideoInfo(directVideoUrl, null, "抖音视频", "未知作者", customHeaders);
+        // [关键修改] 使用从 details 对象中获取的真实标题和作者
+        return new VideoInfo(details.getVideoUrl(), null, details.getTitle(), details.getAuthor(), customHeaders);
     }
 
     @Override
