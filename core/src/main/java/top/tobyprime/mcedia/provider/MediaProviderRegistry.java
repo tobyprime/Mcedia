@@ -13,8 +13,9 @@ public class MediaProviderRegistry {
     private static final MediaProviderRegistry INSTANCE = new MediaProviderRegistry();
     private final List<IMediaProvider> providers = new ArrayList<>();
 
+    private final DirectLinkProvider defaultProvider = new DirectLinkProvider();
+
     private MediaProviderRegistry() {
-        // 私有构造函数，确保单例
     }
 
     public static MediaProviderRegistry getInstance() {
@@ -33,10 +34,13 @@ public class MediaProviderRegistry {
                 .findFirst();
     }
 
-    public VideoInfo resolve(String url, @Nullable String cookie, String desiredQuality) throws Exception {
-        IMediaProvider provider = findProvider(url)
-                .orElseThrow(() -> new RuntimeException("No suitable provider found for URL: " + url));
-        return provider.resolve(url, cookie, desiredQuality);
+    public VideoInfo resolve(String url, String cookie, String desiredQuality) throws Exception {
+        for (IMediaProvider provider : providers) {
+            if (provider.isSupported(url)) {
+                return provider.resolve(url, cookie, desiredQuality);
+            }
+        }
+        return defaultProvider.resolve(url, cookie, desiredQuality);
     }
 
     @Nullable
@@ -46,6 +50,6 @@ public class MediaProviderRegistry {
                 return provider;
             }
         }
-        return null;
+        return defaultProvider;
     }
 }

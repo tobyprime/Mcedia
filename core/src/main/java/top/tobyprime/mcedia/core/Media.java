@@ -246,14 +246,11 @@ public class Media implements Closeable {
     }
 
     public void play() {
-        LOGGER.info("开始播放");
         if (paused) {
-            baseTime = System.currentTimeMillis();
-            if (!isLiveStream) {
-                baseDuration = lastAudioPts > 0 ? lastAudioPts : (baseDuration > 0 ? baseDuration : 0);
-            } else {
-                baseDuration = 0;
-                lastAudioPts = -1;
+            LOGGER.debug("恢复播放");
+            if (isLiveStream) {
+                LOGGER.info("正在从暂停中恢复直播，将同步到最新时间...");
+                isBuffering = true;
             }
             paused = false;
         }

@@ -228,12 +228,13 @@ public class PlayerAgent {
 
         for (String pageContent : pages) {
             if (pageContent == null || pageContent.isBlank()) continue;
+
             Matcher matcher = URL_PATTERN.matcher(pageContent);
             while (matcher.find()) {
-                String url = matcher.group(1);
+                String url = matcher.group(0).trim();
                 playlist.offer(url);
                 playlistOriginalSize++;
-                LOGGER.info("已将URL添加到播放列表: {}", url);
+                LOGGER.info("已将链接/路径添加到播放列表: {}", url);
             }
         }
         LOGGER.info("播放列表更新完成，共找到 {} 个媒体项目。", playlistOriginalSize);
