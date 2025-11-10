@@ -46,6 +46,7 @@ import java.util.stream.Collectors;
 
 public class PlayerAgent {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
+    private static final ResourceLocation errorScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/error.jpg");
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAgent.class);
     private static final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+)");
     private long timestampFromUrlUs = 0;
@@ -76,6 +77,14 @@ public class PlayerAgent {
     private boolean shouldCacheForLoop = false;
     private volatile boolean isLoopingInProgress = false;
     private final AtomicBoolean isTextureReady = new AtomicBoolean(false);
+
+    private enum PlaybackStatus {
+        IDLE,      // 空闲，无播放任务
+        LOADING,   // 正在加载（展开URL、解析、下载）
+        PLAYING,   // 正在播放或暂停
+        FAILED     // 上一个加载任务失败
+    }
+    private volatile PlaybackStatus currentStatus = PlaybackStatus.IDLE;
 
     public PlayerAgent(ArmorStand entity) {
         LOGGER.info("在 {} 注册了一个 Mcedia Player 实例", entity.position());
@@ -256,6 +265,7 @@ public class PlayerAgent {
         } else {
             LOGGER.info("播放列表已为空，播放结束。");
             this.open(null);
+            this.currentStatus = PlaybackStatus.IDLE;
             player.closeSync();
         }
     }
@@ -440,6 +450,7 @@ public class PlayerAgent {
     }
 
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping, @Nullable IMediaProvider provider) {
+        this.currentStatus = PlaybackStatus.PLAYING;
         Media media = player.getMedia();
         if (media == null) {
             LOGGER.error("视频加载成功但Media对象为空，这是一个严重错误。");
@@ -486,6 +497,7 @@ public class PlayerAgent {
     }
 
     private void handlePlaybackFailure(Throwable throwable, String finalMediaUrl, boolean isLooping) {
+        this.currentStatus = PlaybackStatus.FAILED;
         LOGGER.warn("打开视频失败", throwable.getCause());
         if (throwable.getCause() instanceof BilibiliAuthRequiredException) {
             Mcedia.msgToPlayer("§e[Mcedia] §f该视频需要登录或会员。请使用 §a/mcedia login §f登录。");
@@ -550,9 +562,25 @@ public class PlayerAgent {
 
     private void renderScreen(PoseStack poseStack, MultiBufferSource bufferSource, int i) {
         if (texture == null) return;
-        ResourceLocation screenTexture = (player.getMedia() != null && this.isTextureReady.get())
-                ? this.texture.getResourceLocation()
-                : idleScreen;
+        ResourceLocation screenTexture;
+        switch (currentStatus) {
+            case FAILED:
+                screenTexture = errorScreen;
+                break;
+            case PLAYING:
+                if (player.getMedia() != null && this.isTextureReady.get()) {
+                    screenTexture = this.texture.getResourceLocation();
+                } else {
+                    // 如果正在播放但纹理未就绪，则暂时显示空闲屏幕（作为加载中的替代）
+                    screenTexture = idleScreen;
+                }
+                break;
+            case IDLE:
+            case LOADING:
+            default:
+                screenTexture = idleScreen;
+                break;
+        }
         VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(screenTexture));
         var matrix = poseStack.last().pose();
         consumer.addVertex(matrix, -halfW, -1, 0).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1).setLight(i);
@@ -580,6 +608,7 @@ public class PlayerAgent {
 
     public void close() { playingUrl = null; isLoopingInProgress = false; cacheManager.cleanup(); player.closeAsync(); }
     public void closeSync() {
+        this.currentStatus = PlaybackStatus.IDLE;
         playingUrl = null;
         isLoopingInProgress = false;
         player.closeSync();
