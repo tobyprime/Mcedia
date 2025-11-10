@@ -540,12 +540,18 @@ public class PlayerAgent {
 
     private void handlePlaybackFailure(Throwable throwable, String initialUrl, String finalMediaUrl, boolean isLooping) {
         this.currentStatus = PlaybackStatus.FAILED;
-        LOGGER.warn("打开视频失败, 原始链接: {}", initialUrl, throwable.getCause());
-        if (throwable.getCause() instanceof BilibiliAuthRequiredException) {
-            Mcedia.msgToPlayer("§e[Mcedia] §f该视频需要登录或会员。请使用 §a/mcedia login §f登录。");
+        Throwable rootCause = throwable;
+        while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+            rootCause = rootCause.getCause();
+        }
+        LOGGER.warn("打开视频失败, 原始链接: {}, 根本原因: {}", initialUrl, rootCause.getMessage());
+        if (rootCause instanceof BilibiliAuthRequiredException) {
+            Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + initialUrl);
+            Mcedia.msgToPlayer("§e[Mcedia] §f该内容需要登录或会员。请使用 §a/mcedia login §f重新登录。");
         } else if (!isLooping) {
             Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + initialUrl);
         }
+
         this.isLoopingInProgress = false;
     }
 
