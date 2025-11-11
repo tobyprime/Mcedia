@@ -402,7 +402,8 @@ public class PlayerAgent {
             this.currentPlayingItem = null;
             LOGGER.info("播放列表已为空，播放结束。");
             this.open(null);
-            player.closeSync();
+            this.currentStatus = PlaybackStatus.IDLE;
+            player.closeAsync();
         }
     }
 
