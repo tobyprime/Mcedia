@@ -33,61 +33,79 @@ public class BiliBiliVideoFetcher {
         }
     }
 
+    private static int parsePNumberFromUrl(String url) {
+        try {
+            Pattern pattern = Pattern.compile("[?&]p=(\\d+)");
+            Matcher matcher = pattern.matcher(url);
+            if (matcher.find()) {
+                return Integer.parseInt(matcher.group(1));
+            }
+        } catch (Exception e) { /* 忽略解析错误 */ }
+        return 1;
+    }
+
+    private static String parseBvidFromUrl(String url) {
+        Pattern pattern = Pattern.compile("(BV[a-zA-Z0-9]+)");
+        Matcher matcher = pattern.matcher(url);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
     public static VideoInfo fetch(String videoUrl, @Nullable String cookie, String desiredQuality) throws Exception {
-        // 提取 BV 号
-        Pattern bvPattern = Pattern.compile("(BV[0-9A-Za-z]+)");
-        Matcher matcher = bvPattern.matcher(videoUrl);
-        if (!matcher.find()) {
+        String bvid = parseBvidFromUrl(videoUrl);
+        if (bvid == null) {
             throw new IllegalArgumentException("未找到BV号，请检查视频链接");
         }
-        String bvid = matcher.group(1);
+        int page = parsePNumberFromUrl(videoUrl);
 
-        Pattern pagePattern = Pattern.compile("[?&]p=(\\d+)");
-        Matcher pageMatcher = pagePattern.matcher(videoUrl);
-        int page = 1;
-        if (pageMatcher.find()) {
-            page = Integer.parseInt(pageMatcher.group(1));
-        }
-
-        // 获取视频信息（标题/作者）
         String viewApi = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid;
         HttpRequest viewRequest = HttpRequest.newBuilder().uri(URI.create(viewApi)).header("User-Agent", "Mozilla/5.0").build();
         HttpResponse<String> viewResponse = client.send(viewRequest, HttpResponse.BodyHandlers.ofString());
         JSONObject viewJson = new JSONObject(viewResponse.body());
-        String title = "未知标题";
+
+        String mainTitle = "未知标题";
         String author = "未知作者";
+        String partName = null;
+        String cid = null;
 
         if (viewJson.optInt("code") == 0) {
             JSONObject viewData = viewJson.getJSONObject("data");
-            title = viewData.getString("title");
+            mainTitle = viewData.getString("title");
             author = viewData.getJSONObject("owner").getString("name");
 
-            JSONObject rights = viewData.getJSONObject("rights");
+            JSONArray pagesArray = viewData.optJSONArray("pages");
+            if (pagesArray != null && pagesArray.length() > 1) { // [关键修正] 只有当分P数 > 1 时才处理
+                if (page > 0 && page <= pagesArray.length()) {
+                    JSONObject currentPageData = pagesArray.getJSONObject(page - 1);
+                    cid = String.valueOf(currentPageData.getLong("cid"));
+                    partName = currentPageData.getString("part");
+                    if (partName.equals(mainTitle)) {
+                        partName = null;
+                    }
+                } else {
+                    // 如果指定的 P 不存在，就默认播放 P1
+                    page = 1;
+                    JSONObject currentPageData = pagesArray.getJSONObject(0);
+                    cid = String.valueOf(currentPageData.getLong("cid"));
+                    partName = currentPageData.getString("part");
+                }
+            } else { // 单P视频
+                cid = String.valueOf(viewData.getLong("cid"));
+                partName = null; // 确保单P视频的 partName 为 null
+                page = 1; // 确保单P视频的 page 为 1
+            }
+    } else {
+            throw new RuntimeException("获取视频信息失败: " + viewJson.optString("message"));
         }
 
-        // 获取 CID
-        String pagelistApi = "https://api.bilibili.com/x/player/pagelist?bvid=" + bvid + "&jsonp=jsonp";
-        HttpRequest.Builder pagelistRequestBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(pagelistApi))
-                .header("User-Agent", "Mozilla/5.0");
-        if (cookie != null && !cookie.isEmpty()) {
-            pagelistRequestBuilder.header("Cookie", cookie);
+        if (cid == null) {
+            throw new RuntimeException("无法确定视频的CID，可能是分P号错误或API已更改。");
         }
 
-        HttpResponse<String> pagelistResponse = client.send(pagelistRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
-        JSONObject pagelistJson = new JSONObject(pagelistResponse.body());
-        if (pagelistJson.getInt("code") != 0) {
-            throw new RuntimeException("获取 CID 失败: " + pagelistJson.optString("message"));
-        }
-        JSONArray pages = pagelistJson.getJSONArray("data");
-        if (page > pages.length()) {
-            throw new RuntimeException("指定的分P不存在: " + page);
-        }
-        String cid = pages.getJSONObject(page - 1).get("cid").toString();
-
-        // 获取播放地址
         String playApi = "https://api.bilibili.com/x/player/playurl?bvid=" + bvid +
-                "&cid=" + cid + "&127&fnval=4048";
+                "&cid=" + cid + "&fnval=4048"; // 移除了多余的127
         HttpRequest.Builder playRequestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(playApi))
                 .header("User-Agent", "Mozilla/5.0")
@@ -99,19 +117,16 @@ public class BiliBiliVideoFetcher {
         HttpResponse<String> playResponse = client.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
         JSONObject playJson = new JSONObject(playResponse.body());
 
-        // 检查API响应，处理需要登录或VIP的情况
         if (playJson.getInt("code") != 0) {
             String message = playJson.optString("message");
-            if (playJson.getInt("code") == -10403) { // B站特定错误码，表示需要登录或权限不足
-                throw new BilibiliAuthRequiredException("b站说这个视频要登录或大会员才能看T.T: " + message);
+            if (playJson.getInt("code") == -10403) {
+                throw new BilibiliAuthRequiredException("该内容需要大会员或已登录。API返回了预览内容。");
             }
             throw new RuntimeException("获取视频播放地址失败: " + message);
         }
 
         JSONObject data = playJson.getJSONObject("data");
-        boolean hasDash = data.has("dash") && data.getJSONObject("dash").has("video") && data.getJSONObject("dash").getJSONArray("video").length() > 0;
 
-        // 优先解析 DASH 格式
         if (data.has("dash")) {
             JSONObject dash = data.getJSONObject("dash");
             if (dash.has("video") && dash.has("audio") && dash.getJSONArray("video").length() > 0 && dash.getJSONArray("audio").length() > 0) {
@@ -121,18 +136,17 @@ public class BiliBiliVideoFetcher {
                 if (selectedVideo != null && selectedAudio != null) {
                     String videoBaseUrl = selectedVideo.getString("baseUrl");
                     String audioBaseUrl = selectedAudio.getString("baseUrl");
-                    return new VideoInfo(videoBaseUrl, audioBaseUrl, title, author);
+                    return new VideoInfo(videoBaseUrl, audioBaseUrl, mainTitle, author, null, partName, page);
                 }
             }
         }
 
-        // 回退到 DURL 格式
         if (data.has("durl")) {
             JSONArray durlArray = data.getJSONArray("durl");
             if (durlArray.length() > 0) {
                 String url = durlArray.getJSONObject(0).getString("url");
                 LOGGER.warn("未找到DASH流，可能为会员内容。正在尝试播放试看片段 (DURL)。");
-                return new VideoInfo(url, null, title, author);
+                return new VideoInfo(url, null, mainTitle, author, null, partName, page);
             }
         }
 

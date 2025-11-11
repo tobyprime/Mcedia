@@ -9,10 +9,7 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.state.ArmorStandRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.network.chat.ClickEvent;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.HoverEvent;
-import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.*;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -23,6 +20,8 @@ import net.minecraft.world.item.component.WrittenBookContent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.*;
@@ -33,10 +32,10 @@ import top.tobyprime.mcedia.provider.VideoInfo;
 import top.tobyprime.mcedia.video_fetcher.UrlExpander;
 
 import java.net.URI;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Queue;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -54,7 +53,8 @@ public class PlayerAgent {
     private static final String BAD_APPLE_URL = "https://www.bilibili.com/video/BV1xx411c79H";
     private long timestampFromUrlUs = 0;
     private boolean isPausedByBasePlate = false;
-    private final Queue<String> playlist = new LinkedList<>();
+    private final Queue<PlaybackItem> playlist = new LinkedList<>();
+    private PlaybackItem currentPlayingItem = null;
     private String currentPlaylistContent = "";
     private int playlistOriginalSize = 0;
     private final AtomicLong playbackToken = new AtomicLong(0);
@@ -89,12 +89,29 @@ public class PlayerAgent {
     private volatile boolean isLoopingInProgress = false;
     private final AtomicBoolean isTextureReady = new AtomicBoolean(false);
     private boolean isTextureInitialized = false;
+    private static final Pattern TIMESTAMP_PATTERN = Pattern.compile("^(\\d{1,2}:)?(\\d{1,2}):(\\d{1,2})$");
+    private static final Pattern P_NUMBER_PATTERN = Pattern.compile("^[pP]?(\\d+)$");
+    private long finalSeekTimestampUs = 0;
 
     private enum PlaybackStatus {
-        IDLE,      // 空闲，无播放任务
-        LOADING,   // 正在加载（展开URL、解析、下载）
-        PLAYING,   // 正在播放或暂停
-        FAILED     // 上一个加载任务失败
+        IDLE,
+        LOADING,
+        PLAYING,
+        FAILED
+    }
+
+    private enum BiliPlaybackMode {
+        NONE,
+        SINGLE_PART,
+        PLAYLIST_PART
+    }
+
+    private static class PlaybackItem {
+        final String originalUrl;
+        int pNumber = 1;
+        long timestampUs = 0;
+        BiliPlaybackMode mode = BiliPlaybackMode.NONE;
+        PlaybackItem(String url) { this.originalUrl = url; }
     }
 
     private volatile PlaybackStatus currentStatus = PlaybackStatus.IDLE;
@@ -117,25 +134,70 @@ public class PlayerAgent {
         }
     }
 
+    public void tick() {
+        update();
+        Media currentMedia = player.getMedia();
+        if (currentMedia != null && !isReconnecting) {
+            if (currentMedia.needsReconnect()) {
+                LOGGER.warn("检测到媒体流中断，正在尝试自动重连: {}", playingUrl);
+                isReconnecting = true;
+                this.open(playingUrl);
+                this.startPlayback(false);
+                return;
+            }
+            if (currentMedia.isEnded() && !this.isLoopingInProgress) {
+                if (currentPlayingItem == null) {
+                    playNextInQueue();
+                    return;
+                }
+                if (currentPlayingItem.mode == BiliPlaybackMode.PLAYLIST_PART) {
+                    playNextBilibiliPartOrLoop(playingUrl, player.looping);
+                    this.isLoopingInProgress = true;
+                    return;
+                }
+                if (player.looping && playingUrl != null) {
+                    this.isLoopingInProgress = true;
+                    if (playlistOriginalSize > 1 && currentPlayingItem.mode != BiliPlaybackMode.SINGLE_PART) {
+                        LOGGER.info("列表循环: 重新将 '{}' 添加到队尾并播放下一个。", currentPlayingItem.originalUrl);
+                        playlist.offer(currentPlayingItem);
+                        playNextInQueue();
+                    } else {
+                        LOGGER.info("单曲/单P循环: 重新播放 '{}'。", currentPlayingItem.originalUrl);
+                        this.open(playingUrl);
+                        this.startPlayback(true);
+                    }
+                } else if (!player.looping && !playlist.isEmpty()) {
+                    playNextInQueue();
+                } else {
+                    currentPlayingItem = null;
+                    open(null);
+                    player.closeAsync();
+                }
+            }
+        }
+    }
+
     public static long parseToMicros(String timeStr) {
         if (timeStr == null || timeStr.isEmpty()) {
-            throw new IllegalArgumentException("Time string cannot be null or empty");
+            return 0;
         }
         String[] parts = timeStr.split(":");
-        int len = parts.length;
-        int hours = 0, minutes = 0, seconds = 0;
+        long hours = 0, minutes = 0, seconds = 0;
         try {
-            if (len == 1) hours = Integer.parseInt(parts[0]);
-            else if (len == 2) {
-                hours = Integer.parseInt(parts[0]);
-                minutes = Integer.parseInt(parts[1]);
-            } else if (len == 3) {
-                hours = Integer.parseInt(parts[0]);
-                minutes = Integer.parseInt(parts[1]);
-                seconds = Integer.parseInt(parts[2]);
-            } else throw new IllegalArgumentException("Invalid time format: " + timeStr);
+            if (parts.length == 1) {
+                seconds = Long.parseLong(parts[0]);
+            } else if (parts.length == 2) {
+                minutes = Long.parseLong(parts[0]);
+                seconds = Long.parseLong(parts[1]);
+            } else if (parts.length == 3) {
+                hours = Long.parseLong(parts[0]);
+                minutes = Long.parseLong(parts[1]);
+                seconds = Long.parseLong(parts[2]);
+            } else {
+                return 0;
+            }
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid number in time string: " + timeStr, e);
+            return 0;
         }
         return (hours * 3600L + minutes * 60L + seconds) * 1_000_000L;
     }
@@ -193,10 +255,10 @@ public class PlayerAgent {
         }
     }
 
-    public long getDuration(String forUrl) {
-        long baseDuration = getBaseDurationForUrl(forUrl);
-        return baseDuration + getServerDuration() + this.timestampFromUrlUs;
-    }
+//    public long getDuration(String forUrl) {
+//        long baseDuration = getBaseDurationForUrl(forUrl);
+//        return baseDuration + getServerDuration() + this.timestampFromUrlUs;
+//    }
 
     public void update() {
         try {
@@ -236,79 +298,207 @@ public class PlayerAgent {
             open(null);
             return;
         }
-        String fullContent = String.join("\n", pages);
-        // Pattern.CASE_INSENSITIVE 使得匹配不区分大小写
-        Pattern combinedPattern = Pattern.compile(
-                "(https?://\\S+)|(rick\\s*roll)|(bad\\s*apple)",
-                Pattern.CASE_INSENSITIVE
-        );
-        Matcher matcher = combinedPattern.matcher(fullContent);
-        while (matcher.find()) {
-            if (matcher.group(1) != null) {
-                String url = matcher.group(1).trim();
-                playlist.offer(url);
-                playlistOriginalSize++;
-                LOGGER.info("已将链接/路径添加到播放列表: {}", url);
-            } else if (matcher.group(2) != null) {
-                playlist.offer(RICKROLL_URL);
-                playlistOriginalSize++;
-                LOGGER.info("§d[彩蛋] Rickroll'd! 按顺序添加到播放列表。");
-            } else if (matcher.group(3) != null) {
-                playlist.offer(BAD_APPLE_URL);
-                playlistOriginalSize++;
-                LOGGER.info("§d[彩蛋] Bad Apple!! 按顺序添加到播放列表。");
+
+        List<String> lines = new ArrayList<>();
+        for (String page : pages) {
+            if (page != null && !page.isBlank()) {
+                lines.addAll(Arrays.asList(page.split("\n")));
             }
         }
+
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i).trim();
+            if (line.isEmpty()) continue;
+
+            PlaybackItem item = null;
+            // 1. 识别主要项目 (URL 或彩蛋)
+            if (line.equalsIgnoreCase("rickroll")) {
+                item = new PlaybackItem(RICKROLL_URL);
+            } else if (line.equalsIgnoreCase("badapple")) {
+                item = new PlaybackItem(BAD_APPLE_URL);
+            } else {
+                Matcher urlMatcher = URL_PATTERN.matcher(line);
+                if (urlMatcher.find()) {
+                    item = new PlaybackItem(urlMatcher.group(0).trim());
+                }
+            }
+
+            if (item == null) continue;
+
+            // 2. [关键修正] 提前进行模式判断
+            boolean isBiliVideo = item.originalUrl.contains("bilibili.com/video/");
+            if (isBiliVideo) {
+                boolean hasPInUrl = item.originalUrl.contains("?p=") || item.originalUrl.contains("&p=");
+                if (hasPInUrl) {
+                    // 如果URL自带P号，则模式【立即确定】为 SINGLE_PART
+                    item.mode = BiliPlaybackMode.SINGLE_PART;
+                } else {
+                    // 否则，模式为合集连播
+                    item.mode = BiliPlaybackMode.PLAYLIST_PART;
+                }
+            }
+
+            // 3. 预读并解析附加项 (时间戳和P号)
+            // 只有在是合集模式时，我们才关心书里写的P号
+            if (i + 1 < lines.size()) {
+                String nextLine = lines.get(i + 1).trim();
+                Matcher timeMatcher = TIMESTAMP_PATTERN.matcher(nextLine);
+                Matcher pNumMatcher = P_NUMBER_PATTERN.matcher(nextLine);
+
+                if (timeMatcher.matches()) {
+                    try {
+                        item.timestampUs = parseToMicros(nextLine);
+                        i++;
+
+                        // 如果是合集模式，继续检查下下一行是否是P号
+                        if (item.mode == BiliPlaybackMode.PLAYLIST_PART && i + 1 < lines.size()) {
+                            String nextNextLine = lines.get(i + 1).trim();
+                            Matcher pNumMatcherAfterTime = P_NUMBER_PATTERN.matcher(nextNextLine);
+                            if (pNumMatcherAfterTime.matches()) {
+                                item.pNumber = Integer.parseInt(pNumMatcherAfterTime.group(1));
+                                i++;
+                            }
+                        }
+                    } catch (Exception ignored) { item.timestampUs = 0; }
+                } else if (pNumMatcher.matches() && item.mode == BiliPlaybackMode.PLAYLIST_PART) {
+                    // 只有在合集模式下，书里写的P号才有效
+                    item.pNumber = Integer.parseInt(pNumMatcher.group(1));
+                    i++;
+                }
+            }
+
+            playlist.offer(item);
+            playlistOriginalSize++;
+            LOGGER.info("添加项目到播放列表: URL='{}', Mode={}, P={}, Timestamp={}us", item.originalUrl, item.mode, item.pNumber, item.timestampUs);
+        }
+
         LOGGER.info("播放列表更新完成，共找到 {} 个媒体项目。", playlistOriginalSize);
     }
 
-    public void tick() {
-        update();
-        Media currentMedia = player.getMedia();
-        if (currentMedia != null && !isReconnecting) {
-            if (currentMedia.needsReconnect()) {
-                LOGGER.warn("检测到媒体流中断，正在尝试自动重连: {}", playingUrl);
-                isReconnecting = true;
-                this.open(playingUrl);
-                this.startPlayback(false);
-                return;
-            }
-            if (currentMedia.isEnded() && !this.isLoopingInProgress) {
-                if (player.looping && playingUrl != null) {
-                    this.isLoopingInProgress = true;
+    private void playNextInQueue() {
+        PlaybackItem nextItem = playlist.poll();
+        if (nextItem != null) {
+            this.currentPlayingItem = nextItem;
+            String urlToPlay = nextItem.originalUrl;
 
-                    if (playlistOriginalSize > 1) {
-                        LOGGER.info("列表循环: 重新将 '{}' 添加到队尾并播放下一个。", playingUrl);
-                        playlist.offer(playingUrl);
-                        playNextInQueue();
-                    } else {
-                        LOGGER.info("单曲循环: 重新播放 '{}'。", playingUrl);
-                        this.open(playingUrl);
-                        this.startPlayback(true);
-                    }
-                } else if (!player.looping && !playlist.isEmpty()) {
-                    LOGGER.info("当前视频播放结束，尝试播放列表中的下一个。");
-                    playNextInQueue();
-                } else {
-                    LOGGER.info("播放列表已为空或单个视频播放结束，停止播放。");
-                    open(null);
-                    player.closeAsync();
+            // 如果是合集模式，并且URL本身不带P，我们才拼接P号
+            if (nextItem.mode == BiliPlaybackMode.PLAYLIST_PART) {
+                if (!urlToPlay.contains("?p=") && !urlToPlay.contains("&p=")) {
+                    urlToPlay += (urlToPlay.contains("?") ? "&" : "?") + "p=" + nextItem.pNumber;
                 }
             }
+            // 对于SINGLE_PART模式，我们直接使用原始URL，因为它已经包含了正确的P号
+
+            this.finalSeekTimestampUs = 0;
+            this.finalSeekTimestampUs += nextItem.timestampUs;
+            this.finalSeekTimestampUs += parseBiliTimestampToUs(nextItem.originalUrl); // 注意：这里用原始URL
+            this.finalSeekTimestampUs += getServerDuration();
+
+            LOGGER.info("准备播放: URL='{}', Mode={}, P={}, 最终跳转时间={}us", urlToPlay, nextItem.mode, nextItem.pNumber, this.finalSeekTimestampUs);
+
+            this.open(urlToPlay);
+            this.startPlayback(false);
+        } else {
+            this.currentPlayingItem = null;
+            LOGGER.info("播放列表已为空，播放结束。");
+            this.open(null);
+            player.closeSync();
         }
     }
 
-    private void playNextInQueue() {
-        String nextUrl = playlist.poll();
-        if (nextUrl != null) {
-            this.open(nextUrl);
-            this.startPlayback(false);
-        } else {
-            LOGGER.info("播放列表已为空，播放结束。");
-            this.open(null);
-            this.currentStatus = PlaybackStatus.IDLE;
-            player.closeSync();
+    private void playNextBilibiliPartOrLoop(String finishedUrl, boolean isLoopingEnabled) {
+        String bvid = parseBvidFromUrl(finishedUrl);
+        int currentP = parsePNumberFromUrl(finishedUrl);
+
+        if (bvid == null) {
+            Minecraft.getInstance().execute(this::playNextInQueue);
+            return;
         }
+
+        final int nextP = currentP + 1;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                // ... (API请求逻辑不变)
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create("https://api.bilibili.com/x/web-interface/view?bvid=" + bvid))
+                        .build();
+                HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+                JSONObject json = new JSONObject(response.body());
+
+                if (json.getInt("code") == 0) {
+                    JSONArray pages = json.getJSONObject("data").getJSONArray("pages");
+
+                    if (nextP <= pages.length()) {
+                        // --- 播放下一P ---
+                        String nextUrl = "https://www.bilibili.com/video/" + bvid + "?p=" + nextP;
+                        LOGGER.info("B站分P连播: 找到下一P ({}/{})，正在加载...", nextP, pages.length());
+
+                        this.currentPlayingItem.pNumber = nextP;
+
+                        // [关键修正] 自动连播的后续分P，时间戳必须从0开始
+                        this.finalSeekTimestampUs = 0;
+
+                        Minecraft.getInstance().execute(() -> {
+                            this.open(nextUrl);
+                            this.startPlayback(false);
+                        });
+                    } else {
+                        // --- 已经是最后一P ---
+                        if (isLoopingEnabled) {
+                            // 回到第一P
+                            LOGGER.info("B站合集循环: 已播完最后一P，回到P1。");
+                            this.currentPlayingItem.pNumber = 1;
+                            String firstUrl = "https://www.bilibili.com/video/" + bvid + "?p=1";
+
+                            // [关键修正] 合集循环回到P1时，也应该从0开始播放
+                            this.finalSeekTimestampUs = 0;
+
+                            Minecraft.getInstance().execute(() -> {
+                                this.open(firstUrl);
+                                this.startPlayback(true);
+                            });
+                        } else {
+                            // 结束合集，播放队列中的下一个
+                            LOGGER.info("B站合集已播完 (共 {} P)，尝试播放列表中的下一个。", pages.length());
+                            Minecraft.getInstance().execute(this::playNextInQueue);
+                        }
+                    }
+                } else {
+                    Minecraft.getInstance().execute(this::playNextInQueue);
+                }
+            } catch (Exception e) {
+                LOGGER.error("检查B站下一P时出错", e);
+                Minecraft.getInstance().execute(this::playNextInQueue);
+            }
+        });
+    }
+
+    /**
+     * 从B站URL中解析BV号
+     */
+    private String parseBvidFromUrl(String url) {
+        Pattern pattern = Pattern.compile("video/(BV[a-zA-Z0-9]+)");
+        Matcher matcher = pattern.matcher(url);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
+    /**
+     * 从B站URL中解析P号，如果不存在则默认为1
+     */
+    private int parsePNumberFromUrl(String url) {
+        try {
+            Pattern pattern = Pattern.compile("[?&]p=(\\d+)");
+            Matcher matcher = pattern.matcher(url);
+            if (matcher.find()) {
+                return Integer.parseInt(matcher.group(1));
+            }
+        } catch (Exception e) {
+        }
+        return 1;
     }
 
     public void open(@Nullable String mediaUrl) {
@@ -353,7 +543,7 @@ public class PlayerAgent {
                         if (!isLooping && !media.isLiveStream()) {
                             IMediaProvider provider = MediaProviderRegistry.getInstance().getProviderForUrl(initialUrl);
                             if (provider == null || provider.isSeekSupported()) {
-                                long durationToSeek = getDuration(initialUrl);
+                                long durationToSeek = this.finalSeekTimestampUs;
                                 if (durationToSeek > 0) player.seek(durationToSeek);
                             }
                         }
@@ -487,7 +677,6 @@ public class PlayerAgent {
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping, @Nullable IMediaProvider provider) {
         this.currentStatus = PlaybackStatus.PLAYING;
         this.isTextureInitialized = false;
-
         Media media = player.getMedia();
         if (media == null) {
             LOGGER.error("视频加载成功但Media对象为空，这是一个严重错误。");
@@ -510,16 +699,20 @@ public class PlayerAgent {
 
         if (!isLooping) {
             Style clickableStyle = Style.EMPTY.withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)));
-            Component msg = Component.literal("§a[Mcedia] §f播放: ")
-                    .append(Component.literal(videoInfo.getTitle()).withStyle(clickableStyle.withColor(ChatFormatting.YELLOW)))
-                    .append(Component.literal(" - ").withStyle(ChatFormatting.WHITE))
-                    .append(Component.literal(videoInfo.getAuthor()).withStyle(clickableStyle.withColor(ChatFormatting.AQUA)));
+            MutableComponent msg = Component.literal("§a[Mcedia] §f播放: ");
+            msg.append(Component.literal(videoInfo.getTitle()).withStyle(clickableStyle.withColor(ChatFormatting.YELLOW)));
+            if (videoInfo.isMultiPart() && videoInfo.getPartName() != null && !videoInfo.getPartName().isEmpty()) {
+                msg.append(Component.literal(" (P" + videoInfo.getPartNumber() + ": " + videoInfo.getPartName() + ")")
+                        .withStyle(clickableStyle.withColor(ChatFormatting.GOLD)));
+            }
+            msg.append(Component.literal(" - ").withStyle(ChatFormatting.WHITE));
+            msg.append(Component.literal(videoInfo.getAuthor()).withStyle(clickableStyle.withColor(ChatFormatting.AQUA)));
             Mcedia.msgToPlayer(msg);
         }
 
         if (!media.isLiveStream()) {
             if (provider != null && provider.isSeekSupported()) {
-                long durationToSeek = isLooping ? 0 : getDuration(playingUrl);
+                long durationToSeek = isLooping ? 0 : this.finalSeekTimestampUs;
                 if (durationToSeek > 0) {
                     LOGGER.info("视频加载成功，将在 {} us 处开始播放 (支持跳转)。", durationToSeek);
                     player.seek(durationToSeek);
@@ -633,7 +826,7 @@ public class PlayerAgent {
                 } else if (player.getMedia() != null && this.isTextureReady.get()) {
                     screenTexture = this.texture.getResourceLocation();
                 } else {
-                    screenTexture = loadingScreen;
+                    screenTexture = idleScreen;
                 }
                 break;
             case IDLE:
