@@ -79,25 +79,21 @@ public class MediaDecoder implements Closeable {
         }
     }
 
+    // buildGrabber 新增 VideoInfo 参数
     private FFmpegFrameGrabber buildGrabber(VideoInfo info, String url, @Nullable String cookie, DecoderConfiguration configuration, boolean isVideoGrabber) {
         var grabber = new FFmpegFrameGrabber(url);
         if (url.startsWith("http")) {
             StringBuilder headers = new StringBuilder();
             Map<String, String> customHeaders = info.getHeaders();
-            boolean hasUserAgent = false;
+
             if (customHeaders != null && !customHeaders.isEmpty()) {
+                // 如果 VideoInfo 提供了自定义 headers，就使用它们
                 LOGGER.debug("为 {} 应用自定义请求头...", url);
-                for (Map.Entry<String, String> entry : customHeaders.entrySet()) {
-                    headers.append(entry.getKey()).append(": ").append(entry.getValue()).append("\r\n");
-                    if (entry.getKey().equalsIgnoreCase("User-Agent")) {
-                        hasUserAgent = true;
-                    }
-                }
-            }
-            if (!hasUserAgent) {
+                customHeaders.forEach((key, value) -> headers.append(key).append(": ").append(value).append("\r\n"));
+            } else {
+                // 否则，使用默认的 Bilibili 请求头 (保持兼容性)
+                LOGGER.debug("为 {} 应用默认 Bilibili 请求头...", url);
                 headers.append("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n");
-            }
-            if (url.contains("bilibili.com") && (customHeaders == null || !customHeaders.containsKey("Referer"))) {
                 headers.append("Referer: https://www.bilibili.com/\r\n");
                 headers.append("Origin: https://www.bilibili.com\r\n");
             }
