@@ -5,6 +5,7 @@ import org.bytedeco.javacv.Frame;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.McediaConfig;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 import top.tobyprime.mcedia.interfaces.ITexture;
 import top.tobyprime.mcedia.provider.VideoInfo;
@@ -41,10 +42,10 @@ public class Media implements Closeable {
     private final AtomicLong currentPtsUs = new AtomicLong(0);
     private final AtomicBoolean needsReconnect = new AtomicBoolean(false);
 
-    private static final int AUDIO_BUFFER_TARGET = 256;
-    private static final int VIDEO_BUFFER_TARGET = 90;
-    private static final int VIDEO_BUFFER_LOW_WATERMARK = 42;
-    private static final long STREAM_STALL_TIMEOUT_MS = 5000;
+    private static final int AUDIO_BUFFER_TARGET = McediaConfig.BUFFERING_AUDIO_TARGET;
+    private static final int VIDEO_BUFFER_TARGET = McediaConfig.BUFFERING_VIDEO_TARGET;
+    private static final int VIDEO_BUFFER_LOW_WATERMARK = McediaConfig.BUFFERING_VIDEO_LOW_WATERMARK;
+    private static final long STREAM_STALL_TIMEOUT_MS = McediaConfig.PLAYER_STALL_TIMEOUT_MS;
 
 
     public Media(VideoInfo info, @Nullable String cookie, DecoderConfiguration config, long initialSeekUs) {

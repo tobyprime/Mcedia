@@ -7,6 +7,7 @@ import org.jetbrains.annotations.Nullable;
 import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.McediaConfig;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.io.Closeable;
@@ -21,11 +22,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MediaDecoder implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
 
-    private static final int MAX_VIDEO_FRAMES = 120;
-    private static final int MAX_AUDIO_FRAMES = 1024;
-
-    public final LinkedBlockingDeque<VideoFrame> videoQueue = new LinkedBlockingDeque<>(MAX_VIDEO_FRAMES);
-    public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>(MAX_AUDIO_FRAMES);
+    public final LinkedBlockingDeque<VideoFrame> videoQueue;
+    public final LinkedBlockingDeque<Frame> audioQueue;
 
     private final DecoderConfiguration configuration;
     private final List<Thread> decoderThreads = new ArrayList<>();
@@ -44,8 +42,10 @@ public class MediaDecoder implements Closeable {
     public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration, @Nullable VideoFramePool pool, long initialSeekUs) throws FFmpegFrameGrabber.Exception {
         this.configuration = configuration;
         this.videoFramePool = pool;
+        this.videoQueue = new LinkedBlockingDeque<>(McediaConfig.DECODER_MAX_VIDEO_FRAMES);
+        this.audioQueue = new LinkedBlockingDeque<>(McediaConfig.DECODER_MAX_AUDIO_FRAMES);
 
-        // [关键修改] 将 VideoInfo 传递给 buildGrabber
+        // 将 VideoInfo 传递给 buildGrabber
         primaryGrabber = buildGrabber(info, info.getVideoUrl(), cookie, configuration, true);
         grabbers.add(primaryGrabber);
 
@@ -79,21 +79,25 @@ public class MediaDecoder implements Closeable {
         }
     }
 
-    // [关键修改] buildGrabber 新增 VideoInfo 参数
     private FFmpegFrameGrabber buildGrabber(VideoInfo info, String url, @Nullable String cookie, DecoderConfiguration configuration, boolean isVideoGrabber) {
         var grabber = new FFmpegFrameGrabber(url);
         if (url.startsWith("http")) {
             StringBuilder headers = new StringBuilder();
             Map<String, String> customHeaders = info.getHeaders();
-
+            boolean hasUserAgent = false;
             if (customHeaders != null && !customHeaders.isEmpty()) {
-                // 如果 VideoInfo 提供了自定义 headers，就使用它们
                 LOGGER.debug("为 {} 应用自定义请求头...", url);
-                customHeaders.forEach((key, value) -> headers.append(key).append(": ").append(value).append("\r\n"));
-            } else {
-                // 否则，使用默认的 Bilibili 请求头 (保持兼容性)
-                LOGGER.debug("为 {} 应用默认 Bilibili 请求头...", url);
+                for (Map.Entry<String, String> entry : customHeaders.entrySet()) {
+                    headers.append(entry.getKey()).append(": ").append(entry.getValue()).append("\r\n");
+                    if (entry.getKey().equalsIgnoreCase("User-Agent")) {
+                        hasUserAgent = true;
+                    }
+                }
+            }
+            if (!hasUserAgent) {
                 headers.append("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n");
+            }
+            if (url.contains("bilibili.com") && (customHeaders == null || !customHeaders.containsKey("Referer"))) {
                 headers.append("Referer: https://www.bilibili.com/\r\n");
                 headers.append("Origin: https://www.bilibili.com\r\n");
             }
@@ -124,7 +128,6 @@ public class MediaDecoder implements Closeable {
         return grabber;
     }
 
-    // decodeLoop 和其他方法保持不变...
     private void decodeLoop(FFmpegFrameGrabber grabber) {
         runningDecoders++;
 

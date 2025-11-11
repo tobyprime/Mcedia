@@ -3,27 +3,31 @@ package top.tobyprime.mcedia.provider;
 import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.video_fetcher.YhdmFetcher;
 
+import java.util.Map;
+
 public class YhdmProvider implements IMediaProvider {
 
-    /**
-     * 判断给定的URL是否属于 yhdm.one 的播放页
-     * 方法名从 canHandle 修改为 isSupported 以匹配接口
-     */
     @Override
     public boolean isSupported(String url) {
         return url != null && url.contains("yhdm.one/vod-play/");
     }
 
-    /**
-     * 如果 isSupported 返回 true，此方法将被调用
-     * @param url 输入的原始URL
-     * @param cookie Cookie，此提供者不需要，忽略
-     * @param desiredQuality 清晰度，此提供者不需要，忽略
-     * @return 包含 .m3u8 链接的 VideoInfo 对象
-     */
     @Override
-    public VideoInfo resolve(String url, String cookie, String desiredQuality) throws Exception {
-        return YhdmFetcher.fetch(url);
+    public VideoInfo resolve(String url, @Nullable String cookie, String desiredQuality) throws Exception {
+        VideoInfo basicInfo = YhdmFetcher.fetch(url);
+        if (basicInfo == null) {
+            throw new Exception("无法从 Yhdm 解析视频信息: " + url);
+        }
+
+        Map<String, String> customHeaders = Map.of("Referer", "https://yhdm.one/");
+
+        return new VideoInfo(
+                basicInfo.getVideoUrl(),
+                basicInfo.getAudioUrl(),
+                basicInfo.getTitle(),
+                basicInfo.getAuthor(),
+                customHeaders
+        );
     }
 
     @Override
