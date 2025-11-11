@@ -94,7 +94,6 @@ public class Media implements Closeable {
                 playLoopVOD();
             }
         } catch (InterruptedException ignored) {
-            // 线程被中断，正常退出
         } finally {
             LOGGER.info("播放循环已结束。");
         }
@@ -231,7 +230,7 @@ public class Media implements Closeable {
                 if (firstVideo != null) firstPtsUs = Math.min(firstPtsUs, firstVideo.ptsUs);
 
                 streamStartTimeNs = System.nanoTime();
-                isBuffering = false; // 缓冲完成
+                isBuffering = false;
                 LOGGER.info("直播流已接收到首批数据，开始播放。起始 PTS: {}", firstPtsUs);
             }
             long elapsedNs = System.nanoTime() - streamStartTimeNs;

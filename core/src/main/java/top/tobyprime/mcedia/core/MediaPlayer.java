@@ -109,10 +109,8 @@ public class MediaPlayer {
             lock.unlock();
         }
 
-        // [CRITICAL FIX] 将 close() 调用移出锁和同步块
-        // 这样可以避免在持有锁的情况下等待线程 join，防止死锁
         if (preMedia != null) {
-            preMedia.close(); // 这个 close 方法内部会等待线程结束
+            preMedia.close();
         }
     }
 
@@ -133,7 +131,6 @@ public class MediaPlayer {
         try {
             closeInternal();
             if (info == null) return;
-            // 调用新的 Media 构造函数
             var newMedia = new Media(info, cookie, decoderConfiguration, initialSeekUs);
             bindResourcesToMedia(newMedia);
         } finally {

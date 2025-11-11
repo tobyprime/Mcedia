@@ -211,28 +211,22 @@ public class PlayerAgent {
             String[] lines = currentPlaylistContent.split("\n");
 
             for (int i = 0; i < lines.length; i++) {
-                // 检查当前行是否包含我们正在播放的URL
                 if (lines[i].contains(urlToCheck)) {
-                    // 如果找到了，检查它是否还有下一行
                     if (i + 1 < lines.length) {
                         String nextLine = lines[i + 1].trim();
 
-                        // 如果下一行是空的或者是另一个URL，那么它不是时间戳
                         if (nextLine.isEmpty() || nextLine.startsWith("http")) {
                             return 0;
                         }
 
-                        // 尝试将下一行解析为时间
                         try {
                             long duration = parseToMicros(nextLine);
                             LOGGER.info("为 '{}' 成功解析到下一行的时间戳: {} us", urlToCheck, duration);
                             return duration;
                         } catch (IllegalArgumentException e) {
-                            // 下一行不是有效的时间格式，忽略
                             return 0;
                         }
                     }
-                    // 如果URL是最后一行，那么它没有下一行，直接退出循环
                     break;
                 }
             }
@@ -240,7 +234,6 @@ public class PlayerAgent {
             LOGGER.warn("在解析基础时长时发生未知错误", e);
         }
 
-        // 如果循环结束都没找到，返回0
         return 0;
     }
 
@@ -269,7 +262,7 @@ public class PlayerAgent {
                 LOGGER.info("检测到播放列表变更，强制中断并更新...");
                 currentPlaylistContent = newPlaylistContent;
                 updatePlaylist(bookPages);
-                playNextInQueue(); // 立即开始播放新列表
+                playNextInQueue();
             }
 
             ItemStack offHandItem = entity.getItemInHand(InteractionHand.OFF_HAND);
@@ -311,7 +304,6 @@ public class PlayerAgent {
             if (line.isEmpty()) continue;
 
             PlaybackItem item = null;
-            // 1. 识别主要项目 (URL 或彩蛋)
             if (line.equalsIgnoreCase("rickroll")) {
                 item = new PlaybackItem(RICKROLL_URL);
             } else if (line.equalsIgnoreCase("badapple")) {
@@ -325,21 +317,16 @@ public class PlayerAgent {
 
             if (item == null) continue;
 
-            // 2. [关键修正] 提前进行模式判断
             boolean isBiliVideo = item.originalUrl.contains("bilibili.com/video/");
             if (isBiliVideo) {
                 boolean hasPInUrl = item.originalUrl.contains("?p=") || item.originalUrl.contains("&p=");
                 if (hasPInUrl) {
-                    // 如果URL自带P号，则模式【立即确定】为 SINGLE_PART
                     item.mode = BiliPlaybackMode.SINGLE_PART;
                 } else {
-                    // 否则，模式为合集连播
                     item.mode = BiliPlaybackMode.PLAYLIST_PART;
                 }
             }
 
-            // 3. 预读并解析附加项 (时间戳和P号)
-            // 只有在是合集模式时，我们才关心书里写的P号
             if (i + 1 < lines.size()) {
                 String nextLine = lines.get(i + 1).trim();
                 Matcher timeMatcher = TIMESTAMP_PATTERN.matcher(nextLine);
@@ -350,7 +337,6 @@ public class PlayerAgent {
                         item.timestampUs = parseToMicros(nextLine);
                         i++;
 
-                        // 如果是合集模式，继续检查下下一行是否是P号
                         if (item.mode == BiliPlaybackMode.PLAYLIST_PART && i + 1 < lines.size()) {
                             String nextNextLine = lines.get(i + 1).trim();
                             Matcher pNumMatcherAfterTime = P_NUMBER_PATTERN.matcher(nextNextLine);
@@ -361,7 +347,6 @@ public class PlayerAgent {
                         }
                     } catch (Exception ignored) { item.timestampUs = 0; }
                 } else if (pNumMatcher.matches() && item.mode == BiliPlaybackMode.PLAYLIST_PART) {
-                    // 只有在合集模式下，书里写的P号才有效
                     item.pNumber = Integer.parseInt(pNumMatcher.group(1));
                     i++;
                 }
@@ -381,17 +366,15 @@ public class PlayerAgent {
             this.currentPlayingItem = nextItem;
             String urlToPlay = nextItem.originalUrl;
 
-            // 如果是合集模式，并且URL本身不带P，我们才拼接P号
             if (nextItem.mode == BiliPlaybackMode.PLAYLIST_PART) {
                 if (!urlToPlay.contains("?p=") && !urlToPlay.contains("&p=")) {
                     urlToPlay += (urlToPlay.contains("?") ? "&" : "?") + "p=" + nextItem.pNumber;
                 }
             }
-            // 对于SINGLE_PART模式，我们直接使用原始URL，因为它已经包含了正确的P号
 
             this.finalSeekTimestampUs = 0;
             this.finalSeekTimestampUs += nextItem.timestampUs;
-            this.finalSeekTimestampUs += parseBiliTimestampToUs(nextItem.originalUrl); // 注意：这里用原始URL
+            this.finalSeekTimestampUs += parseBiliTimestampToUs(nextItem.originalUrl);
             this.finalSeekTimestampUs += getServerDuration();
 
             LOGGER.info("准备播放: URL='{}', Mode={}, P={}, 最终跳转时间={}us", urlToPlay, nextItem.mode, nextItem.pNumber, this.finalSeekTimestampUs);

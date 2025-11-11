@@ -26,7 +26,6 @@ public class VideoDataConverter {
         int stride = frame.imageStride;
         int channels = frame.imageChannels;
 
-        // 调用已修复的 removeStride 方法
         ByteBuffer processedBuffer = removeStride((ByteBuffer) srcBuffer, height, width, stride, channels);
 
         return new VideoFrame(processedBuffer, width, height, frame.timestamp);
