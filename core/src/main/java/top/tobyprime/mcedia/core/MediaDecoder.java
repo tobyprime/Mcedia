@@ -190,10 +190,11 @@ public class MediaDecoder implements Closeable {
                         }
                         copiedBuffer.put(rawBuffer);
                     } else {
+                        final int originalLimit = rawBuffer.limit();
                         for (int y = 0; y < height; y++) {
                             int rowStart = y * stride;
-                            if (rowStart >= rawBuffer.limit() || rowStart + tightStride > rawBuffer.limit()) {
-                                LOGGER.warn("检测到损坏或不规范的视频帧 (行: {}, stride: {})，该行数据超出缓冲区有效数据范围 (limit: {})。跳过此帧。", y, stride, rawBuffer.limit());
+                            if (rowStart >= originalLimit || rowStart + tightStride > originalLimit) {
+                                LOGGER.warn("检测到损坏或不规范的视频帧 (行: {}, stride: {})，该行数据超出缓冲区有效数据范围 (limit: {})。跳过此帧。", y, stride, originalLimit);
                                 copiedBuffer.limit(0);
                                 break;
                             }
