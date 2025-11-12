@@ -452,6 +452,11 @@ mod会在每次进入游戏时自动进行登录状态检查，确保Cookie的�
 # 缓存功能开关
 caching.enabled=false
 
+# 断点续联开关
+# 卸载区块时保存Mcedia播放实例的视频进度
+# 下次加载区块时读取进度，退出游戏时自动删除
+feature.resumeOnReload.enabled=false
+
 # FFmpeg 网络缓冲区大小（字节，默认 262144 = 256KB）
 # 高分辨率视频（如 4K）可以适当增大此值以提高流畅度
 performance.ffmpeg.bufferSize=262144
@@ -480,7 +485,6 @@ caching.enabled=true
 #### Ⅱ、硬件解码功能（默认开启）
 
 
-
 设置主配置文件参数来**启用硬件解码**：
 ```properties
 performance.hardwareDecoding=true
@@ -504,7 +508,6 @@ performance.hardwareDecoding=true
 
 
 ---
-
 
 
 ## 五、服务器同步
