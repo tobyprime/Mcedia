@@ -19,6 +19,7 @@ import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.PlayerAgent;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.function.Consumer;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
@@ -57,13 +58,14 @@ public class CommandControl {
                         .then(literal("stop").executes(ctx -> executeOnTargetedAgent(ctx, PlayerAgent::commandStop)))
                         .then(literal("skip").executes(ctx -> executeOnTargetedAgent(ctx, PlayerAgent::commandSkip)))
                         .then(literal("seek")
-                                .then(argument("time", StringArgumentType.string())
+                                .then(argument("timestamp", StringArgumentType.greedyString())
                                         .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
-                                            String timeStr = StringArgumentType.getString(ctx, "time");
-                                            try {
-                                                agent.commandSeek(PlayerAgent.parseToMicros(timeStr));
-                                            } catch (Exception e) {
-                                                ctx.getSource().sendError(Component.literal("§c时间格式错误，请使用 'MM:SS' 或 'HH:MM:SS'。"));
+                                            String timeStr = StringArgumentType.getString(ctx, "timestamp");
+                                            long seekUs = PlayerAgent.parseTimestampToMicros(timeStr);
+                                            if (seekUs >= 0) {
+                                                agent.commandSeek(seekUs);
+                                            } else {
+                                                ctx.getSource().sendError(Component.literal("§c时间格式无效。请使用 [HH:]MM:SS 或纯秒数。"));
                                             }
                                         }))
                                 )
@@ -166,7 +168,36 @@ public class CommandControl {
                                                         .executes(ctx -> executeOnTargetedAgent(ctx, PlayerAgent::commandToggleAudioSecondary))
                                                 )
                                         )
-                                ))));
+                                )
+                        )
+                        .then(literal("all")
+                                .then(literal("pause")
+                                        .executes(ctx -> {
+                                            Collection<PlayerAgent> agents = Mcedia.getInstance().getEntityToPlayerMap().values();
+                                            agents.forEach(PlayerAgent::commandPause);
+                                            ctx.getSource().sendFeedback(Component.literal("§a[Mcedia] §f已暂停全部 " + agents.size() + " 个播放器。"));
+                                            return agents.size();
+                                        })
+                                )
+                                .then(literal("resume")
+                                        .executes(ctx -> {
+                                            Collection<PlayerAgent> agents = Mcedia.getInstance().getEntityToPlayerMap().values();
+                                            agents.forEach(PlayerAgent::commandResume);
+                                            ctx.getSource().sendFeedback(Component.literal("§a[Mcedia] §f已恢复全部 " + agents.size() + " 个播放器。"));
+                                            return agents.size();
+                                        })
+                                )
+                                .then(literal("stop")
+                                        .executes(ctx -> {
+                                            Collection<PlayerAgent> agents = Mcedia.getInstance().getEntityToPlayerMap().values();
+                                            agents.forEach(PlayerAgent::commandStop);
+                                            ctx.getSource().sendFeedback(Component.literal("§a[Mcedia] §f已停止全部 " + agents.size() + " 个播放器。"));
+                                            return agents.size();
+                                        })
+                                )
+                        )
+                )
+        );
     }
 
     /**

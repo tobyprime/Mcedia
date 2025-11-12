@@ -210,7 +210,7 @@ public class MediaDecoder implements Closeable {
                     } else {
                         videoFramePool.release(copiedBuffer);
                     }
-                    rawBuffer.clear();
+//                    rawBuffer.clear();
                 } else if (isAudio) {
                     audioQueue.put(frame.clone());
                 }

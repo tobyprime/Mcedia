@@ -107,6 +107,8 @@ public class Mcedia implements ModInitializer {
             CommandControl.register(dispatcher);
             CommandInfo.register(dispatcher);
             CommandConfig.register(dispatcher);
+            CommandPreset.register(dispatcher);
+            CommandPlaylist.register(dispatcher);
         });
     }
 

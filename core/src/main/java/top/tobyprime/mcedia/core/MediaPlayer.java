@@ -158,11 +158,15 @@ public class MediaPlayer {
     }
 
     public void seek(long us) {
-        Media currentMedia;
+        final Media currentMedia;
         synchronized (this) {
             currentMedia = this.media;
         }
-        if (currentMedia != null) currentMedia.seek(us);
+        if (currentMedia != null) {
+            executor.execute(() -> {
+                currentMedia.seek(us);
+            });
+        }
     }
 
     float speed = 1;
