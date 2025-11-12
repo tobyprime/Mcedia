@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.*;
 import top.tobyprime.mcedia.BilibiliAuthRequiredException;
+import top.tobyprime.mcedia.interfaces.IMediaInfo;
 import top.tobyprime.mcedia.provider.IMediaProvider;
 import top.tobyprime.mcedia.provider.MediaProviderRegistry;
 import top.tobyprime.mcedia.provider.VideoInfo;
@@ -43,6 +44,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static com.ibm.icu.text.PluralRules.Operand.e;
+
 public class PlayerAgent {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     private static final ResourceLocation errorScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/error.png");
@@ -51,6 +54,9 @@ public class PlayerAgent {
     private static final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+)");
     private static final String RICKROLL_URL = "https://www.bilibili.com/video/BV1GJ411x7h7";
     private static final String BAD_APPLE_URL = "https://www.bilibili.com/video/BV1xx411c79H";
+    private static final Pattern TIMESTAMP_PATTERN = Pattern.compile("^(\\d{1,2}:)?(\\d{1,2}):(\\d{1,2})$");
+    private static final Pattern P_NUMBER_PATTERN = Pattern.compile("^[pP]?(\\d+)$");
+
     private long timestampFromUrlUs = 0;
     private boolean isPausedByBasePlate = false;
     private final Queue<PlaybackItem> playlist = new LinkedList<>();
@@ -59,6 +65,8 @@ public class PlayerAgent {
     private int playlistOriginalSize = 0;
     private final AtomicLong playbackToken = new AtomicLong(0);
     private volatile boolean isReconnecting = false;
+    @Nullable
+    private volatile String commandedUrl = null;
 
     private final ArmorStand entity;
     private final MediaPlayer player;
@@ -84,13 +92,14 @@ public class PlayerAgent {
     private float audioRangeMin2 = 2;
     private float audioRangeMax2 = 500;
     public float speed = 1;
+    private int saveProgressTicker = 0;
     private String desiredQuality = "自动";
+    private String previousQuality = "自动";
     private boolean shouldCacheForLoop = false;
     private volatile boolean isLoopingInProgress = false;
     private final AtomicBoolean isTextureReady = new AtomicBoolean(false);
     private boolean isTextureInitialized = false;
-    private static final Pattern TIMESTAMP_PATTERN = Pattern.compile("^(\\d{1,2}:)?(\\d{1,2}):(\\d{1,2})$");
-    private static final Pattern P_NUMBER_PATTERN = Pattern.compile("^[pP]?(\\d+)$");
+
     private long finalSeekTimestampUs = 0;
 
     private enum PlaybackStatus {
@@ -125,6 +134,28 @@ public class PlayerAgent {
         this.primaryAudioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
         this.secondaryAudioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
         player.bindAudioSource(primaryAudioSource);
+        preloadOffHandConfig();
+    }
+
+    private void preloadOffHandConfig() {
+        ItemStack offHandItem = entity.getItemInHand(InteractionHand.OFF_HAND);
+        preOffHandItemStack = offHandItem.copy();
+        List<String> offHandPages = getBookPages(offHandItem);
+
+        if (offHandPages != null) {
+            if (!offHandPages.isEmpty()) updateOffset(offHandPages.get(0));
+            if (offHandPages.size() > 1) updateAudioOffset(offHandPages.get(1));
+            if (offHandPages.size() > 2) updateOther(offHandPages.get(2));
+
+            String newQuality = (offHandPages.size() > 3) ? offHandPages.get(3) : null;
+            this.desiredQuality = (newQuality == null || newQuality.isBlank()) ? "自动" : newQuality.trim();
+            this.previousQuality = this.desiredQuality;
+        } else {
+            resetOffset();
+            resetAudioOffset();
+            this.desiredQuality = "自动";
+            this.previousQuality = "自动";
+        }
     }
 
     public void initializeGraphics() {
@@ -138,6 +169,15 @@ public class PlayerAgent {
         update();
         Media currentMedia = player.getMedia();
         if (currentMedia != null && !isReconnecting) {
+            if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+                if (!currentMedia.isLiveStream() && currentMedia.isPlaying()) {
+                    saveProgressTicker++;
+                    if (saveProgressTicker >= 100) {
+                        saveProgressTicker = 0;
+                        Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), currentMedia.getDurationUs());
+                    }
+                }
+            }
             if (currentMedia.needsReconnect()) {
                 LOGGER.warn("检测到媒体流中断，正在尝试自动重连: {}", playingUrl);
                 isReconnecting = true;
@@ -254,6 +294,20 @@ public class PlayerAgent {
 //    }
 
     public void update() {
+        if (this.commandedUrl != null) {
+            String url = this.commandedUrl;
+            this.commandedUrl = null;
+            LOGGER.info("接收到指令播放任务，强制更新URL: {}", url);
+            player.closeAsync();
+            playlist.clear();
+            playlistOriginalSize = 0;
+            currentPlayingItem = null;
+            List<String> commandPage = Collections.singletonList(url);
+            updatePlaylist(commandPage);
+            currentPlaylistContent = url;
+            playNextInQueue();
+            return;
+        }
         try {
             ItemStack mainHandItem = entity.getItemInHand(InteractionHand.MAIN_HAND);
             List<String> bookPages = getBookPages(mainHandItem);
@@ -261,6 +315,7 @@ public class PlayerAgent {
             if (!newPlaylistContent.equals(currentPlaylistContent)) {
                 LOGGER.info("检测到播放列表变更，强制中断并更新...");
                 currentPlaylistContent = newPlaylistContent;
+                player.closeAsync();
                 updatePlaylist(bookPages);
                 playNextInQueue();
             }
@@ -269,19 +324,33 @@ public class PlayerAgent {
             if (!ItemStack.matches(offHandItem, preOffHandItemStack)) {
                 preOffHandItemStack = offHandItem.copy();
                 List<String> offHandPages = getBookPages(offHandItem);
+                boolean qualityChanged = false;
                 if (offHandPages != null) {
                     if (!offHandPages.isEmpty()) updateOffset(offHandPages.get(0));
                     if (offHandPages.size() > 1) updateAudioOffset(offHandPages.get(1));
                     if (offHandPages.size() > 2) updateOther(offHandPages.get(2));
-                    updateQuality(offHandPages.size() > 3 ? offHandPages.get(3) : "自动");
+                    qualityChanged = updateQuality(offHandPages.size() > 3 ? offHandPages.get(3) : null);
                 } else {
                     resetOffset();
                     resetAudioOffset();
-                    updateQuality("自动");
+                    qualityChanged = updateQuality(null);
+                }
+
+                if (qualityChanged && player.getMedia() != null && playingUrl != null) {
+                    LOGGER.info("检测到清晰度变更: '{}' -> '{}'，正在软重载...", this.previousQuality, this.desiredQuality);
+
+                    Media currentMedia = player.getMedia();
+                    long seekTo = 0;
+                    if (currentMedia != null && !currentMedia.isLiveStream()) {
+                        seekTo = currentMedia.getDurationUs();
+                    }
+
+                    this.open(playingUrl);
+                    this.startPlayback(false);
+                    this.finalSeekTimestampUs = seekTo;
                 }
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
     }
 
     private void updatePlaylist(List<String> pages) {
@@ -361,6 +430,9 @@ public class PlayerAgent {
     }
 
     private void playNextInQueue() {
+        if (McediaConfig.RESUME_ON_RELOAD_ENABLED && this.currentPlayingItem != null) {
+            Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), 0);
+        }
         PlaybackItem nextItem = playlist.poll();
         if (nextItem != null) {
             this.currentPlayingItem = nextItem;
@@ -373,9 +445,24 @@ public class PlayerAgent {
             }
 
             this.finalSeekTimestampUs = 0;
-            this.finalSeekTimestampUs += nextItem.timestampUs;
-            this.finalSeekTimestampUs += parseBiliTimestampToUs(nextItem.originalUrl);
-            this.finalSeekTimestampUs += getServerDuration();
+            long serverSyncTime = getServerDuration();
+            if (serverSyncTime > 0) {
+                this.finalSeekTimestampUs = serverSyncTime;
+                LOGGER.info("应用服务器实时同步时间: {}us", serverSyncTime);
+                if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+                    Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), 0);
+                }
+            } else {
+                if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+                    long resumeTime = Mcedia.getInstance().loadPlayerProgress(this.entity.getUUID());
+                    if (resumeTime > 0) {
+                        this.finalSeekTimestampUs += resumeTime;
+                        LOGGER.info("读取到断点续播时间: {}us", resumeTime);
+                    }
+                }
+                this.finalSeekTimestampUs += nextItem.timestampUs;
+                this.finalSeekTimestampUs += parseBiliTimestampToUs(nextItem.originalUrl);
+            }
 
             LOGGER.info("准备播放: URL='{}', Mode={}, P={}, 最终跳转时间={}us", urlToPlay, nextItem.mode, nextItem.pNumber, this.finalSeekTimestampUs);
 
@@ -403,7 +490,6 @@ public class PlayerAgent {
 
         CompletableFuture.runAsync(() -> {
             try {
-                // ... (API请求逻辑不变)
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create("https://api.bilibili.com/x/web-interface/view?bvid=" + bvid))
                         .build();
@@ -414,28 +500,21 @@ public class PlayerAgent {
                     JSONArray pages = json.getJSONObject("data").getJSONArray("pages");
 
                     if (nextP <= pages.length()) {
-                        // --- 播放下一P ---
                         String nextUrl = "https://www.bilibili.com/video/" + bvid + "?p=" + nextP;
                         LOGGER.info("B站分P连播: 找到下一P ({}/{})，正在加载...", nextP, pages.length());
 
                         this.currentPlayingItem.pNumber = nextP;
-
-                        // [关键修正] 自动连播的后续分P，时间戳必须从0开始
                         this.finalSeekTimestampUs = 0;
-
                         Minecraft.getInstance().execute(() -> {
                             this.open(nextUrl);
                             this.startPlayback(false);
                         });
                     } else {
-                        // --- 已经是最后一P ---
                         if (isLoopingEnabled) {
-                            // 回到第一P
                             LOGGER.info("B站合集循环: 已播完最后一P，回到P1。");
                             this.currentPlayingItem.pNumber = 1;
                             String firstUrl = "https://www.bilibili.com/video/" + bvid + "?p=1";
 
-                            // [关键修正] 合集循环回到P1时，也应该从0开始播放
                             this.finalSeekTimestampUs = 0;
 
                             Minecraft.getInstance().execute(() -> {
@@ -443,7 +522,6 @@ public class PlayerAgent {
                                 this.startPlayback(true);
                             });
                         } else {
-                            // 结束合集，播放队列中的下一个
                             LOGGER.info("B站合集已播完 (共 {} P)，尝试播放列表中的下一个。", pages.length());
                             Minecraft.getInstance().execute(this::playNextInQueue);
                         }
@@ -682,7 +760,23 @@ public class PlayerAgent {
         }
 
         if (!isLooping) {
-            Style clickableStyle = Style.EMPTY.withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)));
+            MutableComponent hoverText = Component.literal("点击可在浏览器中打开");
+            List<String> qualities = videoInfo.getAvailableQualities();
+            String currentQuality = videoInfo.getCurrentQuality();
+            if (qualities != null && !qualities.isEmpty()) {
+                hoverText.append(Component.literal("\n\n§f可用清晰度:").withStyle(ChatFormatting.GRAY));
+                for (String quality : qualities) {
+                    boolean isCurrent = Objects.equals(quality, currentQuality);
+                    ChatFormatting color = isCurrent ? ChatFormatting.DARK_PURPLE : ChatFormatting.AQUA;
+                    String prefix = isCurrent ? "\n> " : "\n- ";
+
+                    hoverText.append(Component.literal(prefix + quality).withStyle(color));
+                }
+            }
+            HoverEvent hoverEvent = new HoverEvent.ShowText(hoverText);
+            Style clickableStyle = Style.EMPTY
+                    .withClickEvent(new ClickEvent.OpenUrl(URI.create(finalMediaUrl)))
+                    .withHoverEvent(hoverEvent);
             MutableComponent msg = Component.literal("§a[Mcedia] §f播放: ");
             msg.append(Component.literal(videoInfo.getTitle()).withStyle(clickableStyle.withColor(ChatFormatting.YELLOW)));
             if (videoInfo.isMultiPart() && videoInfo.getPartName() != null && !videoInfo.getPartName().isEmpty()) {
@@ -691,6 +785,11 @@ public class PlayerAgent {
             }
             msg.append(Component.literal(" - ").withStyle(ChatFormatting.WHITE));
             msg.append(Component.literal(videoInfo.getAuthor()).withStyle(clickableStyle.withColor(ChatFormatting.AQUA)));
+            if (videoInfo.getCurrentQuality() != null) {
+                msg.append(Component.literal(" [").withStyle(ChatFormatting.GRAY))
+                        .append(Component.literal(videoInfo.getCurrentQuality()).withStyle(ChatFormatting.DARK_PURPLE))
+                        .append(Component.literal("]").withStyle(ChatFormatting.GRAY));
+            }
             Mcedia.msgToPlayer(msg);
         }
 
@@ -851,10 +950,19 @@ public class PlayerAgent {
     }
 
     public void closeSync() {
+        if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+            Media currentMedia = player.getMedia();
+            if (currentMedia != null && !currentMedia.isLiveStream() && currentMedia.getDurationUs() > 0) {
+                Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), currentMedia.getDurationUs());
+                LOGGER.info("实例关闭，已保存最终播放进度。");
+            } else {
+                Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), 0);
+            }
+        }
         this.currentStatus = PlaybackStatus.IDLE;
         playingUrl = null;
         isLoopingInProgress = false;
-        player.closeSync();
+        player.closeAsync();
         LOGGER.info("PlayerAgent已关闭，实体位于 {}", entity.position());
     }
 
@@ -899,8 +1007,14 @@ public class PlayerAgent {
         if (!looping && cacheManager.isCached(playingUrl)) cacheManager.cleanup();
     }
 
-    public void updateQuality(String quality) {
-        this.desiredQuality = (quality == null || quality.isBlank()) ? "自动" : quality.trim();
+    public boolean updateQuality(String quality) {
+        this.previousQuality = this.desiredQuality;
+        String newQuality = (quality == null || quality.isBlank()) ? "自动" : quality.trim();
+        if (!this.desiredQuality.equals(newQuality)) {
+            this.desiredQuality = newQuality;
+            return true; // 清晰度发生了变化
+        }
+        return false; // 清晰度未变
     }
 
     public void updateOffset(String offset) {
@@ -951,5 +1065,173 @@ public class PlayerAgent {
         } catch (Exception e) {
             LOGGER.warn("解析声源配置失败，请检查格式。", e);
         }
+    }
+
+    public void commandPause() {
+        if (player.getMedia() != null) {
+            player.pause();
+            Mcedia.msgToPlayer("§e[Mcedia] §f播放已暂停。");
+        }
+    }
+
+    public void commandResume() {
+        if (player.getMedia() != null) {
+            player.play();
+            Mcedia.msgToPlayer("§a[Mcedia] §f播放已恢复。");
+        }
+    }
+
+    public void commandStop() {
+        open(null);
+        player.closeAsync();
+        Mcedia.msgToPlayer("§c[Mcedia] §f播放已停止。");
+    }
+
+    public void commandSkip() {
+        if (!playlist.isEmpty()) {
+            Mcedia.msgToPlayer("§f[Mcedia] §7正在跳过当前视频...");
+            playNextInQueue();
+        } else {
+            Mcedia.msgToPlayer("§e[Mcedia] §f播放列表中没有下一个视频。");
+        }
+    }
+
+    public void commandSeek(long seekUs) {
+        Media media = player.getMedia();
+        if (media != null && !media.isLiveStream()) {
+            player.seek(seekUs);
+            String time = String.format("%02d:%02d",
+                    (seekUs / 1_000_000) / 60,
+                    (seekUs / 1_000_000) % 60);
+            Mcedia.msgToPlayer("§f[Mcedia] §7已跳转到 " + time);
+        } else {
+            Mcedia.msgToPlayer("§c[Mcedia] §f当前媒体不支持跳转。");
+        }
+    }
+
+    public void commandSetVolume(float volumePercent) {
+        if (volumePercent >= 0 && volumePercent <= 100) {
+            this.audioMaxVolume = (volumePercent / 100.0f) * 10.0f;
+            Mcedia.msgToPlayer(String.format("§f[Mcedia] §7音量已设置为 %.0f%%", volumePercent));
+        } else {
+            Mcedia.msgToPlayer("§c[Mcedia] §f音量百分比必须在 0-100 之间。");
+        }
+    }
+
+    public void commandSetUrl(String url) {
+        LOGGER.info("通过指令设置播放URL: {}", url);
+        List<String> pages = Collections.singletonList(url);
+        this.currentPlaylistContent = String.join("\n", pages);
+        updatePlaylist(pages);
+        playNextInQueue();
+        Mcedia.msgToPlayer("§f[Mcedia] §7正在尝试播放新链接...");
+    }
+
+    public void commandSetOffset(float x, float y, float z, float scale) {
+        this.offsetX = x;
+        this.offsetY = y;
+        this.offsetZ = z;
+        this.scale = scale;
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7屏幕偏移已设置为 (%.2f, %.2f, %.2f)，缩放为 %.2f。", x, y, z, scale));
+    }
+
+    public void commandSetLooping(boolean enabled) {
+        this.player.setLooping(enabled);
+        this.shouldCacheForLoop = enabled && McediaConfig.CACHING_ENABLED;
+        if (enabled) {
+            Mcedia.msgToPlayer("§a[Mcedia] §f已开启循环。");
+        } else {
+            Mcedia.msgToPlayer("§e[Mcedia] §f已关闭循环。");
+        }
+    }
+
+    public void commandSetAudioPrimary(float x, float y, float z, float maxVol, float minRange, float maxRange) {
+        this.audioOffsetX = x;
+        this.audioOffsetY = y;
+        this.audioOffsetZ = z;
+        this.audioMaxVolume = maxVol;
+        this.audioRangeMin = minRange;
+        this.audioRangeMax = maxRange;
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7主声源已设置为: 偏移(%.2f, %.2f, %.2f), 音量 %.1f, 范围 [%.1f, %.1f]。", x, y, z, maxVol, minRange, maxRange));
+    }
+
+    public void commandSetAudioSecondary(float x, float y, float z, float maxVol, float minRange, float maxRange) {
+        this.audioOffsetX2 = x;
+        this.audioOffsetY2 = y;
+        this.audioOffsetZ2 = z;
+        this.audioMaxVolume2 = maxVol;
+        this.audioRangeMin2 = minRange;
+        this.audioRangeMax2 = maxRange;
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7副声源参数已更新为: 偏移(%.2f, %.2f, %.2f), 音量 %.1f, 范围 [%.1f, %.1f]。", x, y, z, maxVol, minRange, maxRange));
+        if (!isSecondarySourceActive) {
+            Mcedia.msgToPlayer("§7提示: 副声源当前未启用，使用 §a/mcedia control enable secondary_audio §7来启用。");
+        }
+    }
+
+    public void commandEnableAudioSecondary() {
+        if (!isSecondarySourceActive) {
+            player.bindAudioSource(secondaryAudioSource);
+            isSecondarySourceActive = true;
+            Mcedia.msgToPlayer("§a[Mcedia] §f副声源已启用。");
+        } else {
+            Mcedia.msgToPlayer("§e[Mcedia] §f副声源已经是启用状态。");
+        }
+    }
+
+    public void commandDisableAudioSecondary() {
+        if (isSecondarySourceActive) {
+            player.unbindAudioSource(secondaryAudioSource);
+            isSecondarySourceActive = false;
+            Mcedia.msgToPlayer("§e[Mcedia] §f副声源已禁用。");
+        } else {
+            Mcedia.msgToPlayer("§7[Mcedia] §8副声源当前未启用。");
+        }
+    }
+
+    public boolean commandToggleAudioSecondary() {
+        if (isSecondarySourceActive) {
+            player.unbindAudioSource(secondaryAudioSource);
+            isSecondarySourceActive = false;
+            Mcedia.msgToPlayer("§e[Mcedia] §f副声源已禁用。");
+            return false;
+        } else {
+            player.bindAudioSource(secondaryAudioSource);
+            isSecondarySourceActive = true;
+            Mcedia.msgToPlayer("§a[Mcedia] §f副声源已启用。");
+            return true;
+        }
+    }
+
+    public boolean isSecondaryAudioActive() {
+        return this.isSecondarySourceActive;
+    }
+
+    public Component getStatusComponent() {
+        Media media = player.getMedia();
+        if (media == null) {
+            return Component.literal("§e[Mcedia Status] §f当前无播放。");
+        }
+        IMediaInfo info = media.getMediaInfo();
+        MutableComponent status = Component.literal("§6--- Mcedia Player Status ---\n");
+        status.append("§eURL: §f" + playingUrl + "\n");
+        if (media.isLiveStream()) {
+            status.append("§e类型: §b直播流\n");
+            long duration = media.getDurationUs() / 1_000_000;
+            status.append(String.format("§e进度: §a%02d:%02d:%02d\n", duration / 3600, (duration % 3600) / 60, duration % 60));
+        } else {
+            status.append("§e类型: §b点播视频\n");
+            long current = media.getDurationUs() / 1_000_000;
+            long total = media.getLengthUs() / 1_000_000;
+            status.append(String.format("§e进度: §a%02d:%02d:%02d §f/ §7%02d:%02d:%02d\n",
+                    current / 3600, (current % 3600) / 60, current % 60,
+                    total / 3600, (total % 3600) / 60, total % 60));
+        }
+        if (info != null && info.getCurrentQuality() != null) {
+            status.append("§e清晰度: §d" + info.getCurrentQuality() + "\n");
+        }
+        status.append("§e状态: §f" + (player.isBuffering() ? "§6缓冲中" : (media.isPaused() ? "§e已暂停" : "§a播放中")) + "\n");
+        status.append("§e解码: §f" + (player.getDecoderConfiguration().useHardwareDecoding ? "§b硬件" : "§7软件"));
+
+        return status;
     }
 }

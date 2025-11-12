@@ -18,6 +18,7 @@ public class McediaConfig {
 
     public static String BILIBILI_COOKIE = "";
     public static boolean CACHING_ENABLED = false;
+    public static boolean RESUME_ON_RELOAD_ENABLED = false;
     public static boolean HARDWARE_DECODING_ENABLED = true;
     public static int FFMPEG_BUFFER_SIZE = 262144;
     public static int FFMPEG_PROBE_SIZE = 5 * 1024 * 1024;
@@ -36,6 +37,7 @@ public class McediaConfig {
             try {
                 properties.load(Files.newInputStream(CONFIG_PATH));
                 CACHING_ENABLED = Boolean.parseBoolean(properties.getProperty("caching.enabled", "false"));
+                RESUME_ON_RELOAD_ENABLED = Boolean.parseBoolean(properties.getProperty("feature.resumeOnReload.enabled", "false"));
                 HARDWARE_DECODING_ENABLED = Boolean.parseBoolean(properties.getProperty("performance.hardwareDecoding", "true"));
                 FFMPEG_BUFFER_SIZE = Integer.parseInt(properties.getProperty("performance.ffmpeg.bufferSize", "262144"));
                 FFMPEG_PROBE_SIZE = Integer.parseInt(properties.getProperty("performance.ffmpeg.probeSize", "5242880"));
@@ -62,6 +64,7 @@ public class McediaConfig {
 
     public static void save() {
         properties.setProperty("caching.enabled", String.valueOf(CACHING_ENABLED));
+        properties.setProperty("feature.resumeOnReload.enabled", String.valueOf(RESUME_ON_RELOAD_ENABLED));
         properties.setProperty("performance.hardwareDecoding", String.valueOf(HARDWARE_DECODING_ENABLED));
         properties.setProperty("performance.ffmpeg.bufferSize", String.valueOf(FFMPEG_BUFFER_SIZE));
         properties.setProperty("performance.ffmpeg.probeSize", String.valueOf(FFMPEG_PROBE_SIZE));
@@ -83,6 +86,8 @@ public class McediaConfig {
                             "# --------------------------------------------------------------------------------------------------\n\n" +
                             "# --- General Settings ---\n" +
                             "# caching.enabled: Enable or disable video caching. (true / false)\n" +
+                            "# feature.resumeOnReload.enabled: If true, the mod will save video progress locally and resume playback when you re-enter the area. (true / false)\n" +
+                            "# Note: This progress is saved on your client, not on the server.\n" +
                             "\n" +
                             "# --- Performance Settings ---\n" +
                             "# performance.hardwareDecoding: Enable hardware-accelerated video decoding if supported by your GPU. (true / false)\n" +

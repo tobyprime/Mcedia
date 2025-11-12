@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,15 @@ public class BilibiliBangumiFetcher {
     private static final int QUALITY_ID_4K = 120;
 
     private static Supplier<Boolean> authStatusSupplier = () -> false;
+
+    private static class StreamSelection {
+        final JSONObject stream;
+        final String qualityDescription;
+        StreamSelection(JSONObject stream, String qualityDescription) {
+            this.stream = stream;
+            this.qualityDescription = qualityDescription;
+        }
+    }
 
     public static void setAuthStatusSupplier(Supplier<Boolean> supplier) {
         if (supplier != null) {
@@ -47,14 +57,19 @@ public class BilibiliBangumiFetcher {
         HttpRequest viewRequest = HttpRequest.newBuilder().uri(URI.create(viewApi)).header("User-Agent", "Mozilla/5.0").build();
         HttpResponse<String> viewResponse = client.send(viewRequest, HttpResponse.BodyHandlers.ofString());
         JSONObject viewJson = new JSONObject(viewResponse.body());
-        String title = "未知标题";
-        String author = "Bilibili动漫";
+
+        String mainTitle = "未知番剧/电影";
+        String author = "Bilibili";
+        String partName = null;
+        int currentP = 0;
         boolean requiresVip = false;
         boolean requiresPurchase = false;
+        String cid = null;
 
         if (viewJson.optInt("code") == 0) {
             JSONObject result = viewJson.getJSONObject("result");
-            title = result.getString("title");
+            mainTitle = result.getString("title");
+            author = result.optString("season_title", "Bilibili");
 
             // 解析付费信息
             if (result.has("payment")) {
@@ -67,17 +82,30 @@ public class BilibiliBangumiFetcher {
             requiresVip = true;
 
             // 找到当前集的标题
-            for (Object ep : result.getJSONArray("episodes")) {
-                if (String.valueOf(((JSONObject)ep).getInt("id")).equals(epId)) {
-                    title = title + " - " + ((JSONObject)ep).getString("share_copy");
+            JSONArray episodes = result.getJSONArray("episodes");
+            for (int i = 0; i < episodes.length(); i++) {
+                JSONObject ep = episodes.getJSONObject(i);
+                if (String.valueOf(ep.getInt("id")).equals(epId)) {
+                    partName = ep.getString("share_copy");
+                    cid = String.valueOf(ep.getLong("cid"));
+                    currentP = i + 1;
+                    if (partName != null && partName.equals(mainTitle)) {
+                        partName = null;
+                    }
                     break;
                 }
             }
+        } else {
+            throw new RuntimeException("获取番剧信息失败: " + viewJson.optString("message"));
+        }
+
+        if (cid == null) {
+            throw new RuntimeException("无法获取当前分集的CID，可能是ep_id无效。");
         }
 
         // 调用 PGC 的播放地址 API
         String playApi = "https://api.bilibili.com/pgc/player/web/playurl?ep_id=" + epId +
-                "&qn=116&type=&otype=json&platform=html5&high_quality=1&fnval=4048";
+                "&qn=116&fnval=4048";
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(playApi))
@@ -90,7 +118,7 @@ public class BilibiliBangumiFetcher {
 
         HttpResponse<String> response = client.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
         String responseBody = response.body();
-        LOGGER.info("Bilibili Bangumi API Response: {}", responseBody);
+//        LOGGER.info("Bilibili Bangumi API Response: {}", responseBody);
 
         JSONObject responseJson = new JSONObject(responseBody);
         if (responseJson.getInt("code") != 0) {
@@ -109,18 +137,28 @@ public class BilibiliBangumiFetcher {
             throw new BilibiliAuthRequiredException("B站返回权限错误(-10403)，该内容需要大会员或已登录。");
         }
 
+        List<String> availableQualities = new ArrayList<>();
+        JSONArray supportFormats = result.optJSONArray("support_formats");
+        if (supportFormats != null) {
+            for (int i = 0; i < supportFormats.length(); i++) {
+                availableQualities.add(supportFormats.getJSONObject(i).getString("new_description"));
+            }
+        }
+
+        String finalCurrentQuality = null;
+
         // 优先尝试解析 DASH (高画质，音视频分离)
         if (result.has("dash")) {
             JSONObject dash = result.getJSONObject("dash");
-            if (dash.has("video") && dash.has("audio") && dash.getJSONArray("video").length() > 0 && dash.getJSONArray("audio").length() > 0) {
-                JSONObject selectedVideo = findBestStream(dash.getJSONArray("video"), result.optJSONArray("support_formats"), desiredQuality);
-                JSONObject selectedAudio = findBestStream(dash.getJSONArray("audio"), null, "自动"); // 音频总是选最好的
+            if (dash.has("video") && dash.has("audio") && !dash.getJSONArray("video").isEmpty() && !dash.getJSONArray("audio").isEmpty()) {
+                StreamSelection videoSelection = findBestStream(dash.getJSONArray("video"), supportFormats, desiredQuality);
+                StreamSelection audioSelection = findBestStream(dash.getJSONArray("audio"), null, "自动");
 
-                if (selectedVideo != null && selectedAudio != null) {
-                    LOGGER.info("成功解析DASH格式视频流");
-                    String videoBaseUrl = selectedVideo.getString("baseUrl");
-                    String audioBaseUrl = selectedAudio.getString("baseUrl");
-                    return new VideoInfo(videoBaseUrl, audioBaseUrl, title, author);
+                if (videoSelection != null && videoSelection.stream != null && audioSelection != null) {
+                    finalCurrentQuality = videoSelection.qualityDescription;
+                    String videoBaseUrl = videoSelection.stream.getString("baseUrl");
+                    String audioBaseUrl = audioSelection.stream.getString("baseUrl");
+                    return new VideoInfo(videoBaseUrl, audioBaseUrl, mainTitle, author, null, partName, currentP, availableQualities, finalCurrentQuality);
                 }
             }
         }
@@ -129,9 +167,12 @@ public class BilibiliBangumiFetcher {
         if (result.has("durl")) {
             JSONArray durlArray = result.getJSONArray("durl");
             if (durlArray.length() > 0) {
+                if (supportFormats != null && !supportFormats.isEmpty()) {
+                    finalCurrentQuality = supportFormats.getJSONObject(0).getString("new_description");
+                }
                 LOGGER.info("解析DASH失败，降级到DURL格式");
                 String playableUrl = durlArray.getJSONObject(0).getString("url");
-                return new VideoInfo(playableUrl, null, title, author); // DURL 格式的 audioUrl 为 null
+                return new VideoInfo(playableUrl, null, mainTitle, author, null, partName, currentP, availableQualities, finalCurrentQuality);
             }
         }
 
@@ -145,9 +186,19 @@ public class BilibiliBangumiFetcher {
      * @param desiredQuality 用户期望的清晰度描述字符串
      * @return 匹配的最佳流的 JSONObject，找不到则返回最高质量的流
      */
-    private static JSONObject findBestStream(JSONArray streams, @Nullable JSONArray formats, String desiredQuality) {
+    private static StreamSelection findBestStream(JSONArray streams, @Nullable JSONArray formats, String desiredQuality) {
         if (streams == null || streams.length() == 0) {
             return null;
+        }
+
+        if (formats == null || formats.length() == 0) {
+            return new StreamSelection(streams.getJSONObject(0), "默认音质");
+        }
+
+        Map<String, Integer> availableQualityMap = new HashMap<>();
+        for (int i = 0; i < formats.length(); i++) {
+            JSONObject format = formats.getJSONObject(i);
+            availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
         }
 
         // --- 自动清晰度逻辑 ---
@@ -155,14 +206,6 @@ public class BilibiliBangumiFetcher {
 
         if ("自动".equals(desiredQuality)) {
             // 对于音频流 (formats == null)，总是选择第一个（通常是最好的）
-            if (formats == null) {
-                return streams.getJSONObject(0);
-            }
-            Map<String, Integer> availableQualityMap = new HashMap<>();
-            for (int i = 0; i < formats.length(); i++) {
-                JSONObject format = formats.getJSONObject(i);
-                availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
-            }
             if (isLoggedIn) {
                 LOGGER.info("用户已登录，应用1080P60帧为上限的画质策略。");
                 List<String> preferredQualities = List.of(
@@ -176,12 +219,12 @@ public class BilibiliBangumiFetcher {
                         JSONObject stream = findStreamByIdAndCodec(streams, targetId);
                         if (stream != null) {
                             LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
-                            return stream;
+                            return new StreamSelection(stream, preferred);
                         }
                     }
                 }
                 LOGGER.warn("自动清晰度(已登录): 未在偏好列表中找到匹配项，回退到API最高画质。");
-                return streams.getJSONObject(0);
+                return new StreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
             } else {
                 LOGGER.info("用户未登录，尝试锁定至 360P 画质。");
                 String targetQuality = "360P 流畅";
@@ -190,36 +233,30 @@ public class BilibiliBangumiFetcher {
                     JSONObject stream = findStreamByIdAndCodec(streams, targetId);
                     if (stream != null) {
                         LOGGER.info("自动清晰度(未登录): 成功锁定到 '{}'", targetQuality);
-                        return stream;
+                        return new StreamSelection(stream, targetQuality);
                     }
                 }
                 LOGGER.warn("自动清晰度(未登录): 未找到 '{}'，回退到最低画质。", targetQuality);
-                return streams.getJSONObject(streams.length() - 1);
+                String lowestQualityDesc = formats.getJSONObject(formats.length() - 1).getString("new_description");
+                return new StreamSelection(streams.getJSONObject(streams.length() - 1), lowestQualityDesc);
             }
         }
 
         // --- 手动指定清晰度逻辑 ---
-        if (formats == null || formats.length() == 0) {
-            return streams.getJSONObject(0);
-        }
-        Map<String, Integer> qualityMap = new HashMap<>();
-        for (int i = 0; i < formats.length(); i++) {
-            JSONObject format = formats.getJSONObject(i);
-            qualityMap.put(format.getString("new_description"), format.getInt("quality"));
-        }
-        Integer targetQualityId = qualityMap.get(desiredQuality);
+        Integer targetQualityId = availableQualityMap.get(desiredQuality);
         if (targetQualityId != null) {
             JSONObject stream = findStreamByIdAndCodec(streams, targetQualityId);
             if (stream != null) {
-                return stream;
+                return new StreamSelection(stream, desiredQuality);
             }
         }
 
         LOGGER.warn("未找到指定的清晰度 '{}'，将使用最高可用清晰度。", desiredQuality);
-        return streams.getJSONObject(0);
+        String highestQualityDesc = formats.getJSONObject(0).getString("new_description");
+        return new StreamSelection(streams.getJSONObject(0), highestQualityDesc);
     }
 
-    // [新增] 辅助方法，用于根据ID查找流并选择最佳编码
+    // 辅助方法，用于根据ID查找流并选择最佳编码
     private static JSONObject findStreamByIdAndCodec(JSONArray streams, int targetId) {
         JSONObject bestStream = null;
         int bestCodecScore = -1; // -1: 未找到, 1: AV1, 2: HEVC, 3: AVC (H.264)

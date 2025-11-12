@@ -16,9 +16,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class VideoCacheManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(VideoCacheManager.class);
@@ -179,6 +182,49 @@ public class VideoCacheManager {
         } catch (NoSuchAlgorithmException e) {
             // 这是一个不太可能发生的严重错误
             throw new RuntimeException("SHA-1 algorithm not found", e);
+        }
+    }
+
+    public Map<String, Long> getCacheInfo() {
+        if (cacheDir == null || !Files.isDirectory(cacheDir)) {
+            return Collections.emptyMap();
+        }
+        try (Stream<Path> files = Files.list(cacheDir)) {
+            return files
+                    .filter(Files::isRegularFile)
+                    .collect(Collectors.toMap(
+                            path -> path.getFileName().toString(),
+                            path -> {
+                                try {
+                                    return Files.size(path);
+                                } catch (IOException e) {
+                                    return 0L;
+                                }
+                            }
+                    ));
+        } catch (IOException e) {
+            LOGGER.error("无法列出缓存目录文件", e);
+            return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * 清空所有缓存文件
+     */
+    public void clearCache() {
+        if (cacheDir == null || !Files.isDirectory(cacheDir)) return;
+
+        try (Stream<Path> files = Files.list(cacheDir)) {
+            files.filter(Files::isRegularFile).forEach(file -> {
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    LOGGER.warn("删除缓存文件失败: {}", file, e);
+                }
+            });
+            LOGGER.info("所有视频缓存已成功清除。");
+        } catch (IOException e) {
+            LOGGER.error("清空缓存时无法列出文件", e);
         }
     }
 }

@@ -11,7 +11,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -21,6 +23,16 @@ public class BiliBiliLiveFetcher {
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BiliBiliLiveFetcher.class);
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    private static class QualitySelection {
+        final int qn;
+        final String description;
+
+        QualitySelection(int qn, String description) {
+            this.qn = qn;
+            this.description = description;
+        }
+    }
 
     public static VideoInfo fetch(String liveUrl, String desiredQuality) throws Exception {
         try {
@@ -44,7 +56,7 @@ public class BiliBiliLiveFetcher {
             // 获取直播间详细信息 (标题和主播UID)
             String title = "Bilibili 直播";
             String author = "未知主播";
-            long ruid = 0;
+            long uid = 0;
             String roomInfoApi = "https://api.live.bilibili.com/room/v1/Room/get_info?room_id=" + realRoomId;
             HttpRequest roomInfoRequest = HttpRequest.newBuilder().uri(URI.create(roomInfoApi)).build();
             HttpResponse<String> roomInfoResponse = client.send(roomInfoRequest, HttpResponse.BodyHandlers.ofString());
@@ -52,13 +64,13 @@ public class BiliBiliLiveFetcher {
             if (roomInfoJson.optInt("code") == 0) {
                 JSONObject roomData = roomInfoJson.getJSONObject("data");
                 title = roomData.optString("title", "未知直播间");
-                ruid = roomData.optLong("ruid", 0);
+                uid = roomData.optLong("ruid", 0);
             }
 
             // 如果获取到了 UID, 则通过新 API 获取主播名字
-            if (ruid > 0) {
+            if (uid > 0) {
                 try {
-                    String userInfoApi = "https://api.bilibili.com/x/space/acc/info?mid=" + ruid;
+                    String userInfoApi = "https://api.bilibili.com/x/space/acc/info?mid=" + uid;
                     HttpRequest userInfoRequest = HttpRequest.newBuilder().uri(URI.create(userInfoApi)).build();
                     HttpResponse<String> userInfoResponse = client.send(userInfoRequest, HttpResponse.BodyHandlers.ofString());
                     JSONObject userInfoJson = new JSONObject(userInfoResponse.body());
@@ -81,12 +93,19 @@ public class BiliBiliLiveFetcher {
             }
             JSONArray qualityOptions = infoJson.getJSONObject("data").optJSONArray("quality_description");
 
+            List<String> availableQualities = new ArrayList<>();
+            if (qualityOptions != null) {
+                for (int i = 0; i < qualityOptions.length(); i++) {
+                    availableQualities.add(qualityOptions.getJSONObject(i).getString("desc"));
+                }
+            }
+
             // 根据期望选择清晰度 qn
-            int targetQn = findBestQualityNumber(qualityOptions, desiredQuality);
+            QualitySelection selection = findBestQualityNumber(qualityOptions, desiredQuality);
 
             // 使用计算出的 targetQn 请求最终的流
             String finalApiUrl = "https://api.live.bilibili.com/xlive/web-room/v1/playUrl/playUrl?cid=" + realRoomId +
-                    "&platform=h5&qn=" + targetQn;
+                    "&platform=h5&qn=" + selection.qn;
             HttpRequest finalRequest = HttpRequest.newBuilder().uri(URI.create(finalApiUrl)).header("User-Agent", USER_AGENT).build();
             HttpResponse<String> finalResponse = client.send(finalRequest, HttpResponse.BodyHandlers.ofString());
             JSONObject finalJson = new JSONObject(finalResponse.body());
@@ -96,7 +115,7 @@ public class BiliBiliLiveFetcher {
             JSONArray durlArray = finalJson.getJSONObject("data").optJSONArray("durl");
             if (durlArray != null && durlArray.length() > 0) {
                 String finalUrl = durlArray.getJSONObject(0).getString("url");
-                return new VideoInfo(finalUrl, null, title, author);
+                return new VideoInfo(finalUrl, null, title, author, null, null, 0, availableQualities, selection.description);
             }
 
             throw new RuntimeException("API响应中未找到任何可用的直播流 (durl is empty or null)");
@@ -106,10 +125,10 @@ public class BiliBiliLiveFetcher {
         }
     }
 
-    private static int findBestQualityNumber(@Nullable JSONArray qualityOptions, String desiredQuality) {
+    private static QualitySelection findBestQualityNumber(@Nullable JSONArray qualityOptions, String desiredQuality) {
         if (qualityOptions == null || qualityOptions.length() == 0) {
             LOGGER.warn("API未返回清晰度列表，默认使用原画(10000)");
-            return 10000;
+            return new QualitySelection(10000, "原画");
         }
         Map<String, Integer> qualityMap = new HashMap<>();
         for (int i = 0; i < qualityOptions.length(); i++) {
@@ -117,19 +136,19 @@ public class BiliBiliLiveFetcher {
             qualityMap.put(quality.getString("desc"), quality.getInt("qn"));
         }
         if ("自动".equals(desiredQuality)) {
-            int bestQn = qualityOptions.getJSONObject(0).getInt("qn");
-            LOGGER.info("自动选择最高清晰度: {} (qn={})", qualityOptions.getJSONObject(0).getString("desc"), bestQn);
-            return bestQn;
+            JSONObject bestQuality = qualityOptions.getJSONObject(0);
+            LOGGER.info("自动选择最高清晰度: {} (qn={})", qualityOptions.getJSONObject(0).getString("desc"), bestQuality);
+            return new QualitySelection(bestQuality.getInt("qn"), bestQuality.getString("desc"));
         }
         Integer targetQn = qualityMap.get(desiredQuality);
         if (targetQn != null) {
             LOGGER.info("找到匹配的清晰度: {} (qn={})", desiredQuality, targetQn);
-            return targetQn;
+            return new QualitySelection(targetQn, desiredQuality);
         }
-        int fallbackQn = qualityOptions.getJSONObject(0).getInt("qn");
+        JSONObject fallbackQuality = qualityOptions.getJSONObject(0);
         LOGGER.warn("未找到清晰度 '{}'，将使用最高可用清晰度: {} (qn={})",
-                desiredQuality, qualityOptions.getJSONObject(0).getString("desc"), fallbackQn);
-        return fallbackQn;
+                desiredQuality, qualityOptions.getJSONObject(0).getString("desc"), fallbackQuality);
+        return new QualitySelection(fallbackQuality.getInt("qn"), fallbackQuality.getString("desc"));
     }
 
     private static String extractRoomId(String url) {

@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,16 @@ public class BiliBiliVideoFetcher {
     private static final int QUALITY_ID_4K = 120;
 
     private static Supplier<Boolean> authStatusSupplier = () -> false;
+
+    private static class StreamSelection {
+        final JSONObject stream;
+        final String qualityDescription;
+
+        StreamSelection(JSONObject stream, String qualityDescription) {
+            this.stream = stream;
+            this.qualityDescription = qualityDescription;
+        }
+    }
 
     public static void setAuthStatusSupplier(Supplier<Boolean> supplier) {
         if (supplier != null) {
@@ -105,7 +116,7 @@ public class BiliBiliVideoFetcher {
         }
 
         String playApi = "https://api.bilibili.com/x/player/playurl?bvid=" + bvid +
-                "&cid=" + cid + "&fnval=4048"; // 移除了多余的127
+                "&cid=" + cid + "&fnval=4048";
         HttpRequest.Builder playRequestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(playApi))
                 .header("User-Agent", "Mozilla/5.0")
@@ -127,16 +138,27 @@ public class BiliBiliVideoFetcher {
 
         JSONObject data = playJson.getJSONObject("data");
 
+        List<String> availableQualities = new ArrayList<>();
+        JSONArray supportFormats = data.optJSONArray("support_formats");
+        if (supportFormats != null) {
+            for (int i = 0; i < supportFormats.length(); i++) {
+                availableQualities.add(supportFormats.getJSONObject(i).getString("new_description"));
+            }
+        }
+
+        String finalCurrentQuality = null;
+
         if (data.has("dash")) {
             JSONObject dash = data.getJSONObject("dash");
             if (dash.has("video") && dash.has("audio") && dash.getJSONArray("video").length() > 0 && dash.getJSONArray("audio").length() > 0) {
-                JSONObject selectedVideo = findBestStream(dash.getJSONArray("video"), data.optJSONArray("support_formats"), desiredQuality);
-                JSONObject selectedAudio = findBestStream(dash.getJSONArray("audio"), null, "自动");
+                StreamSelection videoSelection = findBestStream(dash.getJSONArray("video"), supportFormats, desiredQuality);
+                StreamSelection audioSelection = findBestStream(dash.getJSONArray("audio"), null, "自动");
 
-                if (selectedVideo != null && selectedAudio != null) {
-                    String videoBaseUrl = selectedVideo.getString("baseUrl");
-                    String audioBaseUrl = selectedAudio.getString("baseUrl");
-                    return new VideoInfo(videoBaseUrl, audioBaseUrl, mainTitle, author, null, partName, page);
+                if (videoSelection != null && videoSelection.stream != null && audioSelection != null) {
+                    finalCurrentQuality = videoSelection.qualityDescription;
+                    String videoBaseUrl = videoSelection.stream.getString("baseUrl");
+                    String audioBaseUrl = audioSelection.stream.getString("baseUrl");
+                    return new VideoInfo(videoBaseUrl, audioBaseUrl, mainTitle, author, null, partName, page, availableQualities, finalCurrentQuality);
                 }
             }
         }
@@ -144,32 +166,37 @@ public class BiliBiliVideoFetcher {
         if (data.has("durl")) {
             JSONArray durlArray = data.getJSONArray("durl");
             if (durlArray.length() > 0) {
+                if (supportFormats != null && !supportFormats.isEmpty()) {
+                    finalCurrentQuality = supportFormats.getJSONObject(0).getString("new_description");
+                }
                 String url = durlArray.getJSONObject(0).getString("url");
                 LOGGER.warn("未找到DASH流，可能为会员内容。正在尝试播放试看片段 (DURL)。");
-                return new VideoInfo(url, null, mainTitle, author, null, partName, page);
+                return new VideoInfo(url, null, mainTitle, author, null, partName, page, availableQualities, finalCurrentQuality);
             }
         }
 
         throw new BilibiliAuthRequiredException("该视频需要登录或大会员，且没有提供试看片段。");
     }
 
-    private static JSONObject findBestStream(JSONArray streams, @Nullable JSONArray formats, String desiredQuality) {
+    private static StreamSelection findBestStream(JSONArray streams, @Nullable JSONArray formats, String desiredQuality) {
         if (streams == null || streams.length() == 0) {
             return null;
         }
 
+        if (formats == null || formats.length() == 0) {
+            return new StreamSelection(streams.getJSONObject(0), "默认音质");
+        }
+
         boolean isLoggedIn = authStatusSupplier.get();
+
+        Map<String, Integer> availableQualityMap = new HashMap<>();
+        for (int i = 0; i < formats.length(); i++) {
+            JSONObject format = formats.getJSONObject(i);
+            availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
+        }
 
         // --- 自动清晰度逻辑 ---
         if ("自动".equals(desiredQuality)) {
-            if (formats == null) {
-                return streams.getJSONObject(0);
-            }
-            Map<String, Integer> availableQualityMap = new HashMap<>();
-            for (int i = 0; i < formats.length(); i++) {
-                JSONObject format = formats.getJSONObject(i);
-                availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
-            }
             if (isLoggedIn) {
                 LOGGER.info("用户已登录，应用1080P60帧为上限的画质策略。");
                 List<String> preferredQualities = List.of(
@@ -183,12 +210,12 @@ public class BiliBiliVideoFetcher {
                         JSONObject stream = findStreamByIdAndCodec(streams, targetId);
                         if (stream != null) {
                             LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
-                            return stream;
+                            return new StreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
                         }
                     }
                 }
                 LOGGER.warn("自动清晰度(已登录): 未在偏好列表中找到匹配项，回退到API最高画质。");
-                return streams.getJSONObject(0);
+                return new StreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
             } else {
                 LOGGER.info("用户未登录，尝试锁定至 360P 画质。");
                 String targetQuality = "360P 流畅";
@@ -197,33 +224,25 @@ public class BiliBiliVideoFetcher {
                     JSONObject stream = findStreamByIdAndCodec(streams, targetId);
                     if (stream != null) {
                         LOGGER.info("自动清晰度(未登录): 成功锁定到 '{}'", targetQuality);
-                        return stream;
+                        return new StreamSelection(stream, targetQuality);
                     }
                 }
                 LOGGER.warn("自动清晰度(未登录): 未找到 '{}'，回退到最低画质。", targetQuality);
-                return streams.getJSONObject(streams.length() - 1);
+                return new StreamSelection(streams.getJSONObject(streams.length() - 1), formats.getJSONObject(formats.length() - 1).getString("new_description"));
             }
         }
 
         // --- 手动指定清晰度逻辑 ---
-        if (formats == null || formats.length() == 0) {
-            return streams.getJSONObject(0);
-        }
-        Map<String, Integer> qualityMap = new HashMap<>();
-        for (int i = 0; i < formats.length(); i++) {
-            JSONObject format = formats.getJSONObject(i);
-            qualityMap.put(format.getString("new_description"), format.getInt("quality"));
-        }
-        Integer targetQualityId = qualityMap.get(desiredQuality);
+        Integer targetQualityId = availableQualityMap.get(desiredQuality);
         if (targetQualityId != null) {
             JSONObject stream = findStreamByIdAndCodec(streams, targetQualityId);
             if (stream != null) {
-                return stream;
+                return new StreamSelection(stream, desiredQuality);
             }
         }
 
         LOGGER.warn("未找到指定的清晰度 '{}'，将使用最高可用清晰度。", desiredQuality);
-        return streams.getJSONObject(0);
+        return new StreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
     }
 
     // 辅助方法，用于根据ID查找流并选择最佳编码

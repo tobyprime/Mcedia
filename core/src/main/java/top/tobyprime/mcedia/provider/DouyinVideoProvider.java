@@ -21,7 +21,7 @@ public class DouyinVideoProvider implements IMediaProvider {
 
     @Override
     public VideoInfo resolve(String url, @Nullable String cookie, String desiredQuality) throws Exception {
-        // [关键修改] 接收 DouyinVideoDetails 对象
+        // 接收 DouyinVideoDetails 对象
         DouyinVideoFetcher.DouyinVideoDetails details = DouyinVideoFetcher.fetch(url);
 
         if (details == null) {
@@ -33,7 +33,7 @@ public class DouyinVideoProvider implements IMediaProvider {
                 "Referer", url
         );
 
-        // [关键修改] 使用从 details 对象中获取的真实标题和作者
+        // 使用从 details 对象中获取的真实标题和作者
         return new VideoInfo(details.getVideoUrl(), null, details.getTitle(), details.getAuthor(), customHeaders);
     }
 

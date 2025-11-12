@@ -9,9 +9,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.SoundEngineExecutor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.decoration.ArmorStand;
-import net.minecraft.world.level.pathfinder.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Command.*;
 import top.tobyprime.mcedia.auth_manager.BilibiliAuthManager;
 import top.tobyprime.mcedia.provider.*;
 import top.tobyprime.mcedia.video_fetcher.BiliBiliVideoFetcher;
@@ -19,11 +19,13 @@ import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 
-import org.json.JSONObject;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.Properties;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Stream;
@@ -37,6 +39,8 @@ public class Mcedia implements ModInitializer {
     private final ConcurrentHashMap<ArmorStand, PlayerAgent> entityToPlayer = new ConcurrentHashMap<>();
     private final Queue<ArmorStand> pendingAgents = new ConcurrentLinkedQueue<>();
     private VideoCacheManager globalCacheManager;
+    private final Properties progressCache = new Properties();
+    private final java.nio.file.Path progressCachePath = CACHE_DIR.resolve("progress.properties");
 
     public VideoCacheManager getCacheManager() {
         return this.globalCacheManager;
@@ -73,6 +77,13 @@ public class Mcedia implements ModInitializer {
             LOGGER.error("无法创建或访问Mcedia缓存目录！缓存功能将不可用。", e);
             this.globalCacheManager = new VideoCacheManager(null);
         }
+        if (Files.exists(progressCachePath)) {
+            try {
+                progressCache.load(Files.newInputStream(progressCachePath));
+            } catch (IOException e) {
+                LOGGER.error("无法加载播放进度缓存文件", e);
+            }
+        }
         BiliBiliVideoFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         BilibiliBangumiFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         initializeProviders();
@@ -91,7 +102,11 @@ public class Mcedia implements ModInitializer {
 
     private void registerCommands() {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            CommandHelp.register(dispatcher);
             CommandLogin.register(dispatcher);
+            CommandControl.register(dispatcher);
+            CommandInfo.register(dispatcher);
+            CommandConfig.register(dispatcher);
         });
     }
 
@@ -132,6 +147,32 @@ public class Mcedia implements ModInitializer {
                 LOGGER.error("无法列出缓存目录中的文件", e);
             }
         }
+    }
+
+    public synchronized void savePlayerProgress(UUID entityUuid, long progressUs) {
+        if (progressUs > 0) {
+            progressCache.setProperty(entityUuid.toString(), String.valueOf(progressUs));
+        } else {
+            progressCache.remove(entityUuid.toString());
+        }
+
+        try (FileWriter writer = new FileWriter(progressCachePath.toFile())) {
+            progressCache.store(writer, "Mcedia Player Progress Cache - Do not edit manually");
+        } catch (IOException e) {
+            LOGGER.error("无法保存播放进度", e);
+        }
+    }
+
+    public synchronized long loadPlayerProgress(UUID entityUuid) {
+        String progress = progressCache.getProperty(entityUuid.toString());
+        if (progress != null) {
+            try {
+                return Long.parseLong(progress);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        return 0;
     }
 
     private void processPendingAgents() {

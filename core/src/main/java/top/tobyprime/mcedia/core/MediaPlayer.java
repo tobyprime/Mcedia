@@ -3,6 +3,7 @@ package top.tobyprime.mcedia.core;
 import org.bytedeco.javacv.FFmpegLogCallback;
 import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
+import top.tobyprime.mcedia.interfaces.IMediaInfo;
 import top.tobyprime.mcedia.interfaces.ITexture;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
@@ -34,6 +35,7 @@ public class MediaPlayer {
     private @Nullable ITexture texture;
     @Nullable
     private Media media;
+    @Nullable private VideoInfo currentVideoInfo;
     private volatile DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
 
     public synchronized void bindTexture(ITexture texture) {
@@ -182,6 +184,7 @@ public class MediaPlayer {
         lock.lock();
         try {
             if (info == null) return;
+            this.currentVideoInfo = info;
             var newMedia = new Media(info, cookie, decoderConfiguration, initialSeekUs);
             bindResourcesToMedia(newMedia);
         } finally {
@@ -227,5 +230,10 @@ public class MediaPlayer {
             return media.isBuffering();
         }
         return false;
+    }
+
+    @Nullable
+    public synchronized IMediaInfo getMediaInfo() {
+        return this.currentVideoInfo;
     }
 }

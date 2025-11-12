@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.McediaConfig;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
+import top.tobyprime.mcedia.interfaces.IMediaInfo;
 import top.tobyprime.mcedia.interfaces.ITexture;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
@@ -26,6 +27,7 @@ public class Media implements Closeable {
     private ITexture texture;
     @Nullable
     private final VideoFramePool videoFramePool;
+    private final VideoInfo videoInfo;
 
     private volatile boolean paused = true;
     private boolean isLiveStream = false;
@@ -47,8 +49,12 @@ public class Media implements Closeable {
     private static final int VIDEO_BUFFER_LOW_WATERMARK = McediaConfig.BUFFERING_VIDEO_LOW_WATERMARK;
     private static final long STREAM_STALL_TIMEOUT_MS = McediaConfig.PLAYER_STALL_TIMEOUT_MS;
 
+    public VideoInfo getVideoInfo() { // [新增]
+        return this.videoInfo;
+    }
 
     public Media(VideoInfo info, @Nullable String cookie, DecoderConfiguration config, long initialSeekUs) {
+        this.videoInfo = info;
         if (config.enableVideo) {
             this.videoFramePool = new VideoFramePool(120, 3840 * 2160 * 4);
         } else {
@@ -432,5 +438,9 @@ public class Media implements Closeable {
         if (videoFramePool != null) {
             videoFramePool.close();
         }
+    }
+
+    public IMediaInfo getMediaInfo() {
+        return this.videoInfo;
     }
 }

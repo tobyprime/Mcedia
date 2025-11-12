@@ -102,11 +102,15 @@ public class MediaDecoder implements Closeable {
             grabber.setOption("reconnect", "1");
             grabber.setOption("reconnect_streamed", "1");
             grabber.setOption("reconnect_delay_max", "5");
+            grabber.setOption("reconnect_on_http_error", "4xx,5xx");
+            grabber.setOption("http_persistent", "1");
+            grabber.setOption("http_multiple", "1");
+            grabber.setOption("timeout", String.valueOf(configuration.timeout));
+            grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
         }
-        grabber.setOption("timeout", String.valueOf(configuration.timeout));
-        grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
+        grabber.setOption("analyzeduration", "10000000");
         if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
