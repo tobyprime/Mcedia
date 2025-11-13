@@ -12,6 +12,9 @@ public class McediaClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        registerCommands();
+        registerClientSideEvents();
+    }
 
     }
 }
