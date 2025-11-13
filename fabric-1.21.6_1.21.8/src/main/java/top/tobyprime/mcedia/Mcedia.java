@@ -154,7 +154,7 @@ public class Mcedia implements ModInitializer {
         });
     }
 
-    private void cleanupCacheDirectory() {
+    public void cleanupCacheDirectory() {
         LOGGER.info("正在清理 Mcedia 缓存目录...");
         if (java.nio.file.Files.isDirectory(CACHE_DIR)) {
             try (Stream<java.nio.file.Path> files = java.nio.file.Files.list(CACHE_DIR)) {
@@ -235,7 +235,7 @@ public class Mcedia implements ModInitializer {
     /**
      * 清理所有活动的 PlayerAgent 实例，通常在退出世界时调用。
      */
-    private void cleanupAllAgents() {
+    public void cleanupAllAgents() {
         LOGGER.info("正在清理所有 Mcedia Player 实例...");
         for (PlayerAgent agent : this.entityToPlayer.values()) {
             agent.closeSync();
