@@ -145,13 +145,6 @@ public class Mcedia implements ModInitializer {
                 }
             }
         });
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> cleanupAllAgents());
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer();
-        });
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
-            cleanupCacheDirectory();
-        });
     }
 
     public void cleanupCacheDirectory() {
