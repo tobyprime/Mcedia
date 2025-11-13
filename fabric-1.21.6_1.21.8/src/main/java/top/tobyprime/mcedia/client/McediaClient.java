@@ -27,4 +27,10 @@ public class McediaClient implements ClientModInitializer {
             CommandPlaylist.register(dispatcher);
         });
     }
+
+    private void registerClientSideEvents() {
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> Mcedia.getInstance().cleanupAllAgents());
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> BilibiliAuthManager.getInstance().checkCookieValidityAndNotifyPlayer());
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> Mcedia.getInstance().cleanupCacheDirectory());
+    }
 }
