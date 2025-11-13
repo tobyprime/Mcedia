@@ -16,5 +16,15 @@ public class McediaClient implements ClientModInitializer {
         registerClientSideEvents();
     }
 
+    private void registerCommands() {
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            CommandHelp.register(dispatcher);
+            CommandLogin.register(dispatcher);
+            CommandControl.register(dispatcher);
+            CommandInfo.register(dispatcher);
+            CommandConfig.register(dispatcher);
+            CommandPreset.register(dispatcher);
+            CommandPlaylist.register(dispatcher);
+        });
     }
 }
