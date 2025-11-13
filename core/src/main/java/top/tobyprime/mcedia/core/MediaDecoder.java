@@ -17,8 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MediaDecoder implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
@@ -32,14 +31,13 @@ public class MediaDecoder implements Closeable {
     private final FFmpegFrameGrabber primaryGrabber;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-
     private volatile int runningDecoders = 0;
 
-    private final ReentrantLock decodeLock = new ReentrantLock();
-    private final AtomicBoolean decodingPaused = new AtomicBoolean(false);
-
     @Nullable
-    private VideoFramePool videoFramePool;
+    private final VideoFramePool videoFramePool;
+
+    // [最终方案] 使用读写锁来保护对 grabber 的原生调用
+    private final ReentrantReadWriteLock grabberLock = new ReentrantReadWriteLock();
 
     public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration, @Nullable VideoFramePool pool, long initialSeekUs) throws FFmpegFrameGrabber.Exception {
         this.configuration = configuration;
@@ -58,11 +56,7 @@ public class MediaDecoder implements Closeable {
         try {
             for (FFmpegFrameGrabber grabber : grabbers) {
                 grabber.start();
-                if (configuration.useHardwareDecoding && grabbers.indexOf(grabber) == 0) {
-                    LOGGER.info("硬件解码模式: {}", grabber.getVideoCodecName());
-                }
                 if (initialSeekUs > 0 && grabber.getLengthInTime() > 0) {
-                    LOGGER.debug("为 grabber 设置初始时间戳: {} us", initialSeekUs);
                     grabber.setTimestamp(initialSeekUs, true);
                 }
             }
@@ -87,10 +81,8 @@ public class MediaDecoder implements Closeable {
             Map<String, String> customHeaders = info.getHeaders();
 
             if (customHeaders != null && !customHeaders.isEmpty()) {
-                LOGGER.debug("为 {} 应用自定义请求头...", url);
                 customHeaders.forEach((key, value) -> headers.append(key).append(": ").append(value).append("\r\n"));
             } else {
-                LOGGER.debug("为 {} 应用默认 Bilibili 请求头...", url);
                 headers.append("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n");
                 headers.append("Referer: https://www.bilibili.com/\r\n");
                 headers.append("Origin: https://www.bilibili.com\r\n");
@@ -104,16 +96,15 @@ public class MediaDecoder implements Closeable {
             grabber.setOption("reconnect", "1");
             grabber.setOption("reconnect_streamed", "1");
             grabber.setOption("reconnect_delay_max", "5");
-            grabber.setOption("reconnect_on_http_error", "4xx,5xx");
-            grabber.setOption("http_persistent", "1");
-            grabber.setOption("http_multiple", "1");
             grabber.setOption("timeout", String.valueOf(configuration.timeout));
-            grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
         }
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
         grabber.setOption("analyzeduration", "10000000");
-        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
+
+        // 强制禁用硬件解码，确保稳定性
+        // if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
+
         if (isVideoGrabber) {
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
@@ -127,30 +118,25 @@ public class MediaDecoder implements Closeable {
 
     private void decodeLoop(FFmpegFrameGrabber grabber) {
         runningDecoders++;
-
         try {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
-                if (decodingPaused.get()) {
-                    decodeLock.lock();
-                    decodeLock.unlock();
-                }
-                Frame frame;
+                Frame frame = null;
+
+                // [核心修复] 在抓取帧前后获取和释放读锁
+                grabberLock.readLock().lock();
                 try {
-                    synchronized (this) {
-                        if (isClosed.get()) break;
-                        frame = grabber.grab();
-                    }
+                    if (isClosed.get()) break;
+                    frame = grabber.grab();
                 } catch (FFmpegFrameGrabber.Exception e) {
-                    try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException interruptedException) {
-                        Thread.currentThread().interrupt();
-                    }
-                    continue;
+                    // 忽略抓取过程中的错误，这可能是流的正常结束或网络问题
+                } finally {
+                    grabberLock.readLock().unlock();
                 }
 
-                if (frame == null) break;
-                if (isClosed.get()) break;
+                if (frame == null) {
+                    // grab() 返回 null 或抛出异常都意味着流结束或不可用
+                    break;
+                }
 
                 boolean isVideo = frame.image != null && configuration.enableVideo;
                 boolean isAudio = frame.samples != null && configuration.enableAudio;
@@ -174,57 +160,34 @@ public class MediaDecoder implements Closeable {
                     long copiedBufferAddress = MemoryUtil.memAddress(copiedBuffer);
 
                     if (stride == tightStride) {
-                        // 如果内存是连续的（没有padding），我们可以进行一次性的、最高效的复制
                         MemoryUtil.memCopy(rawBufferAddress, copiedBufferAddress, (long)tightStride * height);
                     } else {
-                        // 如果内存不是连续的（例如，每行末尾有填充字节），我们必须逐行复制有效数据
                         for (int y = 0; y < height; y++) {
                             long sourceAddress = rawBufferAddress + (long)y * stride;
                             long destAddress = copiedBufferAddress + (long)y * tightStride;
                             MemoryUtil.memCopy(sourceAddress, destAddress, tightStride);
                         }
                     }
-                    // --- 结束修复 ---
 
-                    // 设置新buffer的limit并重置position，准备放入队列
                     copiedBuffer.limit(tightStride * height);
                     copiedBuffer.rewind();
-
-                    // 将复制了安全数据的VideoFrame放入待处理队列
                     videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool));
 
                 } else if (isAudio) {
-                    // 音频帧直接克隆，因为它们通常不涉及复杂的本地内存问题
                     audioQueue.put(frame.clone());
                 }
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            if (!isClosed.get()) {
-                LOGGER.error("在解码循环中发生错误", e);
-            }
+            if (!isClosed.get()) LOGGER.error("在解码循环中发生未捕获的错误", e);
         } finally {
             runningDecoders--;
         }
     }
 
-    public void pauseDecoding() {
-        if (decodingPaused.compareAndSet(false, true)) {
-            decodeLock.lock(); // 获取锁，让解码线程在下一次循环时阻塞
-        }
-    }
-
-    public void resumeDecoding() {
-        if (decodingPaused.compareAndSet(true, false)) {
-            decodeLock.unlock(); // 释放锁，让解码线程继续运行
-        }
-    }
-
     public boolean isEof() {
         return runningDecoders == 0;
-    }
-
-    public boolean isEnded() {
-        return isEof() && audioQueue.isEmpty() && videoQueue.isEmpty();
     }
 
     public long getDuration() {
@@ -239,27 +202,21 @@ public class MediaDecoder implements Closeable {
         return primaryGrabber.getImageHeight();
     }
 
-    public int getSampleRate() {
-        return primaryGrabber.getSampleRate();
-    }
-
-    public int getChannels() {
-        return primaryGrabber.getAudioChannels();
-    }
-
     public void seek(long timestamp) {
         if (getDuration() <= 0) return;
         timestamp = Math.max(0, Math.min(timestamp, getDuration()));
-        clearQueue();
+
+        // [核心修复] seek 是一个“写”操作，需要获取写锁
+        grabberLock.writeLock().lock();
         try {
-            synchronized (this) {
-                for (FFmpegFrameGrabber grabber : grabbers) {
-                    grabber.setTimestamp(timestamp, true);
-                }
+            clearQueue();
+            for (FFmpegFrameGrabber grabber : grabbers) {
+                grabber.setTimestamp(timestamp, true);
             }
-            LOGGER.debug("FFmpeg grabbers have been seeked to {} us.", timestamp);
         } catch (FFmpegFrameGrabber.Exception e) {
             throw new RuntimeException("Seek failed", e);
+        } finally {
+            grabberLock.writeLock().unlock();
         }
     }
 
@@ -268,36 +225,34 @@ public class MediaDecoder implements Closeable {
         if (!isClosed.compareAndSet(false, true)) {
             return;
         }
+
         decoderThreads.forEach(Thread::interrupt);
-        synchronized (this) {
+
+        // [核心修复] 获取写锁来安全地关闭 grabber，这会等待所有 grab() 操作完成
+        grabberLock.writeLock().lock();
+        try {
             for (FFmpegFrameGrabber grabber : grabbers) {
                 try {
                     grabber.stop();
+                    grabber.release();
                 } catch (Exception e) {
-                    LOGGER.warn("停止 grabber 时出错", e);
+                    LOGGER.warn("停止或释放 grabber 时出错", e);
                 }
             }
+        } finally {
+            grabberLock.writeLock().unlock();
         }
+
         for (Thread thread : decoderThreads) {
             try {
-                thread.join(500);
-            } catch (InterruptedException ignored) {
-            }
+                thread.join(500); // 等待线程终止
+            } catch (InterruptedException ignored) {}
         }
+
         clearQueue();
         if (videoFramePool != null) {
             videoFramePool.close();
         }
-        new Thread(() -> {
-            for (FFmpegFrameGrabber grabber : grabbers) {
-                try {
-                    grabber.release();
-                } catch (Exception e) {
-                    LOGGER.error("释放 grabber 时出错", e);
-                }
-            }
-            clearQueue();
-        }, "Mcedia-Grabber-Closer").start();
     }
 
     private void clearQueue() {
