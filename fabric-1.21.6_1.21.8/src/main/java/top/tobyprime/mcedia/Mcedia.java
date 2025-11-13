@@ -12,7 +12,9 @@ import net.minecraft.world.entity.decoration.ArmorStand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.Command.*;
-import top.tobyprime.mcedia.auth_manager.BilibiliAuthManager;
+import top.tobyprime.mcedia.manager.BilibiliAuthManager;
+import top.tobyprime.mcedia.manager.PresetManager;
+import top.tobyprime.mcedia.manager.VideoCacheManager;
 import top.tobyprime.mcedia.provider.*;
 import top.tobyprime.mcedia.video_fetcher.BiliBiliVideoFetcher;
 import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
@@ -28,6 +30,10 @@ import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 public class Mcedia implements ModInitializer {
@@ -41,6 +47,20 @@ public class Mcedia implements ModInitializer {
     private VideoCacheManager globalCacheManager;
     private final Properties progressCache = new Properties();
     private final java.nio.file.Path progressCachePath = CACHE_DIR.resolve("progress.properties");
+
+    private final ExecutorService backgroundExecutor = Executors.newCachedThreadPool(new ThreadFactory() {
+        private final AtomicInteger threadNumber = new AtomicInteger(1);
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = new Thread(r, "Mcedia-Background-" + threadNumber.getAndIncrement());
+            t.setDaemon(true);
+            return t;
+        }
+    });
+
+    public ExecutorService getBackgroundExecutor() {
+        return this.backgroundExecutor;
+    }
 
     public VideoCacheManager getCacheManager() {
         return this.globalCacheManager;
@@ -89,6 +109,7 @@ public class Mcedia implements ModInitializer {
         initializeProviders();
         registerCommands();
         registerEvents();
+        PresetManager.getInstance();
     }
 
     private void initializeProviders() {

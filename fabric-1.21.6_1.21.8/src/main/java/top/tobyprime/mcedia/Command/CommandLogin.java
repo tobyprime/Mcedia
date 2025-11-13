@@ -5,7 +5,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import top.tobyprime.mcedia.Mcedia;
-import top.tobyprime.mcedia.auth_manager.BilibiliAuthManager;
+import top.tobyprime.mcedia.manager.BilibiliAuthManager;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 

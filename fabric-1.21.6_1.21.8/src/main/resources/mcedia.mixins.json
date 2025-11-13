@@ -4,7 +4,8 @@
   "package": "top.tobyprime.mcedia.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "MixinArmorStand"
+    "MixinArmorStand",
+    "GameRendererAccessor"
   ],
   "client": [
     "MixinArmorStandRenderer",

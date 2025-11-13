@@ -6,6 +6,7 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.BilibiliAuthRequiredException;
+import top.tobyprime.mcedia.provider.QualityInfo;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.net.URI;
@@ -24,7 +25,6 @@ public class BiliBiliVideoFetcher {
 
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BiliBiliVideoFetcher.class);
-    private static final int QUALITY_ID_4K = 120;
 
     private static Supplier<Boolean> authStatusSupplier = () -> false;
 
@@ -79,7 +79,8 @@ public class BiliBiliVideoFetcher {
         String mainTitle = "未知标题";
         String author = "未知作者";
         String partName = null;
-        String cid = null;
+        long cid = 0;
+        boolean isMultiPart = false;
 
         if (viewJson.optInt("code") == 0) {
             JSONObject viewData = viewJson.getJSONObject("data");
@@ -87,31 +88,31 @@ public class BiliBiliVideoFetcher {
             author = viewData.getJSONObject("owner").getString("name");
 
             JSONArray pagesArray = viewData.optJSONArray("pages");
-            if (pagesArray != null && pagesArray.length() > 1) { // [关键修正] 只有当分P数 > 1 时才处理
+            if (pagesArray != null && pagesArray.length() > 1) {
+                isMultiPart = true;
                 if (page > 0 && page <= pagesArray.length()) {
                     JSONObject currentPageData = pagesArray.getJSONObject(page - 1);
-                    cid = String.valueOf(currentPageData.getLong("cid"));
+                    cid = currentPageData.getLong("cid");
                     partName = currentPageData.getString("part");
                     if (partName.equals(mainTitle)) {
                         partName = null;
                     }
                 } else {
-                    // 如果指定的 P 不存在，就默认播放 P1
                     page = 1;
                     JSONObject currentPageData = pagesArray.getJSONObject(0);
-                    cid = String.valueOf(currentPageData.getLong("cid"));
+                    cid = currentPageData.getLong("cid");
                     partName = currentPageData.getString("part");
                 }
-            } else { // 单P视频
-                cid = String.valueOf(viewData.getLong("cid"));
-                partName = null; // 确保单P视频的 partName 为 null
-                page = 1; // 确保单P视频的 page 为 1
+            } else {
+                cid = viewData.getLong("cid");
+                partName = null;
+                page = 1;
             }
     } else {
             throw new RuntimeException("获取视频信息失败: " + viewJson.optString("message"));
         }
 
-        if (cid == null) {
+        if (cid == 0) {
             throw new RuntimeException("无法确定视频的CID，可能是分P号错误或API已更改。");
         }
 
@@ -138,11 +139,12 @@ public class BiliBiliVideoFetcher {
 
         JSONObject data = playJson.getJSONObject("data");
 
-        List<String> availableQualities = new ArrayList<>();
+        List<QualityInfo> availableQualities = new ArrayList<>();
         JSONArray supportFormats = data.optJSONArray("support_formats");
         if (supportFormats != null) {
             for (int i = 0; i < supportFormats.length(); i++) {
-                availableQualities.add(supportFormats.getJSONObject(i).getString("new_description"));
+                JSONObject format = supportFormats.getJSONObject(i);
+                availableQualities.add(new QualityInfo(format.getString("new_description")));
             }
         }
 
@@ -158,7 +160,7 @@ public class BiliBiliVideoFetcher {
                     finalCurrentQuality = videoSelection.qualityDescription;
                     String videoBaseUrl = videoSelection.stream.getString("baseUrl");
                     String audioBaseUrl = audioSelection.stream.getString("baseUrl");
-                    return new VideoInfo(videoBaseUrl, audioBaseUrl, mainTitle, author, null, partName, page, availableQualities, finalCurrentQuality);
+                    return new VideoInfo(videoBaseUrl, audioBaseUrl, mainTitle, author, null, partName, page, availableQualities, finalCurrentQuality, isMultiPart, cid);
                 }
             }
         }
@@ -171,7 +173,7 @@ public class BiliBiliVideoFetcher {
                 }
                 String url = durlArray.getJSONObject(0).getString("url");
                 LOGGER.warn("未找到DASH流，可能为会员内容。正在尝试播放试看片段 (DURL)。");
-                return new VideoInfo(url, null, mainTitle, author, null, partName, page, availableQualities, finalCurrentQuality);
+                return new VideoInfo(url, null, mainTitle, author, null, partName, page, availableQualities, finalCurrentQuality, isMultiPart, cid);
             }
         }
 
@@ -210,7 +212,7 @@ public class BiliBiliVideoFetcher {
                         JSONObject stream = findStreamByIdAndCodec(streams, targetId);
                         if (stream != null) {
                             LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
-                            return new StreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
+                            return new StreamSelection(stream, preferred);
                         }
                     }
                 }

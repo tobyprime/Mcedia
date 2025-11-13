@@ -5,6 +5,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.provider.QualityInfo;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.net.URI;
@@ -40,8 +41,9 @@ public class BiliBiliLiveFetcher {
             if (roomId == null) throw new IllegalArgumentException("无法从链接中提取房间号");
 
             // 获取直播间真ID
-            String initUrl = "https://api.live.bilibili.com/room/v1/Room/room_init?id=" + roomId;
-            HttpRequest initRequest = HttpRequest.newBuilder().uri(URI.create(initUrl)).header("User-Agent", USER_AGENT).build();
+            String playInfoApiUrl = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + roomId +
+                    "&no_playurl=0&mask=1&qn=0&platform=web&protocol=0,1&format=0,1,2&codec=0,1,2";
+            HttpRequest initRequest = HttpRequest.newBuilder().uri(URI.create(playInfoApiUrl)).header("User-Agent", USER_AGENT).build();
             HttpResponse<String> initResponse = client.send(initRequest, HttpResponse.BodyHandlers.ofString());
             JSONObject initJson = new JSONObject(initResponse.body());
             if (initJson.optInt("code") != 0 || !initJson.has("data")) {
@@ -52,19 +54,25 @@ public class BiliBiliLiveFetcher {
                 throw new RuntimeException("直播未开启");
             }
             String realRoomId = String.valueOf(initData.getInt("room_id"));
+            long uid;
 
             // 获取直播间详细信息 (标题和主播UID)
             String title = "Bilibili 直播";
             String author = "未知主播";
-            long uid = 0;
-            String roomInfoApi = "https://api.live.bilibili.com/room/v1/Room/get_info?room_id=" + realRoomId;
-            HttpRequest roomInfoRequest = HttpRequest.newBuilder().uri(URI.create(roomInfoApi)).build();
-            HttpResponse<String> roomInfoResponse = client.send(roomInfoRequest, HttpResponse.BodyHandlers.ofString());
-            JSONObject roomInfoJson = new JSONObject(roomInfoResponse.body());
-            if (roomInfoJson.optInt("code") == 0) {
-                JSONObject roomData = roomInfoJson.getJSONObject("data");
-                title = roomData.optString("title", "未知直播间");
-                uid = roomData.optLong("ruid", 0);
+            uid = initData.optLong("uid", 0);
+
+            try {
+                String roomInfoApi = "https://api.live.bilibili.com/room/v1/Room/get_info?room_id=" + realRoomId;
+                HttpRequest roomInfoRequest = HttpRequest.newBuilder().uri(URI.create(roomInfoApi)).build();
+                HttpResponse<String> roomInfoResponse = client.send(roomInfoRequest, HttpResponse.BodyHandlers.ofString());
+                JSONObject roomInfoJson = new JSONObject(roomInfoResponse.body());
+                if (roomInfoJson.optInt("code") == 0) {
+                    JSONObject roomData = roomInfoJson.getJSONObject("data");
+                    title = roomData.optString("title", "未知直播间");
+                    uid = roomData.optLong("uid", 0);
+                }
+            } catch (Exception e) {
+                LOGGER.warn("获取直播间标题失败，使用默认值。");
             }
 
             // 如果获取到了 UID, 则通过新 API 获取主播名字
@@ -93,10 +101,13 @@ public class BiliBiliLiveFetcher {
             }
             JSONArray qualityOptions = infoJson.getJSONObject("data").optJSONArray("quality_description");
 
-            List<String> availableQualities = new ArrayList<>();
+            List<QualityInfo> availableQualities = new ArrayList<>();
             if (qualityOptions != null) {
                 for (int i = 0; i < qualityOptions.length(); i++) {
-                    availableQualities.add(qualityOptions.getJSONObject(i).getString("desc"));
+                    JSONObject quality = qualityOptions.getJSONObject(i);
+                    int qn = quality.getInt("qn");
+                    String desc = quality.getString("desc");
+                    availableQualities.add(new QualityInfo(desc));
                 }
             }
 
@@ -137,7 +148,7 @@ public class BiliBiliLiveFetcher {
         }
         if ("自动".equals(desiredQuality)) {
             JSONObject bestQuality = qualityOptions.getJSONObject(0);
-            LOGGER.info("自动选择最高清晰度: {} (qn={})", qualityOptions.getJSONObject(0).getString("desc"), bestQuality);
+            LOGGER.info("自动选择最高清晰度: {} (qn={})", bestQuality.getString("desc"), bestQuality.getInt("qn"));
             return new QualitySelection(bestQuality.getInt("qn"), bestQuality.getString("desc"));
         }
         Integer targetQn = qualityMap.get(desiredQuality);

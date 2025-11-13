@@ -13,7 +13,7 @@ import net.minecraft.world.phys.HitResult;
 import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.McediaConfig;
 import top.tobyprime.mcedia.PlayerAgent;
-import top.tobyprime.mcedia.VideoCacheManager;
+import top.tobyprime.mcedia.manager.VideoCacheManager;
 import top.tobyprime.mcedia.provider.MediaProviderRegistry;
 import top.tobyprime.mcedia.provider.VideoInfo;
 import top.tobyprime.mcedia.video_fetcher.UrlExpander;

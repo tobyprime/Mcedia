@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.state.ArmorStandRenderState;
@@ -11,6 +12,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.*;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.item.ItemStack;
@@ -25,11 +27,12 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.*;
-import top.tobyprime.mcedia.BilibiliAuthRequiredException;
 import top.tobyprime.mcedia.interfaces.IMediaInfo;
-import top.tobyprime.mcedia.provider.IMediaProvider;
-import top.tobyprime.mcedia.provider.MediaProviderRegistry;
-import top.tobyprime.mcedia.provider.VideoInfo;
+import top.tobyprime.mcedia.manager.DanmakuManager;
+import top.tobyprime.mcedia.manager.VideoCacheManager;
+import top.tobyprime.mcedia.provider.*;
+import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
+import top.tobyprime.mcedia.video_fetcher.DanmakuFetcher;
 import top.tobyprime.mcedia.video_fetcher.UrlExpander;
 
 import java.net.URI;
@@ -37,14 +40,14 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import static com.ibm.icu.text.PluralRules.Operand.e;
 
 public class PlayerAgent {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
@@ -66,21 +69,36 @@ public class PlayerAgent {
     private int playlistOriginalSize = 0;
     private final AtomicLong playbackToken = new AtomicLong(0);
     private volatile boolean isReconnecting = false;
+
     private enum PlaybackSource {
         BOOK,
         COMMAND
     }
+
     private PlaybackSource currentSource = PlaybackSource.BOOK;
 
     private final ArmorStand entity;
     private final MediaPlayer player;
     private final VideoCacheManager cacheManager;
     private final AudioSource audioSource = new AudioSource(Mcedia.getInstance().getAudioExecutor()::schedule);
+    private final DanmakuManager danmakuManager = new DanmakuManager();
 
     @Nullable
     private VideoTexture texture = null;
     public String playingUrl;
     private ItemStack preOffHandItemStack = ItemStack.EMPTY;
+    @Nullable
+    private BilibiliBangumiInfo currentBangumiInfo = null;
+    private boolean videoAutoplay = false;
+
+    private boolean danmakuEnable = false; // 默认开启
+    private boolean showScrollingDanmaku = true;
+    private boolean showTopDanmaku = true;
+    private boolean showBottomDanmaku = true;
+    private float danmakuDisplayArea = 1.0f; // 1.0 = 100%
+    private float danmakuOpacity = 1.0f;     // 1.0 = 100%
+    private float danmakuFontScale = 1.0f;    // 1.0 = 默认大小
+    private float danmakuSpeedScale = 1.0f;
 
     private float offsetX = 0, offsetY = 0, offsetZ = 0;
     private float scale = 1;
@@ -96,6 +114,7 @@ public class PlayerAgent {
     private float audioRangeMin2 = 2;
     private float audioRangeMax2 = 500;
     public float speed = 1;
+    private long lastRenderTime = 0;
     private int saveProgressTicker = 0;
     private String desiredQuality = "自动";
     private String previousQuality = "自动";
@@ -117,7 +136,8 @@ public class PlayerAgent {
     private enum BiliPlaybackMode {
         NONE,
         SINGLE_PART,
-        PLAYLIST_PART
+        VIDEO_PLAYLIST,
+        BANGUMI_SERIES
     }
 
     private static class PlaybackItem {
@@ -126,7 +146,11 @@ public class PlayerAgent {
         long timestampUs = 0;
         BiliPlaybackMode mode = BiliPlaybackMode.NONE;
         @Nullable String desiredQuality = null;
-        PlaybackItem(String url) { this.originalUrl = url; }
+        @Nullable String seasonId = null;
+
+        PlaybackItem(String url) {
+            this.originalUrl = url;
+        }
     }
 
     private volatile PlaybackStatus currentStatus = PlaybackStatus.IDLE;
@@ -152,6 +176,8 @@ public class PlayerAgent {
             if (!offHandPages.isEmpty()) updateOffset(offHandPages.get(0));
             if (offHandPages.size() > 1) updateAudioOffset(offHandPages.get(1));
             if (offHandPages.size() > 2) updateOther(offHandPages.get(2));
+            if (offHandPages.size() > 4) updateDanmakuConfig(offHandPages.get(4)); // [新增]
+            else updateDanmakuConfig(null);
 
             String newQuality = (offHandPages.size() > 3) ? offHandPages.get(3) : null;
             this.desiredQuality = (newQuality == null || newQuality.isBlank()) ? "自动" : newQuality.trim();
@@ -159,6 +185,7 @@ public class PlayerAgent {
         } else {
             resetOffset();
             resetAudioOffset();
+            resetDanmakuConfig();
             this.desiredQuality = "自动";
             this.previousQuality = "自动";
         }
@@ -191,30 +218,38 @@ public class PlayerAgent {
                 this.startPlayback(false);
                 return;
             }
-            if (currentMedia.isEnded() && !this.isLoopingInProgress) {
+            if (currentMedia.isEnded()) {
                 if (currentPlayingItem == null) {
                     playNextInQueue();
                     return;
                 }
-                if (currentPlayingItem.mode == BiliPlaybackMode.PLAYLIST_PART) {
-                    playNextBilibiliPartOrLoop(playingUrl, player.looping);
-                    this.isLoopingInProgress = true;
-                    return;
+                if (this.videoAutoplay) {
+                    if (currentPlayingItem.mode == BiliPlaybackMode.BANGUMI_SERIES) {
+                        if (playNextBangumiEpisode()) {
+                            return;
+                        }
+                    }
+                    if (currentPlayingItem.mode == BiliPlaybackMode.SINGLE_PART && currentPlayingItem.originalUrl.contains("bilibili.com/video/")) {
+                        if (playNextBilibiliVideoPart(playingUrl, false)) {
+                            return;
+                        }
+                    }
                 }
-                if (player.looping && playingUrl != null) {
-                    this.isLoopingInProgress = true;
-                    if (playlistOriginalSize > 1 && currentPlayingItem.mode != BiliPlaybackMode.SINGLE_PART) {
-                        LOGGER.info("列表循环: 重新将 '{}' 添加到队尾并播放下一个。", currentPlayingItem.originalUrl);
+                if (player.looping) {
+                    if (!playlist.isEmpty()) {
+                        LOGGER.info("列表循环: 将 '{}' 添加到队尾并播放下一个。", currentPlayingItem.originalUrl);
                         playlist.offer(currentPlayingItem);
                         playNextInQueue();
                     } else {
-                        LOGGER.info("单曲/单P循环: 重新播放 '{}'。", currentPlayingItem.originalUrl);
+                        LOGGER.info("单项循环: 重新播放 '{}'。", currentPlayingItem.originalUrl);
                         this.open(playingUrl);
                         this.startPlayback(true);
                     }
-                } else if (!player.looping && !playlist.isEmpty()) {
+                } else if (!playlist.isEmpty()) {
+                    LOGGER.info("顺序播放: 播放列表下一项。");
                     playNextInQueue();
                 } else {
+                    LOGGER.info("播放列表已结束。");
                     currentPlayingItem = null;
                     open(null);
                     player.closeAsync();
@@ -250,41 +285,6 @@ public class PlayerAgent {
         return (hours * 3600L + minutes * 60L + seconds) * 1_000_000L;
     }
 
-    private long getBaseDurationForUrl(String urlToCheck) {
-        if (urlToCheck == null || currentPlaylistContent == null || currentPlaylistContent.isEmpty()) {
-            return 0;
-        }
-
-        try {
-            String[] lines = currentPlaylistContent.split("\n");
-
-            for (int i = 0; i < lines.length; i++) {
-                if (lines[i].contains(urlToCheck)) {
-                    if (i + 1 < lines.length) {
-                        String nextLine = lines[i + 1].trim();
-
-                        if (nextLine.isEmpty() || nextLine.startsWith("http")) {
-                            return 0;
-                        }
-
-                        try {
-                            long duration = parseTimestampToMicros(nextLine);
-                            LOGGER.info("为 '{}' 成功解析到下一行的时间戳: {} us", urlToCheck, duration);
-                            return duration;
-                        } catch (IllegalArgumentException e) {
-                            return 0;
-                        }
-                    }
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.warn("在解析基础时长时发生未知错误", e);
-        }
-
-        return 0;
-    }
-
     public long getServerDuration() {
         try {
             var args = entity.getMainHandItem().getDisplayName().getString().split(":");
@@ -295,11 +295,6 @@ public class PlayerAgent {
             return 0;
         }
     }
-
-//    public long getDuration(String forUrl) {
-//        long baseDuration = getBaseDurationForUrl(forUrl);
-//        return baseDuration + getServerDuration() + this.timestampFromUrlUs;
-//    }
 
     public void update() {
         try {
@@ -329,10 +324,13 @@ public class PlayerAgent {
                     if (offHandPages.size() > 1) updateAudioOffset(offHandPages.get(1));
                     if (offHandPages.size() > 2) updateOther(offHandPages.get(2));
                     qualityChanged = updateQuality(offHandPages.size() > 3 ? offHandPages.get(3) : null);
+                    if (offHandPages.size() > 4) updateDanmakuConfig(offHandPages.get(4));
+                    else updateDanmakuConfig(null);
                 } else {
                     resetOffset();
                     resetAudioOffset();
                     qualityChanged = updateQuality(null);
+                    resetDanmakuConfig();
                 }
 
                 if (qualityChanged && player.getMedia() != null && playingUrl != null) {
@@ -343,13 +341,14 @@ public class PlayerAgent {
                     if (currentMedia != null && !currentMedia.isLiveStream()) {
                         seekTo = currentMedia.getDurationUs();
                     }
-
+                    this.qualityForNextPlayback = this.desiredQuality;
                     this.open(playingUrl);
                     this.startPlayback(false);
                     this.finalSeekTimestampUs = seekTo;
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private void updatePlaylist(List<String> pages) {
@@ -359,15 +358,18 @@ public class PlayerAgent {
             open(null);
             return;
         }
+
         List<String> lines = new ArrayList<>();
         for (String page : pages) {
             if (page != null && !page.isBlank()) {
                 lines.addAll(Arrays.asList(page.split("\n")));
             }
         }
+
         for (int i = 0; i < lines.size(); i++) {
             String currentLine = lines.get(i).trim();
             if (currentLine.isEmpty()) continue;
+
             Matcher urlMatcher = URL_PATTERN.matcher(currentLine);
             PlaybackItem item = null;
             if (currentLine.equalsIgnoreCase("rickroll")) {
@@ -377,46 +379,59 @@ public class PlayerAgent {
             } else if (urlMatcher.find()) {
                 item = new PlaybackItem(urlMatcher.group(0).trim());
             }
+
             if (item == null) continue;
+
             boolean isBiliVideo = item.originalUrl.contains("bilibili.com/video/");
+            boolean isBiliBangumi = item.originalUrl.contains("bilibili.com/bangumi/play/");
+
             if (isBiliVideo) {
-                boolean hasPInUrl = item.originalUrl.contains("?p=") || item.originalUrl.contains("&p=");
-                if (hasPInUrl) {
-                    item.mode = BiliPlaybackMode.SINGLE_PART;
-                } else {
-                    item.mode = BiliPlaybackMode.PLAYLIST_PART;
+                item.mode = BiliPlaybackMode.SINGLE_PART;
+            } else if (isBiliBangumi) {
+                item.mode = BiliPlaybackMode.BANGUMI_SERIES;
+                Pattern ssPattern = Pattern.compile("/ss(\\d+)");
+                Matcher ssMatcher = ssPattern.matcher(item.originalUrl);
+                if (ssMatcher.find()) {
+                    item.seasonId = ssMatcher.group(1);
                 }
             }
+
             int nextLineIndex = i + 1;
             while (nextLineIndex < lines.size()) {
                 String parameterLine = lines.get(nextLineIndex).trim();
                 if (parameterLine.isEmpty() || URL_PATTERN.matcher(parameterLine).find() || parameterLine.equalsIgnoreCase("rickroll") || parameterLine.equalsIgnoreCase("badapple")) {
                     break;
                 }
+
                 String[] parts = parameterLine.split("\\s+");
-                for (String part : parts) {
-                    if (part.isBlank()) continue;
+                List<String> remainingParts = new ArrayList<>(Arrays.asList(parts));
+
+                Iterator<String> iterator = remainingParts.iterator();
+                while (iterator.hasNext()) {
+                    String part = iterator.next();
                     Matcher timeMatcher = TIMESTAMP_PATTERN.matcher(part);
                     Matcher pNumMatcher = P_NUMBER_PATTERN.matcher(part);
-                    if (timeMatcher.matches()) {
+                    if (timeMatcher.matches() || part.matches("^\\d+$")) {
                         item.timestampUs = parseTimestampToMicros(part);
+                        iterator.remove();
                     } else if (pNumMatcher.matches()) {
-                        if (isBiliVideo && item.mode == BiliPlaybackMode.PLAYLIST_PART) {
+                        if (isBiliVideo && item.mode == BiliPlaybackMode.VIDEO_PLAYLIST || isBiliBangumi) {
                             item.pNumber = Integer.parseInt(pNumMatcher.group(1));
                         }
-                    } else {
-                        item.desiredQuality = part;
+                        iterator.remove();
                     }
                 }
+                if (!remainingParts.isEmpty()) {
+                    item.desiredQuality = String.join(" ", remainingParts);
+                }
+
                 nextLineIndex++;
             }
             playlist.offer(item);
             playlistOriginalSize++;
             LOGGER.info("添加项目: URL='{}', Mode={}, P={}, Timestamp={}us, Quality='{}'", item.originalUrl, item.mode, item.pNumber, item.timestampUs, item.desiredQuality);
-
             i = nextLineIndex - 1;
         }
-
         LOGGER.info("播放列表更新完成，共找到 {} 个媒体项目。", playlistOriginalSize);
     }
 
@@ -429,10 +444,12 @@ public class PlayerAgent {
             this.currentPlayingItem = nextItem;
             String urlToPlay = nextItem.originalUrl;
 
-            if (nextItem.mode == BiliPlaybackMode.PLAYLIST_PART) {
+            if (nextItem.mode == BiliPlaybackMode.VIDEO_PLAYLIST) {
                 if (!urlToPlay.contains("?p=") && !urlToPlay.contains("&p=")) {
                     urlToPlay += (urlToPlay.contains("?") ? "&" : "?") + "p=" + nextItem.pNumber;
                 }
+            } else if (nextItem.mode == BiliPlaybackMode.BANGUMI_SERIES && nextItem.seasonId != null && nextItem.pNumber > 1) {
+                urlToPlay += (urlToPlay.contains("?") ? "&" : "?") + "p=" + nextItem.pNumber;
             }
 
             this.finalSeekTimestampUs = 0;
@@ -472,63 +489,65 @@ public class PlayerAgent {
         }
     }
 
-    private void playNextBilibiliPartOrLoop(String finishedUrl, boolean isLoopingEnabled) {
+    private boolean playNextBilibiliVideoPart(String finishedUrl, boolean forceLoopFromStart) {
         String bvid = parseBvidFromUrl(finishedUrl);
         int currentP = parsePNumberFromUrl(finishedUrl);
-
         if (bvid == null) {
-            Minecraft.getInstance().execute(this::playNextInQueue);
-            return;
+            return false;
         }
-
         final int nextP = currentP + 1;
 
-        CompletableFuture.runAsync(() -> {
+        CompletableFuture<Boolean> future = CompletableFuture.supplyAsync(() -> {
             try {
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create("https://api.bilibili.com/x/web-interface/view?bvid=" + bvid))
                         .build();
                 HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
                 JSONObject json = new JSONObject(response.body());
-
                 if (json.getInt("code") == 0) {
                     JSONArray pages = json.getJSONObject("data").getJSONArray("pages");
-
                     if (nextP <= pages.length()) {
                         String nextUrl = "https://www.bilibili.com/video/" + bvid + "?p=" + nextP;
                         LOGGER.info("B站分P连播: 找到下一P ({}/{})，正在加载...", nextP, pages.length());
-
                         this.currentPlayingItem.pNumber = nextP;
                         this.finalSeekTimestampUs = 0;
                         Minecraft.getInstance().execute(() -> {
                             this.open(nextUrl);
                             this.startPlayback(false);
                         });
-                    } else {
-                        if (isLoopingEnabled) {
-                            LOGGER.info("B站合集循环: 已播完最后一P，回到P1。");
-                            this.currentPlayingItem.pNumber = 1;
-                            String firstUrl = "https://www.bilibili.com/video/" + bvid + "?p=1";
-
-                            this.finalSeekTimestampUs = 0;
-
-                            Minecraft.getInstance().execute(() -> {
-                                this.open(firstUrl);
-                                this.startPlayback(true);
-                            });
-                        } else {
-                            LOGGER.info("B站合集已播完 (共 {} P)，尝试播放列表中的下一个。", pages.length());
-                            Minecraft.getInstance().execute(this::playNextInQueue);
-                        }
+                        return false;
                     }
-                } else {
-                    Minecraft.getInstance().execute(this::playNextInQueue);
                 }
             } catch (Exception e) {
                 LOGGER.error("检查B站下一P时出错", e);
-                Minecraft.getInstance().execute(this::playNextInQueue);
             }
+            return false;
         });
+        try {
+            return future.join();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean playNextBangumiEpisode() {
+        if (currentBangumiInfo == null) return false;
+
+        BilibiliBangumiInfo.Episode nextEpisode = currentBangumiInfo.getNextEpisode();
+
+        if (nextEpisode != null) {
+            LOGGER.info("番剧连播: 找到下一集 '{}', 正在加载...", nextEpisode.title);
+            String nextUrl = "https://www.bilibili.com/bangumi/play/ep" + nextEpisode.epId;
+            this.finalSeekTimestampUs = 0;
+            Minecraft.getInstance().execute(() -> {
+                this.open(nextUrl);
+                this.startPlayback(false);
+            });
+            return true;
+        } else {
+            LOGGER.info("番剧 '{}' 已播放完毕。", currentBangumiInfo.title);
+            return false;
+        }
     }
 
     /**
@@ -560,7 +579,6 @@ public class PlayerAgent {
 
     public void open(@Nullable String mediaUrl) {
         playingUrl = mediaUrl;
-        isLoopingInProgress = false;
         isReconnecting = false;
     }
 
@@ -606,7 +624,6 @@ public class PlayerAgent {
                         }
                         player.play();
                         player.setSpeed(speed);
-                        this.isLoopingInProgress = isLooping;
                     } else {
                         LOGGER.error("从缓存打开媒体后未能获取Media实例，回退到网络播放。");
                         fallbackToNetworkPlayback(initialUrl, isLooping, currentToken);
@@ -620,10 +637,9 @@ public class PlayerAgent {
 
     private void fallbackToNetworkPlayback(String initialUrl, boolean isLooping, long currentToken) {
         UrlExpander.expand(initialUrl)
-                .thenAccept(expandedUrl -> {
+                .thenComposeAsync(expandedUrl -> { // 使用 thenComposeAsync
                     if (playbackToken.get() != currentToken) {
-                        LOGGER.debug("Playback token {} is outdated, aborting URL expansion callback.", currentToken);
-                        return;
+                        return CompletableFuture.failedFuture(new IllegalStateException("Playback aborted by new request."));
                     }
 
                     this.timestampFromUrlUs = parseTimestampFromUrl(expandedUrl);
@@ -633,50 +649,41 @@ public class PlayerAgent {
                         String warning = provider.getSafetyWarning();
                         if (warning != null && !warning.isEmpty()) Mcedia.msgToPlayer(warning);
                     }
-
                     LOGGER.info(isLooping ? "正在重新加载循环..." : "准备从网络播放 {}...", expandedUrl);
 
-                    final String cookie = (provider != null && provider.getClass().getSimpleName().toLowerCase().contains("bilibili"))
-                            ? McediaConfig.BILIBILI_COOKIE
-                            : null;
-
-                    CompletableFuture<VideoInfo> videoInfoFuture = player.openAsyncWithVideoInfo(
-                            () -> {
-                                if (playbackToken.get() != currentToken) {
-                                    throw new IllegalStateException("Playback aborted by new request before resolving URL.");
-                                }
-                                try {
-                                    if (provider == null) {
-                                        throw new UnsupportedOperationException("No provider found for URL: " + expandedUrl);
-                                    }
-                                    return provider.resolve(expandedUrl, cookie, this.qualityForNextPlayback);
-                                } catch (Exception e) {
-                                    throw new RuntimeException(e);
-                                }
-                            },
-                            () -> cookie, 0
-                    );
-
-                    videoInfoFuture.handle((videoInfo, throwable) -> {
-                        if (playbackToken.get() != currentToken) {
-                            LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
-                            return null;
-                        }
-
-                        if (throwable != null) {
-                            if (!(throwable.getCause() instanceof IllegalStateException)) {
-                                handlePlaybackFailure(throwable, initialUrl, expandedUrl, isLooping);
+                    final String cookie = (provider instanceof BilibiliVideoProvider || provider instanceof BilibiliBangumiProvider)
+                            ? McediaConfig.BILIBILI_COOKIE : null;
+                    return CompletableFuture.supplyAsync(() -> {
+                        try {
+                            if (provider == null) {
+                                throw new UnsupportedOperationException("No provider found for URL: " + expandedUrl);
                             }
-                        } else {
-                            handlePlaybackSuccess(videoInfo, expandedUrl, isLooping, provider);
+                            if (provider instanceof BilibiliBangumiProvider) {
+                                BilibiliBangumiInfo bangumiInfo = BilibiliBangumiFetcher.fetch(expandedUrl, cookie, this.qualityForNextPlayback);
+                                this.currentBangumiInfo = bangumiInfo;
+                                return bangumiInfo.getVideoInfo();
+                            } else {
+                                this.currentBangumiInfo = null;
+                                return provider.resolve(expandedUrl, cookie, this.qualityForNextPlayback);
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
                         }
+                    }, Mcedia.getInstance().getBackgroundExecutor());
+                }, Mcedia.getInstance().getBackgroundExecutor())
+                .handle((videoInfo, throwable) -> { // 使用 handle 来同时处理成功和失败
+                    if (playbackToken.get() != currentToken) {
+                        LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
                         return null;
-                    });
-                })
-                .exceptionally(ex -> {
-                    if (playbackToken.get() == currentToken) {
-                        LOGGER.error("处理URL时发生严重错误: {}", initialUrl, ex);
-                        handlePlaybackFailure(ex, initialUrl, initialUrl, isLooping);
+                    }
+                    if (throwable != null) {
+                        if (!(throwable.getCause() instanceof IllegalStateException)) {
+                            handlePlaybackFailure(throwable, initialUrl, initialUrl, isLooping);
+                        }
+                    } else {
+                        player.openSync(videoInfo, null, 0);
+                        IMediaProvider provider = MediaProviderRegistry.getInstance().getProviderForUrl(initialUrl);
+                        handlePlaybackSuccess(videoInfo, initialUrl, isLooping, provider);
                     }
                     return null;
                 });
@@ -734,6 +741,15 @@ public class PlayerAgent {
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping, @Nullable IMediaProvider provider) {
         this.currentStatus = PlaybackStatus.PLAYING;
         this.isTextureInitialized = false;
+        danmakuManager.clear();
+        if (videoInfo.getCid() > 0 && (provider instanceof BilibiliVideoProvider || provider instanceof BilibiliBangumiProvider)) {
+            LOGGER.info("[DANMAKU-DEBUG] 正在获取视频(cid={})的弹幕...", videoInfo.getCid());
+            DanmakuFetcher.fetchDanmaku(videoInfo.getCid())
+                    .thenAcceptAsync(danmakuList -> {
+                        LOGGER.info("[DANMAKU-DEBUG] Fetched danmaku list with size: {}. Loading into manager.", danmakuList.size());
+                        danmakuManager.load(danmakuList);
+                    }, Minecraft.getInstance()::execute);
+        }
         Media media = player.getMedia();
         if (media == null) {
             LOGGER.error("视频加载成功但Media对象为空，这是一个严重错误。");
@@ -756,16 +772,16 @@ public class PlayerAgent {
 
         if (!isLooping) {
             MutableComponent hoverText = Component.literal("点击可在浏览器中打开");
-            List<String> qualities = videoInfo.getAvailableQualities();
+            List<QualityInfo> qualities = videoInfo.getAvailableQualities();
             String currentQuality = videoInfo.getCurrentQuality();
             if (qualities != null && !qualities.isEmpty()) {
                 hoverText.append(Component.literal("\n\n§f可用清晰度:").withStyle(ChatFormatting.GRAY));
-                for (String quality : qualities) {
-                    boolean isCurrent = Objects.equals(quality, currentQuality);
+                for (QualityInfo quality : qualities) {
+                    boolean isCurrent = Objects.equals(quality.description, currentQuality);
                     ChatFormatting color = isCurrent ? ChatFormatting.DARK_PURPLE : ChatFormatting.AQUA;
                     String prefix = isCurrent ? "\n> " : "\n- ";
 
-                    hoverText.append(Component.literal(prefix + quality).withStyle(color));
+                    hoverText.append(Component.literal(prefix + quality.description).withStyle(color));
                 }
             }
             HoverEvent hoverEvent = new HoverEvent.ShowText(hoverText);
@@ -794,8 +810,10 @@ public class PlayerAgent {
                 if (durationToSeek > 0) {
                     LOGGER.info("视频加载成功，将在 {} us 处开始播放 (支持跳转)。", durationToSeek);
                     player.seek(durationToSeek);
+                    danmakuManager.seek(durationToSeek);
                 } else {
                     LOGGER.info("视频加载成功，将从头开始播放。");
+                    danmakuManager.seek(0);
                 }
             } else {
                 LOGGER.warn("当前视频源 ({}) 不支持跳转操作，将从头开始播放。", provider != null ? provider.getClass().getSimpleName() : "未知直链");
@@ -806,7 +824,6 @@ public class PlayerAgent {
 
         player.play();
         player.setSpeed(speed);
-        this.isLoopingInProgress = false;
     }
 
     private void handlePlaybackFailure(Throwable throwable, String initialUrl, String finalMediaUrl, boolean isLooping) {
@@ -823,7 +840,6 @@ public class PlayerAgent {
             Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + initialUrl);
         }
 
-        this.isLoopingInProgress = false;
     }
 
     private float halfW = 1.777f;
@@ -863,6 +879,15 @@ public class PlayerAgent {
             secondaryAudioSource.setRange(audioRangeMin2, audioRangeMax2);
             secondaryAudioSource.setPos(((float) state.x + secondaryAudioOffsetRotated.x), ((float) state.y + secondaryAudioOffsetRotated.y), ((float) state.z + secondaryAudioOffsetRotated.z));
         }
+        long now = System.nanoTime();
+        if (lastRenderTime == 0) lastRenderTime = now;
+        float deltaTime = (now - lastRenderTime) / 1_000_000_000.0f;
+        lastRenderTime = now;
+
+        if (media != null && media.isPlaying() && danmakuEnable) {
+            danmakuManager.update(deltaTime, media.getDurationUs(), this.halfW, this.danmakuFontScale, this.danmakuSpeedScale,
+                    this.showScrollingDanmaku, this.showTopDanmaku, this.showBottomDanmaku);
+        }
         synchronized (player) {
             Media currentMedia = player.getMedia();
             if (media != null) {
@@ -881,6 +906,9 @@ public class PlayerAgent {
             renderScreen(poseStack, bufferSource, i);
 
             if (player.getMedia() != null && this.isTextureReady.get()) {
+                if(danmakuEnable) {
+                    renderDanmakuWithClipping(poseStack, bufferSource, i);
+                }
                 renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
             }
         } finally {
@@ -937,6 +965,276 @@ public class PlayerAgent {
         }
     }
 
+    private void renderDanmakuWithClipping(PoseStack poseStack, MultiBufferSource bufferSource, int light) {
+        renderDanmakuText(poseStack, bufferSource, light);
+    }
+
+    private void renderDanmakuText(PoseStack poseStack, MultiBufferSource bufferSource, int light) {
+        poseStack.pushPose();
+        poseStack.translate(0, 0, 0.001f);
+
+        Font font = Minecraft.getInstance().font;
+        float videoHeightUnits = 2.0f;
+
+        // 从全局配置读取基础轨道数，并根据游戏内设置缩放
+        int dynamicTrackCount = (int) (McediaConfig.DANMAKU_BASE_TRACK_COUNT / this.danmakuFontScale);
+        if (dynamicTrackCount < 1) dynamicTrackCount = 1;
+
+        float desiredDanmakuHeight = videoHeightUnits / dynamicTrackCount;
+        float scale = desiredDanmakuHeight / font.lineHeight;
+
+        poseStack.scale(scale, -scale, scale);
+
+        // 计算缩放后的渲染坐标系尺寸
+        float scaledScreenWidth = (halfW * 2) / scale;
+        float scaledScreenHeight = videoHeightUnits / scale;
+        float screenLeftEdge = -scaledScreenWidth / 2;
+        float screenRightEdge = scaledScreenWidth / 2;
+
+        // 计算最终的透明度
+        int alpha = (int) (Mth.clamp(this.danmakuOpacity, 0, 1) * 255);
+        int alphaMask = alpha << 24;
+
+        // 遍历唯一的活跃弹幕列表
+        for (Danmaku danmaku : danmakuManager.getActiveDanmaku()) {
+            float theoreticalXPos = -scaledScreenWidth / 2 + danmaku.x * scaledScreenWidth;
+
+            float yPos;
+            if (danmaku.type == Danmaku.DanmakuType.BOTTOM) {
+                // 底部弹幕的Y坐标从下向上计算
+                yPos = scaledScreenHeight / 2 - (danmaku.y * this.danmakuDisplayArea * scaledScreenHeight) - font.lineHeight;
+            } else {
+                // 滚动和顶部弹幕的Y坐标从上向下计算
+                yPos = -scaledScreenHeight / 2 + (danmaku.y * this.danmakuDisplayArea * scaledScreenHeight);
+            }
+
+            int finalColor = alphaMask | (danmaku.color & 0x00FFFFFF);
+
+            // 根据弹幕类型应用不同的渲染策略
+            if (danmaku.type == Danmaku.DanmakuType.SCROLLING) {
+                // --- 滚动弹幕应用平滑像素裁剪逻辑 ---
+                float danmakuWidthInPixels = font.width(danmaku.text);
+
+                // 如果弹幕完全在屏幕可视范围之外，则跳过
+                if (theoreticalXPos > screenRightEdge || theoreticalXPos + danmakuWidthInPixels < screenLeftEdge) {
+                    continue;
+                }
+
+                String textToRender = danmaku.text;
+                float finalXPos = theoreticalXPos;
+
+                // 处理左边界裁剪 (弹幕从左边消失)
+                if (theoreticalXPos < screenLeftEdge) {
+                    float overflowWidth = screenLeftEdge - theoreticalXPos;
+                    int charsToClip = 0;
+                    float clippedWidth = 0;
+                    for (int i = 0; i < danmaku.text.length(); i++) {
+                        clippedWidth += font.width(String.valueOf(danmaku.text.charAt(i)));
+                        if (clippedWidth >= overflowWidth) {
+                            charsToClip = i;
+                            float prevCharsWidth = font.width(danmaku.text.substring(0, charsToClip));
+                            finalXPos = theoreticalXPos + prevCharsWidth;
+                            break;
+                        }
+                    }
+                    if (charsToClip > 0 && charsToClip <= danmaku.text.length()) {
+                        textToRender = danmaku.text.substring(charsToClip);
+                    }
+                }
+
+                // 处理右边界裁剪 (弹幕从右边出现)
+                float rightEdgePos = finalXPos + font.width(textToRender);
+                if (rightEdgePos > screenRightEdge) {
+                    float overflowWidth = rightEdgePos - screenRightEdge;
+                    int charsToClip = 0;
+                    float clippedWidth = 0;
+                    for (int i = textToRender.length() - 1; i >= 0; i--) {
+                        clippedWidth += font.width(String.valueOf(textToRender.charAt(i)));
+                        if (clippedWidth >= overflowWidth) {
+                            charsToClip = textToRender.length() - (i + 1);
+                            break;
+                        }
+                    }
+                    if (charsToClip > 0 && charsToClip <= textToRender.length()) {
+                        textToRender = textToRender.substring(0, textToRender.length() - charsToClip);
+                    }
+                }
+
+                if (textToRender.isEmpty()) {
+                    continue;
+                }
+
+                font.drawInBatch(textToRender, finalXPos, yPos, finalColor, true, poseStack.last().pose(), bufferSource, Font.DisplayMode.NORMAL, 0, light);
+
+            } else {
+                // --- 固定弹幕 (顶部/底部) 的渲染逻辑 ---
+                // 直接居中渲染，不需要裁剪
+                font.drawInBatch(danmaku.text, theoreticalXPos, yPos, finalColor, true, poseStack.last().pose(), bufferSource, Font.DisplayMode.NORMAL, 0, light);
+            }
+        }
+
+        poseStack.popPose();
+    }
+
+    private void renderDanmakuList(List<Danmaku> danmakuList, PoseStack poseStack, MultiBufferSource bufferSource, int light, Font font, float scaledScreenWidth, float scaledScreenHeight, int alphaMask, boolean isFixed) {
+        float screenLeftEdge = -scaledScreenWidth / 2;
+        float screenRightEdge = scaledScreenWidth / 2;
+        for (Danmaku danmaku : danmakuList) {
+            // 计算理论上的X坐标 (左上角)
+            float theoreticalXPos = -scaledScreenWidth / 2 + danmaku.x * scaledScreenWidth;
+            // 计算Y坐标
+            float yPos;
+            if (danmaku.type == Danmaku.DanmakuType.BOTTOM) {
+                // 底部弹幕的y是从下往上计算的
+                yPos = scaledScreenHeight / 2 - (danmaku.y * this.danmakuDisplayArea * scaledScreenHeight) - font.lineHeight;
+            } else {
+                // 滚动弹幕和顶部弹幕的y都是从上往下计算的
+                yPos = -scaledScreenHeight / 2 + (danmaku.y * this.danmakuDisplayArea * scaledScreenHeight);
+            }
+            // 混合最终颜色（基础色 + 透明度）
+            int finalColor = alphaMask | (danmaku.color & 0x00FFFFFF);
+            // 根据 isFixed 参数选择渲染方式
+            if (isFixed) {
+                // --- 固定弹幕的渲染逻辑 ---
+                // 固定弹幕居中显示，不需要复杂的裁剪
+                font.drawInBatch(danmaku.text, theoreticalXPos, yPos, finalColor, true, poseStack.last().pose(), bufferSource, Font.DisplayMode.NORMAL, 0, light);
+            } else {
+                // --- 滚动弹幕的渲染逻辑 (带平滑裁剪) ---
+                float danmakuWidthInPixels = font.width(danmaku.text);
+
+                if (theoreticalXPos > screenRightEdge || theoreticalXPos + danmakuWidthInPixels < screenLeftEdge) {
+                    continue;
+                }
+                String textToRender = danmaku.text;
+                float finalXPos = theoreticalXPos;
+                // 处理左边界裁剪 (弹幕消失)
+                if (theoreticalXPos < screenLeftEdge) {
+                    float overflowWidth = screenLeftEdge - theoreticalXPos;
+                    int charsToClip = 0;
+                    float clippedWidth = 0;
+                    for (int i = 0; i < danmaku.text.length(); i++) {
+                        clippedWidth += font.width(String.valueOf(danmaku.text.charAt(i)));
+                        if (clippedWidth >= overflowWidth) {
+                            charsToClip = i;
+                            float prevCharsWidth = font.width(danmaku.text.substring(0, charsToClip));
+                            finalXPos = theoreticalXPos + prevCharsWidth;
+                            break;
+                        }
+                    }
+                    if (charsToClip > 0 && charsToClip <= danmaku.text.length()) {
+                        textToRender = danmaku.text.substring(charsToClip);
+                    }
+                }
+                // 处理右边界裁剪 (弹幕出现)
+                float rightEdgePos = finalXPos + font.width(textToRender);
+                if (rightEdgePos > screenRightEdge) {
+                    float overflowWidth = rightEdgePos - screenRightEdge;
+                    int charsToClip = 0;
+                    float clippedWidth = 0;
+                    for (int i = textToRender.length() - 1; i >= 0; i--) {
+                        clippedWidth += font.width(String.valueOf(textToRender.charAt(i)));
+                        if (clippedWidth >= overflowWidth) {
+                            charsToClip = textToRender.length() - (i + 1);
+                            break;
+                        }
+                    }
+                    if (charsToClip > 0 && charsToClip <= textToRender.length()) {
+                        textToRender = textToRender.substring(0, textToRender.length() - charsToClip);
+                    }
+                }
+                if (textToRender.isEmpty()) {
+                    continue;
+                }
+                font.drawInBatch(textToRender, finalXPos, yPos, finalColor, true, poseStack.last().pose(), bufferSource, Font.DisplayMode.NORMAL, 0, light);
+            }
+        }
+    }
+
+    private void updateDanmakuConfig(@Nullable String pageContent) {
+        if (pageContent == null || pageContent.isBlank()) {
+            resetDanmakuConfig();
+            return;
+        }
+
+        String[] lines = pageContent.split("\n");
+
+        this.danmakuEnable = lines.length > 0 && lines[0].contains("弹幕");
+
+        if (lines.length > 1) this.danmakuDisplayArea = parsePercentage(lines[1]);
+        else this.danmakuDisplayArea = 1.0f;
+
+        if (lines.length > 2) this.danmakuOpacity = parsePercentage(lines[2]);
+        else this.danmakuOpacity = 1.0f;
+
+        if (lines.length > 3) this.danmakuFontScale = parseFloat(lines[3], 1.0f);
+        else this.danmakuFontScale = 1.0f;
+
+        if (lines.length > 4) this.danmakuSpeedScale = parseFloat(lines[4], 1.0f);
+        else this.danmakuSpeedScale = 1.0f;
+
+        this.showScrollingDanmaku = true;
+        this.showTopDanmaku = true;
+        this.showBottomDanmaku = true;
+
+        if (lines.length > 5) {
+            List<String> configLines = new ArrayList<>();
+            for (int i = 5; i < lines.length; i++) {
+                configLines.add(lines[i]);
+            }
+            String combinedConfig = String.join(" ", configLines).toLowerCase(); // 转为小写以便匹配
+
+            if (combinedConfig.contains("屏蔽滚动")) {
+                this.showScrollingDanmaku = false;
+            } else if (combinedConfig.contains("显示滚动")) {
+                this.showScrollingDanmaku = true;
+            }
+
+            if (combinedConfig.contains("屏蔽顶部")) {
+                this.showTopDanmaku = false;
+            } else if (combinedConfig.contains("显示顶部")) {
+                this.showTopDanmaku = true;
+            }
+
+            if (combinedConfig.contains("屏蔽底部")) {
+                this.showBottomDanmaku = false;
+            } else if (combinedConfig.contains("显示底部")) {
+                this.showBottomDanmaku = true;
+            }
+        }
+    }
+
+    private void resetDanmakuConfig() {
+        this.danmakuEnable = false;
+        this.danmakuDisplayArea = 1.0f;
+        this.danmakuOpacity = 1.0f;
+        this.danmakuFontScale = 1.0f;
+        this.danmakuSpeedScale = 1.0f;
+        this.showScrollingDanmaku = true;
+        this.showTopDanmaku = true;
+        this.showBottomDanmaku = true;
+    }
+
+    private float parsePercentage(String line) {
+        try {
+            String numericPart = line.replaceAll("[^\\d.]", "");
+            if (numericPart.isBlank()) return 1.0f;
+            float value = Float.parseFloat(numericPart);
+            return Mth.clamp(value / 100.0f, 0.0f, 1.0f);
+        } catch (NumberFormatException e) {
+            return 1.0f;
+        }
+    }
+
+    private float parseFloat(String line, float defaultValue) {
+        try {
+            String numericPart = line.replaceAll("[^\\d.]", "");
+            if (numericPart.isBlank()) return defaultValue;
+            return Float.parseFloat(numericPart);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
     public void close() {
         playingUrl = null;
         isLoopingInProgress = false;
@@ -945,6 +1243,7 @@ public class PlayerAgent {
     }
 
     public void closeSync() {
+        danmakuManager.clear();
         if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
             Media currentMedia = player.getMedia();
             if (currentMedia != null && !currentMedia.isLiveStream() && currentMedia.getDurationUs() > 0) {
@@ -995,11 +1294,18 @@ public class PlayerAgent {
         this.audioRangeMax = 500;
     }
 
-    public void updateOther(String flags) {
-        boolean looping = flags.contains("looping");
+    public void updateOther(String pageContent) {
+        if (pageContent == null) {
+            this.player.setLooping(false);
+            this.shouldCacheForLoop = false;
+            this.videoAutoplay = false;
+            return;
+        }
+        String[] lines = pageContent.split("\n");
+        boolean looping = (lines.length > 0) && lines[0].trim().equalsIgnoreCase("looping");
         this.player.setLooping(looping);
         this.shouldCacheForLoop = looping && McediaConfig.CACHING_ENABLED;
-        if (!looping && cacheManager.isCached(playingUrl)) cacheManager.cleanup();
+        this.videoAutoplay = (lines.length > 1) && lines[1].trim().equalsIgnoreCase("autoplay");
     }
 
     public boolean updateQuality(String quality) {
@@ -1007,9 +1313,9 @@ public class PlayerAgent {
         String newQuality = (quality == null || quality.isBlank()) ? "自动" : quality.trim();
         if (!this.desiredQuality.equals(newQuality)) {
             this.desiredQuality = newQuality;
-            return true; // 清晰度发生了变化
+            return true;
         }
-        return false; // 清晰度未变
+        return false;
     }
 
     public void updateOffset(String offset) {
@@ -1077,6 +1383,7 @@ public class PlayerAgent {
     }
 
     public void commandStop() {
+        danmakuManager.clear();
         open(null);
         player.closeAsync();
         Mcedia.msgToPlayer("§c[Mcedia] §f播放已停止。");
@@ -1095,6 +1402,7 @@ public class PlayerAgent {
         Media media = player.getMedia();
         if (media != null && !media.isLiveStream()) {
             player.seek(seekUs);
+            danmakuManager.seek(seekUs);
             long totalSeconds = seekUs / 1_000_000L;
             long hours = totalSeconds / 3600;
             long minutes = (totalSeconds % 3600) / 60;
@@ -1170,26 +1478,6 @@ public class PlayerAgent {
         Mcedia.msgToPlayer(String.format("§f[Mcedia] §7副声源参数已更新为: 偏移(%.2f, %.2f, %.2f), 音量 %.1f, 范围 [%.1f, %.1f]。", x, y, z, maxVol, minRange, maxRange));
         if (!isSecondarySourceActive) {
             Mcedia.msgToPlayer("§7提示: 副声源当前未启用，使用 §a/mcedia control enable secondary_audio §7来启用。");
-        }
-    }
-
-    public void commandEnableAudioSecondary() {
-        if (!isSecondarySourceActive) {
-            player.bindAudioSource(secondaryAudioSource);
-            isSecondarySourceActive = true;
-            Mcedia.msgToPlayer("§a[Mcedia] §f副声源已启用。");
-        } else {
-            Mcedia.msgToPlayer("§e[Mcedia] §f副声源已经是启用状态。");
-        }
-    }
-
-    public void commandDisableAudioSecondary() {
-        if (isSecondarySourceActive) {
-            player.unbindAudioSource(secondaryAudioSource);
-            isSecondarySourceActive = false;
-            Mcedia.msgToPlayer("§e[Mcedia] §f副声源已禁用。");
-        } else {
-            Mcedia.msgToPlayer("§7[Mcedia] §8副声源当前未启用。");
         }
     }
 

@@ -1,4 +1,4 @@
-package top.tobyprime.mcedia.auth_manager;
+package top.tobyprime.mcedia.manager;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -13,9 +13,11 @@ import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.McediaConfig;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -42,22 +44,14 @@ public class BilibiliAuthManager {
         return this.username;
     }
 
-    /**
-     *  登出方法，同步更新内存和配置文件
-     */
     public void logout() {
         LOGGER.info("正在执行登出操作...");
-        // 更新内存中的状态
         this.isLoggedIn = false;
         this.username = "";
-
-        // 清空配置文件中的Cookie
         McediaConfig.saveCookie("");
-
         Mcedia.msgToPlayer("§a[Mcedia] §f已成功登出Bilibili账号。");
     }
 
-    // 检查 cookie 状态
     public void checkCookieValidityAndNotifyPlayer() {
         String cookie = McediaConfig.BILIBILI_COOKIE;
         if (cookie == null || cookie.isEmpty()) {
@@ -78,9 +72,16 @@ public class BilibiliAuthManager {
                         JsonObject json = gson.fromJson(body, JsonObject.class);
                         if (json.get("code").getAsInt() == 0 && json.getAsJsonObject("data").get("isLogin").getAsBoolean()) {
                             this.isLoggedIn = true;
-                            this.username = json.getAsJsonObject("data").get("uname").getAsString();
-                            LOGGER.info("Bilibili Cookie有效，当前登录用户: {}", username);
-                            Component successMessage = Component.literal("§a[Mcedia] §fBilibili Cookie 有效！当前登录用户: §b" + username);
+                            JsonObject data = json.getAsJsonObject("data");
+                            String uname = data.get("uname").getAsString();
+                            int vipStatus = data.get("vipStatus").getAsInt();
+                            String displayName = uname;
+                            if (vipStatus == 1) {
+                                displayName += " §c(大会员)";
+                            }
+                            this.username = displayName;
+                            LOGGER.info("Bilibili Cookie有效，当前登录用户: {}", this.username);
+                            Component successMessage = Component.literal("§a[Mcedia] §fBilibili Cookie 有效！当前登录用户: §b" + this.username);
                             Minecraft.getInstance().execute(() -> Mcedia.msgToPlayer(successMessage));
                         } else {
                             throw new Exception("API返回未登录状态或错误码: " + json.get("code").getAsInt());
@@ -104,7 +105,7 @@ public class BilibiliAuthManager {
     }
 
     public void startLoginFlow() {
-        Mcedia.msgToPlayer("§a[Mcedia] §f正在生成登录链接...");
+        Mcedia.msgToPlayer("§a[Mcedia] §f正在生成登录二维码...");
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header"))
@@ -119,28 +120,32 @@ public class BilibiliAuthManager {
                             JsonObject json = gson.fromJson(body, JsonObject.class);
                             if (json.get("code").getAsInt() == 0) {
                                 JsonObject data = json.getAsJsonObject("data");
-                                String qrUrl = data.get("url").getAsString();
+                                String qrContentUrl = data.get("url").getAsString();
                                 String qrcodeKey = data.get("qrcode_key").getAsString();
-
+                                String encodedUrl = URLEncoder.encode(qrContentUrl, StandardCharsets.UTF_8);
+                                String qrImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" + encodedUrl;
                                 Style style = Style.EMPTY
-                                        .withClickEvent(new ClickEvent.OpenUrl(URI.create(qrUrl)))
-                                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("在浏览器中打开Bilibili登录页面")));
-                                Mcedia.msgToPlayer("§a[Mcedia] §f请复制该链接到手机浏览器中登录：");
-                                Mcedia.msgToPlayer(Component.literal("§b§n[点我复制链接]").setStyle(style));
+                                        .withClickEvent(new ClickEvent.OpenUrl(URI.create(qrImageUrl)))
+                                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
 
+                                Mcedia.msgToPlayer("§a[Mcedia] §f请点击下方链接，在打开的网页中用B站App扫描二维码登录：");
+                                Mcedia.msgToPlayer(Component.literal("§b§n[点我打开二维码]").setStyle(style));
                                 new Thread(() -> pollLoginStatus(qrcodeKey), "Mcedia-Bili-Login-Poll").start();
                             } else {
-                                Mcedia.msgToPlayer("§c[Mcedia] §f生成链接失败: " + json.get("message").getAsString());
+                                Mcedia.msgToPlayer("§c[Mcedia] §f生成二维码失败: " + json.get("message").getAsString());
                             }
                         } catch (Exception e) {
+                            LOGGER.error("Failed to parse QR code response", e);
                             Mcedia.msgToPlayer("§c[Mcedia] §f解析服务器响应失败。");
                         }
                     })
                     .exceptionally(e -> {
-                        Mcedia.msgToPlayer("§c[Mcedia] §f生成链接时发生网络错误: " + e.getCause().getMessage());
+                        LOGGER.error("Failed to generate QR code", e);
+                        Mcedia.msgToPlayer("§c[Mcedia] §f生成二维码时发生网络错误: " + e.getCause().getMessage());
                         return null;
                     });
         } catch (Exception e) {
+            LOGGER.error("Login flow failed to start", e);
             Mcedia.msgToPlayer("§c[Mcedia] §f登录流程启动失败: " + e.getMessage());
         }
     }
@@ -175,9 +180,11 @@ public class BilibiliAuthManager {
                     Mcedia.msgToPlayer("§a[Mcedia] §f登录成功！Cookie已自动更新。");
                     checkCookieValidityAndNotifyPlayer();
                     return;
-                } else if (code == 86038) { // 链接过期
-                    Mcedia.msgToPlayer("§c[Mcedia] §f链接已过期，请重新执行 /mcedia login。");
+                } else if (code == 86038) { // 二维码已失效
+                    Mcedia.msgToPlayer("§c[Mcedia] §f二维码已过期，请重新执行 /mcedia login。");
                     return;
+                } else if (code == 86090) { // 二维码已扫，待确认
+                    // Do nothing, just wait for confirmation
                 }
 
                 Thread.sleep(3000);

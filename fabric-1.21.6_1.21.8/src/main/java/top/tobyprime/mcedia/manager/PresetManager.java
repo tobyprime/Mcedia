@@ -1,8 +1,10 @@
-package top.tobyprime.mcedia;
+package top.tobyprime.mcedia.manager;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import top.tobyprime.mcedia.Mcedia;
+import top.tobyprime.mcedia.PresetData;
 
 import java.io.FileReader;
 import java.io.FileWriter;

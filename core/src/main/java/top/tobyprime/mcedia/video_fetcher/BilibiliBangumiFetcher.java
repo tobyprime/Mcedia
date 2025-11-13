@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.BilibiliAuthRequiredException;
 import top.tobyprime.mcedia.provider.VideoInfo;
+import top.tobyprime.mcedia.provider.QualityInfo;
+import top.tobyprime.mcedia.provider.BilibiliBangumiInfo;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -24,7 +26,6 @@ public class BilibiliBangumiFetcher {
 
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliBangumiFetcher.class);
-    private static final int QUALITY_ID_4K = 120;
 
     private static Supplier<Boolean> authStatusSupplier = () -> false;
 
@@ -43,69 +44,56 @@ public class BilibiliBangumiFetcher {
         }
     }
 
-    public static VideoInfo fetch(String bangumiUrl, @Nullable String cookie, String desiredQuality) throws Exception {
-        // 从 URL 中提取 ep 号
-        Pattern epPattern = Pattern.compile("/ep(\\d+)");
-        Matcher matcher = epPattern.matcher(bangumiUrl);
-        if (!matcher.find()) {
-            throw new IllegalArgumentException("未找到ep号，请检查番剧链接");
-        }
-        String epId = matcher.group(1);
+    public static BilibiliBangumiInfo fetch(String bangumiUrl, @Nullable String cookie, String desiredQuality) throws Exception {
+        String epId = null;
+        String ssId = null;
 
-        // 获取番剧/电影信息
-        String viewApi = "https://api.bilibili.com/pgc/view/web/season?ep_id=" + epId;
+        Pattern epPattern = Pattern.compile("/ep(\\d+)");
+        Matcher epMatcher = epPattern.matcher(bangumiUrl);
+        if (epMatcher.find()) {
+            epId = epMatcher.group(1);
+        }
+
+        Pattern ssPattern = Pattern.compile("/ss(\\d+)");
+        Matcher ssMatcher = ssPattern.matcher(bangumiUrl);
+        if (ssMatcher.find()) {
+            ssId = ssMatcher.group(1);
+        }
+        if (epId == null && ssId == null) {
+            throw new IllegalArgumentException("链接中未找到ep号或ss号");
+        }
+
+        String viewApi = (epId != null)
+                ? "https://api.bilibili.com/pgc/view/web/season?ep_id=" + epId
+                : "https://api.bilibili.com/pgc/view/web/season?season_id=" + ssId;
+
         HttpRequest viewRequest = HttpRequest.newBuilder().uri(URI.create(viewApi)).header("User-Agent", "Mozilla/5.0").build();
         HttpResponse<String> viewResponse = client.send(viewRequest, HttpResponse.BodyHandlers.ofString());
         JSONObject viewJson = new JSONObject(viewResponse.body());
 
-        String mainTitle = "未知番剧/电影";
-        String author = "Bilibili";
-        String partName = null;
-        int currentP = 0;
-        boolean requiresVip = false;
-        boolean requiresPurchase = false;
-        String cid = null;
-
-        if (viewJson.optInt("code") == 0) {
-            JSONObject result = viewJson.getJSONObject("result");
-            mainTitle = result.getString("title");
-            author = result.optString("season_title", "Bilibili");
-
-            // 解析付费信息
-            if (result.has("payment")) {
-                JSONObject payment = result.getJSONObject("payment");
-                if (payment.has("price") && !payment.getString("price").equals("0.0")) {
-                    requiresPurchase = true;
-                }
-            }
-            // 默认番剧都要VIP
-            requiresVip = true;
-
-            // 找到当前集的标题
-            JSONArray episodes = result.getJSONArray("episodes");
-            for (int i = 0; i < episodes.length(); i++) {
-                JSONObject ep = episodes.getJSONObject(i);
-                if (String.valueOf(ep.getInt("id")).equals(epId)) {
-                    partName = ep.getString("share_copy");
-                    cid = String.valueOf(ep.getLong("cid"));
-                    currentP = i + 1;
-                    if (partName != null && partName.equals(mainTitle)) {
-                        partName = null;
-                    }
-                    break;
-                }
-            }
-        } else {
+        if (viewJson.optInt("code") != 0) {
             throw new RuntimeException("获取番剧信息失败: " + viewJson.optString("message"));
         }
 
-        if (cid == null) {
-            throw new RuntimeException("无法获取当前分集的CID，可能是ep_id无效。");
+        JSONObject resultData = viewJson.getJSONObject("result");
+
+        int pNumFromUrl = parsePNumberFromUrl(bangumiUrl);
+        if (epId == null) {
+            JSONArray episodes = resultData.getJSONArray("episodes");
+            int targetIndex = (pNumFromUrl > 0 && pNumFromUrl <= episodes.length()) ? pNumFromUrl - 1 : 0;
+            if (!episodes.isEmpty()) {
+                epId = String.valueOf(episodes.getJSONObject(targetIndex).getInt("id"));
+                LOGGER.info("检测到 ssId 链接，从第 {} 集 (ep{}) 开始播放。", targetIndex + 1, epId);
+            } else {
+                throw new RuntimeException("该番剧系列下没有找到任何剧集。");
+            }
         }
 
-        // 调用 PGC 的播放地址 API
+        BilibiliBangumiInfo bangumiInfo = BilibiliBangumiInfo.fromJson(resultData, epId);
+        String cid = bangumiInfo.getCurrentEpisode().cid;
+
         String playApi = "https://api.bilibili.com/pgc/player/web/playurl?ep_id=" + epId +
-                "&qn=116&fnval=4048";
+                "&cid=" + cid + "&fnval=4048";
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(playApi))
@@ -118,14 +106,13 @@ public class BilibiliBangumiFetcher {
 
         HttpResponse<String> response = client.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
         String responseBody = response.body();
-//        LOGGER.info("Bilibili Bangumi API Response: {}", responseBody);
-
         JSONObject responseJson = new JSONObject(responseBody);
+
         if (responseJson.getInt("code") != 0) {
-            throw new RuntimeException("获取番剧播放地址失败: " + responseJson.optString("message") + " | Full Response: " + responseBody);
+            throw new RuntimeException("获取番剧播放地址失败: " + responseJson.optString("message"));
         }
 
-        JSONObject result = responseJson.getJSONObject("result");
+        JSONObject result = responseJson.optJSONObject("result");
         if (result == null) {
             throw new RuntimeException("B站API未返回有效的 result 数据：" + responseJson.optString("message", "未知错误"));
         }
@@ -137,17 +124,17 @@ public class BilibiliBangumiFetcher {
             throw new BilibiliAuthRequiredException("B站返回权限错误(-10403)，该内容需要大会员或已登录。");
         }
 
-        List<String> availableQualities = new ArrayList<>();
+        List<QualityInfo> availableQualities = new ArrayList<>();
         JSONArray supportFormats = result.optJSONArray("support_formats");
         if (supportFormats != null) {
             for (int i = 0; i < supportFormats.length(); i++) {
-                availableQualities.add(supportFormats.getJSONObject(i).getString("new_description"));
+                JSONObject format = supportFormats.getJSONObject(i);
+                availableQualities.add(new QualityInfo(format.getString("new_description")));
             }
         }
 
         String finalCurrentQuality = null;
 
-        // 优先尝试解析 DASH (高画质，音视频分离)
         if (result.has("dash")) {
             JSONObject dash = result.getJSONObject("dash");
             if (dash.has("video") && dash.has("audio") && !dash.getJSONArray("video").isEmpty() && !dash.getJSONArray("audio").isEmpty()) {
@@ -158,21 +145,29 @@ public class BilibiliBangumiFetcher {
                     finalCurrentQuality = videoSelection.qualityDescription;
                     String videoBaseUrl = videoSelection.stream.getString("baseUrl");
                     String audioBaseUrl = audioSelection.stream.getString("baseUrl");
-                    return new VideoInfo(videoBaseUrl, audioBaseUrl, mainTitle, author, null, partName, currentP, availableQualities, finalCurrentQuality);
+
+                    // 将解析出的 VideoInfo 存入 BangumiInfo 对象
+                    bangumiInfo.setVideoInfo(new VideoInfo(videoBaseUrl, audioBaseUrl, bangumiInfo.title, "BiliBili", null,
+                            bangumiInfo.getCurrentEpisode().title, bangumiInfo.getCurrentEpisodeIndex() + 1,
+                            availableQualities, finalCurrentQuality, true, Long.parseLong(cid)));
+                    return bangumiInfo;
                 }
             }
         }
 
-        // 如果没有 DASH，尝试解析 DURL (低画质/预览，音视频合并)
         if (result.has("durl")) {
             JSONArray durlArray = result.getJSONArray("durl");
             if (durlArray.length() > 0) {
                 if (supportFormats != null && !supportFormats.isEmpty()) {
                     finalCurrentQuality = supportFormats.getJSONObject(0).getString("new_description");
                 }
-                LOGGER.info("解析DASH失败，降级到DURL格式");
                 String playableUrl = durlArray.getJSONObject(0).getString("url");
-                return new VideoInfo(playableUrl, null, mainTitle, author, null, partName, currentP, availableQualities, finalCurrentQuality);
+                LOGGER.warn("未找到DASH流，可能为会员内容。正在尝试播放DURL流。");
+
+                bangumiInfo.setVideoInfo(new VideoInfo(playableUrl, null, bangumiInfo.title, "BiliBili", null,
+                        bangumiInfo.getCurrentEpisode().title, bangumiInfo.getCurrentEpisodeIndex() + 1,
+                        availableQualities, finalCurrentQuality, true, Long.parseLong(cid)));
+                return bangumiInfo;
             }
         }
 
@@ -278,5 +273,16 @@ public class BilibiliBangumiFetcher {
             }
         }
         return bestStream;
+    }
+
+    private static int parsePNumberFromUrl(String url) {
+        try {
+            Pattern pattern = Pattern.compile("[?&]p=(\\d+)");
+            Matcher matcher = pattern.matcher(url);
+            if (matcher.find()) {
+                return Integer.parseInt(matcher.group(1));
+            }
+        } catch (Exception ignored) {}
+        return 0;
     }
 }

@@ -1,6 +1,7 @@
 package top.tobyprime.mcedia.interfaces;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.provider.QualityInfo;
 
 import java.util.List;
 
@@ -12,7 +13,7 @@ public interface IMediaInfo {
     String getVideoUrl();
     @Nullable String getAudioUrl();
     @Nullable String getCurrentQuality();
-    @Nullable List<String> getAvailableQualities();
+    @Nullable List<QualityInfo> getAvailableQualities();
     boolean isMultiPart();
     int getPartNumber();
     @Nullable String getPartName();

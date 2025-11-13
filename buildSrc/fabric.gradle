@@ -23,6 +23,7 @@ dependencies {
     implementation "com.google.zxing:core:3.5.3"
     modImplementation "com.google.zxing:core:3.5.3"
     modImplementation include('org.json:json:20231013')
+    implementation 'org.java-websocket:Java-WebSocket:1.5.7'
 }
 
 processResources {

@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class MediaDecoder implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
@@ -31,10 +32,11 @@ public class MediaDecoder implements Closeable {
     private final FFmpegFrameGrabber primaryGrabber;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-    private final AtomicBoolean isSeeking = new AtomicBoolean(false);
-    private final AtomicLong seekTargetUs = new AtomicLong(-1);
 
     private volatile int runningDecoders = 0;
+
+    private final ReentrantLock decodeLock = new ReentrantLock();
+    private final AtomicBoolean decodingPaused = new AtomicBoolean(false);
 
     @Nullable
     private VideoFramePool videoFramePool;
@@ -128,6 +130,10 @@ public class MediaDecoder implements Closeable {
 
         try {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
+                if (decodingPaused.get()) {
+                    decodeLock.lock();
+                    decodeLock.unlock();
+                }
                 Frame frame;
                 try {
                     synchronized (this) {
@@ -143,24 +149,8 @@ public class MediaDecoder implements Closeable {
                     continue;
                 }
 
-                if (frame == null) {
-                    break;
-                }
-
-                if (isClosed.get()) {
-                    break;
-                }
-
-//                if (isSeeking.get()) {
-//                    long target = seekTargetUs.get();
-//                    if (target != -1 && frame.timestamp < target) {
-//                        continue;
-//                    } else {
-//                        isSeeking.set(false);
-//                        seekTargetUs.set(-1);
-//                        LOGGER.debug("Seek target reached. Resuming normal decoding.");
-//                    }
-//                }
+                if (frame == null) break;
+                if (isClosed.get()) break;
 
                 boolean isVideo = frame.image != null && configuration.enableVideo;
                 boolean isAudio = frame.samples != null && configuration.enableAudio;
@@ -171,55 +161,61 @@ public class MediaDecoder implements Closeable {
                     int width = frame.imageWidth;
                     int height = frame.imageHeight;
                     int stride = frame.imageStride;
+                    int tightStride = width * 4;
 
                     ByteBuffer rawBuffer = (ByteBuffer) frame.image[0];
-                    rawBuffer.rewind();
+                    long rawBufferAddress = MemoryUtil.memAddress(rawBuffer);
 
-                    int tightStride = width * 4;
                     ByteBuffer copiedBuffer = videoFramePool.acquire();
                     if (copiedBuffer.capacity() < tightStride * height) {
                         videoFramePool.release(copiedBuffer);
                         copiedBuffer = MemoryUtil.memAlloc(tightStride * height);
                     }
-                    copiedBuffer.limit(tightStride * height);
+                    long copiedBufferAddress = MemoryUtil.memAddress(copiedBuffer);
 
                     if (stride == tightStride) {
-                        if (rawBuffer.remaining() < tightStride * height) {
-                            LOGGER.warn("视频帧数据大小不足，期望 {}，实际 {}。将截断复制。", tightStride * height, rawBuffer.remaining());
-                            rawBuffer.limit(rawBuffer.position() + Math.min(rawBuffer.remaining(), copiedBuffer.remaining()));
-                        }
-                        copiedBuffer.put(rawBuffer);
+                        // 如果内存是连续的（没有padding），我们可以进行一次性的、最高效的复制
+                        MemoryUtil.memCopy(rawBufferAddress, copiedBufferAddress, (long)tightStride * height);
                     } else {
-                        final int originalLimit = rawBuffer.limit();
+                        // 如果内存不是连续的（例如，每行末尾有填充字节），我们必须逐行复制有效数据
                         for (int y = 0; y < height; y++) {
-                            int rowStart = y * stride;
-                            if (rowStart >= originalLimit || rowStart + tightStride > originalLimit) {
-                                LOGGER.warn("检测到损坏或不规范的视频帧 (行: {}, stride: {})，该行数据超出缓冲区有效数据范围 (limit: {})。跳过此帧。", y, stride, originalLimit);
-                                copiedBuffer.limit(0);
-                                break;
-                            }
-                            rawBuffer.position(rowStart);
-                            rawBuffer.limit(rowStart + tightStride);
-                            copiedBuffer.put(rawBuffer);
-                            rawBuffer.limit(rawBuffer.capacity());
+                            long sourceAddress = rawBufferAddress + (long)y * stride;
+                            long destAddress = copiedBufferAddress + (long)y * tightStride;
+                            MemoryUtil.memCopy(sourceAddress, destAddress, tightStride);
                         }
                     }
+                    // --- 结束修复 ---
 
-                    if (copiedBuffer.limit() > 0) {
-                        copiedBuffer.rewind();
-                        videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool));
-                    } else {
-                        videoFramePool.release(copiedBuffer);
-                    }
-//                    rawBuffer.clear();
+                    // 设置新buffer的limit并重置position，准备放入队列
+                    copiedBuffer.limit(tightStride * height);
+                    copiedBuffer.rewind();
+
+                    // 将复制了安全数据的VideoFrame放入待处理队列
+                    videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool));
+
                 } else if (isAudio) {
+                    // 音频帧直接克隆，因为它们通常不涉及复杂的本地内存问题
                     audioQueue.put(frame.clone());
                 }
             }
         } catch (Exception e) {
-            if (!isClosed.get()) LOGGER.error("Error in decoder loop", e);
+            if (!isClosed.get()) {
+                LOGGER.error("在解码循环中发生错误", e);
+            }
         } finally {
             runningDecoders--;
+        }
+    }
+
+    public void pauseDecoding() {
+        if (decodingPaused.compareAndSet(false, true)) {
+            decodeLock.lock(); // 获取锁，让解码线程在下一次循环时阻塞
+        }
+    }
+
+    public void resumeDecoding() {
+        if (decodingPaused.compareAndSet(true, false)) {
+            decodeLock.unlock(); // 释放锁，让解码线程继续运行
         }
     }
 
