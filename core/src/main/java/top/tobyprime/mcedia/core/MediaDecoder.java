@@ -36,7 +36,6 @@ public class MediaDecoder implements Closeable {
     @Nullable
     private final VideoFramePool videoFramePool;
 
-    // [最终方案] 使用读写锁来保护对 grabber 的原生调用
     private final ReentrantReadWriteLock grabberLock = new ReentrantReadWriteLock();
 
     public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration, @Nullable VideoFramePool pool, long initialSeekUs) throws FFmpegFrameGrabber.Exception {
@@ -101,10 +100,7 @@ public class MediaDecoder implements Closeable {
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
         grabber.setOption("analyzeduration", "10000000");
-
-        // 强制禁用硬件解码，确保稳定性
-        // if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
-
+        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
@@ -120,67 +116,75 @@ public class MediaDecoder implements Closeable {
         runningDecoders++;
         try {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
-                Frame frame = null;
-
-                // [核心修复] 在抓取帧前后获取和释放读锁
                 grabberLock.readLock().lock();
                 try {
-                    if (isClosed.get()) break;
-                    frame = grabber.grab();
+                    if (isClosed.get()) {
+                        break;
+                    }
+
+                    Frame frame = grabber.grab();
+                    if (frame == null) {
+                        break;
+                    }
+
+                    boolean isVideo = frame.image != null && configuration.enableVideo;
+                    boolean isAudio = frame.samples != null && configuration.enableAudio;
+
+                    if (isVideo) {
+                        if (videoFramePool != null) {
+                            int width = frame.imageWidth;
+                            int height = frame.imageHeight;
+                            int stride = frame.imageStride;
+                            int tightStride = width * 4;
+
+                            ByteBuffer rawBuffer = (ByteBuffer) frame.image[0];
+
+                            VideoFramePool finalPool = videoFramePool;
+                            ByteBuffer copiedBuffer = videoFramePool.acquire();
+
+                            if (copiedBuffer.capacity() < tightStride * height) {
+                                videoFramePool.release(copiedBuffer);
+                                copiedBuffer = MemoryUtil.memAlloc(tightStride * height);
+                                finalPool = null;
+                            }
+
+                            long rawBufferAddress = MemoryUtil.memAddress(rawBuffer);
+                            long copiedBufferAddress = MemoryUtil.memAddress(copiedBuffer);
+
+                            if (stride == tightStride) {
+                                MemoryUtil.memCopy(rawBufferAddress, copiedBufferAddress, (long)tightStride * height);
+                            } else {
+                                for (int y = 0; y < height; y++) {
+                                    long sourceAddress = rawBufferAddress + (long)y * stride;
+                                    long destAddress = copiedBufferAddress + (long)y * tightStride;
+                                    MemoryUtil.memCopy(sourceAddress, destAddress, tightStride);
+                                }
+                            }
+
+                            copiedBuffer.limit(tightStride * height);
+                            copiedBuffer.rewind();
+
+                            videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, finalPool));
+                        }
+                    } else if (isAudio) {
+                        audioQueue.put(frame.clone());
+                    }
+
                 } catch (FFmpegFrameGrabber.Exception e) {
-                    // 忽略抓取过程中的错误，这可能是流的正常结束或网络问题
+                    if (!isClosed.get()) {
+                        LOGGER.warn("在 grabber.grab() 期间发生错误，解码循环将终止。", e);
+                    }
+                    break;
                 } finally {
                     grabberLock.readLock().unlock();
-                }
-
-                if (frame == null) {
-                    // grab() 返回 null 或抛出异常都意味着流结束或不可用
-                    break;
-                }
-
-                boolean isVideo = frame.image != null && configuration.enableVideo;
-                boolean isAudio = frame.samples != null && configuration.enableAudio;
-
-                if (isVideo) {
-                    if (videoFramePool == null) continue;
-
-                    int width = frame.imageWidth;
-                    int height = frame.imageHeight;
-                    int stride = frame.imageStride;
-                    int tightStride = width * 4;
-
-                    ByteBuffer rawBuffer = (ByteBuffer) frame.image[0];
-                    long rawBufferAddress = MemoryUtil.memAddress(rawBuffer);
-
-                    ByteBuffer copiedBuffer = videoFramePool.acquire();
-                    if (copiedBuffer.capacity() < tightStride * height) {
-                        videoFramePool.release(copiedBuffer);
-                        copiedBuffer = MemoryUtil.memAlloc(tightStride * height);
-                    }
-                    long copiedBufferAddress = MemoryUtil.memAddress(copiedBuffer);
-
-                    if (stride == tightStride) {
-                        MemoryUtil.memCopy(rawBufferAddress, copiedBufferAddress, (long)tightStride * height);
-                    } else {
-                        for (int y = 0; y < height; y++) {
-                            long sourceAddress = rawBufferAddress + (long)y * stride;
-                            long destAddress = copiedBufferAddress + (long)y * tightStride;
-                            MemoryUtil.memCopy(sourceAddress, destAddress, tightStride);
-                        }
-                    }
-
-                    copiedBuffer.limit(tightStride * height);
-                    copiedBuffer.rewind();
-                    videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, videoFramePool));
-
-                } else if (isAudio) {
-                    audioQueue.put(frame.clone());
                 }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            if (!isClosed.get()) LOGGER.error("在解码循环中发生未捕获的错误", e);
+            if (!isClosed.get()) {
+                LOGGER.error("在解码循环中发生未捕获的错误", e);
+            }
         } finally {
             runningDecoders--;
         }
@@ -206,7 +210,6 @@ public class MediaDecoder implements Closeable {
         if (getDuration() <= 0) return;
         timestamp = Math.max(0, Math.min(timestamp, getDuration()));
 
-        // [核心修复] seek 是一个“写”操作，需要获取写锁
         grabberLock.writeLock().lock();
         try {
             clearQueue();
@@ -227,8 +230,6 @@ public class MediaDecoder implements Closeable {
         }
 
         decoderThreads.forEach(Thread::interrupt);
-
-        // [核心修复] 获取写锁来安全地关闭 grabber，这会等待所有 grab() 操作完成
         grabberLock.writeLock().lock();
         try {
             for (FFmpegFrameGrabber grabber : grabbers) {
@@ -245,7 +246,7 @@ public class MediaDecoder implements Closeable {
 
         for (Thread thread : decoderThreads) {
             try {
-                thread.join(500); // 等待线程终止
+                thread.join(500);
             } catch (InterruptedException ignored) {}
         }
 

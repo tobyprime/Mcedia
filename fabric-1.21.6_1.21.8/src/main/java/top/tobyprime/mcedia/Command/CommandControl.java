@@ -1,6 +1,7 @@
 package top.tobyprime.mcedia.Command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -95,6 +96,64 @@ public class CommandControl {
                                                     String boolStr = StringArgumentType.getString(ctx, "enabled");
                                                     agent.commandSetLooping(Boolean.parseBoolean(boolStr));
                                                 }))
+                                        )
+                                )
+                                .then(literal("autoplay")
+                                        .then(argument("enabled", BoolArgumentType.bool())
+                                                .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                    agent.commandSetAutoplay(BoolArgumentType.getBool(ctx, "enabled"));
+                                                }))
+                                        )
+                                )
+                                .then(literal("danmaku")
+                                        .then(argument("enabled", BoolArgumentType.bool())
+                                                .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                    agent.commandSetDanmakuEnabled(BoolArgumentType.getBool(ctx, "enabled"));
+                                                }))
+                                        )
+                                        .then(literal("area")
+                                                .then(argument("percent", FloatArgumentType.floatArg(0, 100))
+                                                        .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                            agent.commandSetDanmakuArea(FloatArgumentType.getFloat(ctx, "percent"));
+                                                        })))
+                                        )
+                                        .then(literal("opacity")
+                                                .then(argument("percent", FloatArgumentType.floatArg(0, 100))
+                                                        .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                            agent.commandSetDanmakuOpacity(FloatArgumentType.getFloat(ctx, "percent"));
+                                                        })))
+                                        )
+                                        .then(literal("font_scale")
+                                                .then(argument("scale", FloatArgumentType.floatArg(0.1f))
+                                                        .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                            agent.commandSetDanmakuFontScale(FloatArgumentType.getFloat(ctx, "scale"));
+                                                        })))
+                                        )
+                                        .then(literal("speed_scale")
+                                                .then(argument("scale", FloatArgumentType.floatArg(0.1f))
+                                                        .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                            agent.commandSetDanmakuSpeedScale(FloatArgumentType.getFloat(ctx, "scale"));
+                                                        })))
+                                        )
+                                        .then(literal("type")
+                                                .then(literal("scrolling")
+                                                        .then(argument("visible", BoolArgumentType.bool())
+                                                                .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                                    agent.commandSetDanmakuTypeVisible("scrolling", BoolArgumentType.getBool(ctx, "visible"));
+                                                                })))
+                                                )
+                                                .then(literal("top")
+                                                        .then(argument("visible", BoolArgumentType.bool())
+                                                                .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                                    agent.commandSetDanmakuTypeVisible("top", BoolArgumentType.getBool(ctx, "visible"));
+                                                                })))
+                                                )
+                                                .then(literal("bottom")
+                                                        .then(argument("visible", BoolArgumentType.bool())
+                                                                .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                                    agent.commandSetDanmakuTypeVisible("bottom", BoolArgumentType.getBool(ctx, "visible"));
+                                                                })))
+                                                )
                                         )
                                 )
                                 .then(literal("screen")

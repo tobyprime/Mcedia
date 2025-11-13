@@ -40,9 +40,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -199,63 +197,67 @@ public class PlayerAgent {
     }
 
     public void tick() {
-        update();
-        Media currentMedia = player.getMedia();
-        if (currentMedia != null && !isReconnecting) {
-            if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
-                if (!currentMedia.isLiveStream() && currentMedia.isPlaying()) {
-                    saveProgressTicker++;
-                    if (saveProgressTicker >= 100) {
-                        saveProgressTicker = 0;
-                        Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), currentMedia.getDurationUs());
+        try {
+            update();
+            Media currentMedia = player.getMedia();
+            if (currentMedia != null && !isReconnecting) {
+                if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+                    if (!currentMedia.isLiveStream() && currentMedia.isPlaying()) {
+                        saveProgressTicker++;
+                        if (saveProgressTicker >= 100) {
+                            saveProgressTicker = 0;
+                            Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), currentMedia.getDurationUs());
+                        }
                     }
                 }
-            }
-            if (currentMedia.needsReconnect()) {
-                LOGGER.warn("检测到媒体流中断，正在尝试自动重连: {}", playingUrl);
-                isReconnecting = true;
-                this.open(playingUrl);
-                this.startPlayback(false);
-                return;
-            }
-            if (currentMedia.isEnded()) {
-                if (currentPlayingItem == null) {
-                    playNextInQueue();
+                if (currentMedia.needsReconnect()) {
+                    LOGGER.warn("检测到媒体流中断，正在尝试自动重连: {}", playingUrl);
+                    isReconnecting = true;
+                    this.open(playingUrl);
+                    this.startPlayback(false);
                     return;
                 }
-                if (this.videoAutoplay) {
-                    if (currentPlayingItem.mode == BiliPlaybackMode.BANGUMI_SERIES) {
-                        if (playNextBangumiEpisode()) {
-                            return;
+                if (currentMedia.isEnded()) {
+                    if (currentPlayingItem == null) {
+                        playNextInQueue();
+                        return;
+                    }
+                    if (this.videoAutoplay) {
+                        if (currentPlayingItem.mode == BiliPlaybackMode.BANGUMI_SERIES) {
+                            if (playNextBangumiEpisode()) {
+                                return;
+                            }
+                        }
+                        if (currentPlayingItem.mode == BiliPlaybackMode.SINGLE_PART && currentPlayingItem.originalUrl.contains("bilibili.com/video/")) {
+                            if (playNextBilibiliVideoPart(playingUrl, false)) {
+                                return;
+                            }
                         }
                     }
-                    if (currentPlayingItem.mode == BiliPlaybackMode.SINGLE_PART && currentPlayingItem.originalUrl.contains("bilibili.com/video/")) {
-                        if (playNextBilibiliVideoPart(playingUrl, false)) {
-                            return;
+                    if (player.looping) {
+                        if (!playlist.isEmpty()) {
+                            LOGGER.info("列表循环: 将 '{}' 添加到队尾并播放下一个。", currentPlayingItem.originalUrl);
+                            playlist.offer(currentPlayingItem);
+                            playNextInQueue();
+                        } else {
+                            LOGGER.info("单项循环: 重新播放 '{}'。", currentPlayingItem.originalUrl);
+                            this.open(playingUrl);
+                            this.startPlayback(true);
                         }
-                    }
-                }
-                if (player.looping) {
-                    if (!playlist.isEmpty()) {
-                        LOGGER.info("列表循环: 将 '{}' 添加到队尾并播放下一个。", currentPlayingItem.originalUrl);
-                        playlist.offer(currentPlayingItem);
+                    } else if (!playlist.isEmpty()) {
+                        LOGGER.info("顺序播放: 播放列表下一项。");
                         playNextInQueue();
                     } else {
-                        LOGGER.info("单项循环: 重新播放 '{}'。", currentPlayingItem.originalUrl);
-                        this.open(playingUrl);
-                        this.startPlayback(true);
+                        LOGGER.info("播放列表已结束。");
+                        currentPlayingItem = null;
+                        open(null);
+                        player.closeAsync();
                     }
-                } else if (!playlist.isEmpty()) {
-                    LOGGER.info("顺序播放: 播放列表下一项。");
-                    playNextInQueue();
-                } else {
-                    LOGGER.info("播放列表已结束。");
-                    currentPlayingItem = null;
-                    open(null);
-                    player.closeAsync();
                 }
             }
-        }
+        } catch (Exception e) {
+            LOGGER.error("在 PlayerAgent.tick() 中发生未捕获的异常", e);
+            }
     }
 
     public static long parseTimestampToMicros(String timeStr) {
@@ -300,23 +302,23 @@ public class PlayerAgent {
         try {
             ItemStack mainHandItem = entity.getItemInHand(InteractionHand.MAIN_HAND);
             List<String> bookPages = getBookPages(mainHandItem);
+            String newPlaylistContent = bookPages != null ? String.join("\n", bookPages) : "";
             if (bookPages != null && !bookPages.isEmpty()) {
                 this.currentSource = PlaybackSource.BOOK;
             }
-            if (this.currentSource == PlaybackSource.BOOK) {
-                String newPlaylistContent = bookPages != null ? String.join("\n", bookPages) : "";
-                if (!newPlaylistContent.equals(currentPlaylistContent)) {
-                    LOGGER.info("检测到播放列表(书本)变更，强制中断并更新...");
-                    currentPlaylistContent = newPlaylistContent;
-                    player.closeAsync();
+            if (!newPlaylistContent.equals(currentPlaylistContent)) {
+                LOGGER.info("检测到播放列表(书本)变更，强制中断并更新...");
+                currentPlaylistContent = newPlaylistContent;
+                player.closeAsync().thenRun(() -> {
                     updatePlaylist(bookPages);
                     playNextInQueue();
-                }
+                });
+                return;
             }
 
             ItemStack offHandItem = entity.getItemInHand(InteractionHand.OFF_HAND);
             if (!ItemStack.matches(offHandItem, preOffHandItemStack)) {
-                preOffHandItemStack = offHandItem.copy();
+                preloadOffHandConfig();
                 List<String> offHandPages = getBookPages(offHandItem);
                 boolean qualityChanged = false;
                 if (offHandPages != null) {
@@ -636,8 +638,8 @@ public class PlayerAgent {
     }
 
     private void fallbackToNetworkPlayback(String initialUrl, boolean isLooping, long currentToken) {
-        UrlExpander.expand(initialUrl)
-                .thenComposeAsync(expandedUrl -> { // 使用 thenComposeAsync
+        CompletableFuture<VideoInfo> videoInfoFuture = UrlExpander.expand(initialUrl)
+                .thenComposeAsync(expandedUrl -> {
                     if (playbackToken.get() != currentToken) {
                         return CompletableFuture.failedFuture(new IllegalStateException("Playback aborted by new request."));
                     }
@@ -670,23 +672,41 @@ public class PlayerAgent {
                             throw new RuntimeException(e);
                         }
                     }, Mcedia.getInstance().getBackgroundExecutor());
-                }, Mcedia.getInstance().getBackgroundExecutor())
-                .handle((videoInfo, throwable) -> { // 使用 handle 来同时处理成功和失败
-                    if (playbackToken.get() != currentToken) {
-                        LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
-                        return null;
-                    }
-                    if (throwable != null) {
-                        if (!(throwable.getCause() instanceof IllegalStateException)) {
-                            handlePlaybackFailure(throwable, initialUrl, initialUrl, isLooping);
+                }, Mcedia.getInstance().getBackgroundExecutor());
+
+        videoInfoFuture.handleAsync((videoInfo, throwable) -> {
+            if (playbackToken.get() != currentToken) {
+                LOGGER.debug("Playback token {} is outdated, aborting final handler.", currentToken);
+                return null;
+            }
+
+            if (throwable != null) {
+                if (!(throwable.getCause() instanceof IllegalStateException)) {
+                    Minecraft.getInstance().execute(() -> {
+                        handlePlaybackFailure(throwable, initialUrl, initialUrl, isLooping);
+                    });
+                }
+            } else {
+                try {
+                    player.openSync(videoInfo, null, 0);
+                    Minecraft.getInstance().execute(() -> {
+                        if (playbackToken.get() != currentToken) {
+                            LOGGER.debug("Playback token {} became outdated during main thread scheduling.", currentToken);
+                            player.closeAsync();
+                            return;
                         }
-                    } else {
-                        player.openSync(videoInfo, null, 0);
                         IMediaProvider provider = MediaProviderRegistry.getInstance().getProviderForUrl(initialUrl);
                         handlePlaybackSuccess(videoInfo, initialUrl, isLooping, provider);
-                    }
-                    return null;
-                });
+                    });
+                } catch (Exception e) {
+                    LOGGER.error("在后台线程执行 openSync 时失败", e);
+                    Minecraft.getInstance().execute(() -> {
+                        handlePlaybackFailure(e, initialUrl, initialUrl, isLooping);
+                    });
+                }
+            }
+            return null;
+        }, Mcedia.getInstance().getBackgroundExecutor());
     }
 
     private long parseTimestampFromUrl(String url) {
@@ -741,20 +761,20 @@ public class PlayerAgent {
     private void handlePlaybackSuccess(VideoInfo videoInfo, String finalMediaUrl, boolean isLooping, @Nullable IMediaProvider provider) {
         this.currentStatus = PlaybackStatus.PLAYING;
         this.isTextureInitialized = false;
-        danmakuManager.clear();
-        if (videoInfo.getCid() > 0 && (provider instanceof BilibiliVideoProvider || provider instanceof BilibiliBangumiProvider)) {
-            LOGGER.info("[DANMAKU-DEBUG] 正在获取视频(cid={})的弹幕...", videoInfo.getCid());
-            DanmakuFetcher.fetchDanmaku(videoInfo.getCid())
-                    .thenAcceptAsync(danmakuList -> {
-                        LOGGER.info("[DANMAKU-DEBUG] Fetched danmaku list with size: {}. Loading into manager.", danmakuList.size());
-                        danmakuManager.load(danmakuList);
-                    }, Minecraft.getInstance()::execute);
-        }
         Media media = player.getMedia();
         if (media == null) {
             LOGGER.error("视频加载成功但Media对象为空，这是一个严重错误。");
             return;
         }
+
+        CompletableFuture.runAsync(() -> {
+            danmakuManager.clear();
+            if (this.danmakuEnable && videoInfo.getCid() > 0) {
+                LOGGER.info("正在获取B站内容(cid={})的弹幕...", videoInfo.getCid());
+                DanmakuFetcher.fetchDanmaku(videoInfo.getCid())
+                        .thenAcceptAsync(danmakuManager::load, Minecraft.getInstance()::execute);
+            }
+        });
 
         if (shouldCacheForLoop && !media.isLiveStream() && !cacheManager.isCached(finalMediaUrl) && !cacheManager.isCaching(finalMediaUrl)) {
             LOGGER.info("正在为循环播放在后台缓存视频: {}", finalMediaUrl);
@@ -1501,12 +1521,43 @@ public class PlayerAgent {
 
     public Component getStatusComponent() {
         Media media = player.getMedia();
+        MutableComponent status = Component.literal("§6--- Mcedia Player Status ---\n");
+
         if (media == null) {
-            return Component.literal("§e[Mcedia Status] §f当前无播放。");
+            status.append("§e状态: §f空闲 (无播放)\n");
+            return status;
         }
         IMediaInfo info = media.getMediaInfo();
-        MutableComponent status = Component.literal("§6--- Mcedia Player Status ---\n");
-        status.append("§eURL: §f" + playingUrl + "\n");
+        // 播放信息
+        if (playingUrl != null) {
+            MutableComponent hoverText = Component.literal("点击可在浏览器中打开");
+            if (info != null) {
+                List<QualityInfo> qualities = info.getAvailableQualities();
+                String currentQuality = info.getCurrentQuality();
+                if (qualities != null && !qualities.isEmpty()) {
+                    hoverText.append(Component.literal("\n\n§f可用清晰度:").withStyle(ChatFormatting.GRAY));
+                    for (QualityInfo quality : qualities) {
+                        boolean isCurrent = Objects.equals(quality.description, currentQuality);
+                        ChatFormatting color = isCurrent ? ChatFormatting.DARK_PURPLE : ChatFormatting.AQUA;
+                        String prefix = isCurrent ? "\n> " : "\n- ";
+                        hoverText.append(Component.literal(prefix + quality.description).withStyle(color));
+                    }
+                }
+            }
+            HoverEvent hoverEvent = new HoverEvent.ShowText(hoverText);
+            ClickEvent clickEvent = new ClickEvent.OpenUrl(URI.create(playingUrl));
+            Style interactiveStyle = Style.EMPTY.withHoverEvent(hoverEvent).withClickEvent(clickEvent);
+            status.append(Component.literal("§eURL: ").append(Component.literal(playingUrl).withStyle(interactiveStyle.withColor(ChatFormatting.AQUA)))).append("\n");
+        }
+        if (info != null) {
+            if (info.getTitle() != null && !info.getTitle().isBlank()) {
+                status.append("§e标题: §f" + info.getTitle() + "\n");
+            }
+            if (info.getAuthor() != null && !info.getAuthor().isBlank()) {
+                status.append("§e作者: §f" + info.getAuthor() + "\n");
+            }
+        }
+        // 播放进度和状态
         if (media.isLiveStream()) {
             status.append("§e类型: §b直播流\n");
             long duration = media.getDurationUs() / 1_000_000;
@@ -1522,9 +1573,42 @@ public class PlayerAgent {
         if (info != null && info.getCurrentQuality() != null) {
             status.append("§e清晰度: §d" + info.getCurrentQuality() + "\n");
         }
-        status.append("§e状态: §f" + (player.isBuffering() ? "§6缓冲中" : (media.isPaused() ? "§e已暂停" : "§a播放中")) + "\n");
-        status.append("§e解码: §f" + (player.getDecoderConfiguration().useHardwareDecoding ? "§b硬件" : "§7软件"));
+        status.append("§e状态: " + (player.isBuffering() ? "§6缓冲中" : (media.isPaused() ? "§e已暂停" : "§a播放中")) + "\n");
+        // 实体与组件状态
+        status.append("§6--- 实体与组件状态 ---\n");
+        float yRotRadians = (float) -Math.toRadians(this.entity.getYRot());
+        var screenOffsetRotated = new Vector3f(offsetX, offsetY, offsetZ).rotateY(yRotRadians);
+        double screenX = this.entity.getX() + screenOffsetRotated.x();
+        double screenY = this.entity.getY() + screenOffsetRotated.y() + 1.02 * this.entity.getScale();
+        double screenZ = this.entity.getZ() + screenOffsetRotated.z();
+        status.append(String.format("§e屏幕坐标: §f(%.2f, %.2f, %.2f)\n", screenX, screenY, screenZ));
 
+        var primaryAudioOffsetRotated = new Vector3f(audioOffsetX, audioOffsetY, audioOffsetZ).rotateY(yRotRadians);
+        double primaryAudioX = this.entity.getX() + primaryAudioOffsetRotated.x();
+        double primaryAudioY = this.entity.getY() + primaryAudioOffsetRotated.y();
+        double primaryAudioZ = this.entity.getZ() + primaryAudioOffsetRotated.z();
+        status.append(String.format("§e主声源: §f(%.2f, %.2f, %.2f)\n", primaryAudioX, primaryAudioY, primaryAudioZ));
+
+        if (isSecondarySourceActive) {
+            var secondaryAudioOffsetRotated = new Vector3f(audioOffsetX2, audioOffsetY2, audioOffsetZ2).rotateY(yRotRadians);
+            double secondaryAudioX = this.entity.getX() + secondaryAudioOffsetRotated.x();
+            double secondaryAudioY = this.entity.getY() + secondaryAudioOffsetRotated.y();
+            double secondaryAudioZ = this.entity.getZ() + secondaryAudioOffsetRotated.z();
+            status.append(String.format("§e副声源: §a已启用 §f(%.2f, %.2f, %.2f)\n", secondaryAudioX, secondaryAudioY, secondaryAudioZ));
+        } else {
+            status.append("§e副声源: §7未启用\n");
+        }
+        if (danmakuEnable) {
+            StringBuilder danmakuTypes = new StringBuilder();
+            if (showScrollingDanmaku) danmakuTypes.append("滚 ");
+            if (showTopDanmaku) danmakuTypes.append("顶 ");
+            if (showBottomDanmaku) danmakuTypes.append("底");
+            status.append(String.format("§e弹幕: §a开启 §7(类型: %s)\n", danmakuTypes.toString().trim()));
+        } else {
+            status.append("§e弹幕: §7关闭\n");
+        }
+        status.append(String.format("§e自动连播: %s\n", (videoAutoplay ? "§a开启" : "§7关闭")));
+        status.append("§6-------------------------\n");
         return status;
     }
 
@@ -1669,5 +1753,62 @@ public class PlayerAgent {
             component.append(line).append("\n");
         }
         return component;
+    }
+
+    public void commandSetAutoplay(boolean enabled) {
+        this.videoAutoplay = enabled;
+        if (enabled) {
+            Mcedia.msgToPlayer("§a[Mcedia] §f自动连播已开启。");
+        } else {
+            Mcedia.msgToPlayer("§e[Mcedia] §f自动连播已关闭。");
+        }
+    }
+
+    public void commandSetDanmakuEnabled(boolean enabled) {
+        this.danmakuEnable = enabled;
+        if (enabled) {
+            Mcedia.msgToPlayer("§a[Mcedia] §f弹幕已开启。");
+        } else {
+            Mcedia.msgToPlayer("§e[Mcedia] §f弹幕已关闭。");
+        }
+    }
+
+    public void commandSetDanmakuArea(float percent) {
+        this.danmakuDisplayArea = Mth.clamp(percent / 100.0f, 0.0f, 1.0f);
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕显示区域已设置为 %.0f%%。", percent));
+    }
+
+    public void commandSetDanmakuOpacity(float percent) {
+        this.danmakuOpacity = Mth.clamp(percent / 100.0f, 0.0f, 1.0f);
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕不透明度已设置为 %.0f%%。", percent));
+    }
+
+    public void commandSetDanmakuFontScale(float scale) {
+        this.danmakuFontScale = Math.max(0.1f, scale);
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕字体缩放已设置为 %.2f。", scale));
+    }
+
+    public void commandSetDanmakuSpeedScale(float scale) {
+        this.danmakuSpeedScale = Math.max(0.1f, scale);
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕速度缩放已设置为 %.2f。", scale));
+    }
+
+    public void commandSetDanmakuTypeVisible(String type, boolean visible) {
+        String typeName = "未知";
+        switch (type.toLowerCase()) {
+            case "scrolling":
+                this.showScrollingDanmaku = visible;
+                typeName = "滚动弹幕";
+                break;
+            case "top":
+                this.showTopDanmaku = visible;
+                typeName = "顶部弹幕";
+                break;
+            case "bottom":
+                this.showBottomDanmaku = visible;
+                typeName = "底部弹幕";
+                break;
+        }
+        Mcedia.msgToPlayer(String.format("§f[Mcedia] §7%s已§%s。", typeName, visible ? "a开启" : "e关闭"));
     }
 }

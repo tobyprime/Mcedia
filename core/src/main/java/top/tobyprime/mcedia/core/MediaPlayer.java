@@ -7,6 +7,8 @@ import top.tobyprime.mcedia.interfaces.IMediaInfo;
 import top.tobyprime.mcedia.interfaces.ITexture;
 import top.tobyprime.mcedia.provider.VideoInfo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -18,6 +20,7 @@ import static org.bytedeco.ffmpeg.global.avutil.AV_LOG_ERROR;
 import static org.bytedeco.ffmpeg.global.avutil.av_log_set_level;
 
 public class MediaPlayer {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MediaPlayer.class);
     private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MediaPlayer-Async");
         t.setDaemon(true);
@@ -131,7 +134,10 @@ public class MediaPlayer {
     public void openSync(VideoInfo info, @Nullable String cookie, long initialSeekUs) {
         lock.lock();
         try {
-            closeInternal();
+            if (media != null) {
+                LOGGER.warn("openSync 在 media 不为 null 时被调用，这可能是一个逻辑错误。为防止问题，将强制关闭旧实例。");
+                closeInternal();
+            }
             if (info == null) return;
             var newMedia = new Media(info, cookie, decoderConfiguration, initialSeekUs);
             bindResourcesToMedia(newMedia);
