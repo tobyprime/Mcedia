@@ -72,20 +72,6 @@ public class CommandControl {
                                         }))
                                 )
                         )
-                        .then(literal("reset")
-                                .then(argument("category", StringArgumentType.word())
-                                        .suggests((ctx, builder) -> {
-                                            builder.suggest("all");
-                                            builder.suggest("danmaku");
-                                            builder.suggest("playback");
-                                            builder.suggest("screen");
-                                            return builder.buildFuture();
-                                        })
-                                        .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
-                                            agent.commandResetSettings(StringArgumentType.getString(ctx, "category"));
-                                        }))
-                                )
-                        )
                         .then(literal("set")
                                 .then(literal("volume")
                                         .then(argument("percent", FloatArgumentType.floatArg(0, 100))

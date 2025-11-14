@@ -168,4 +168,8 @@ public class DanmakuManager {
         activeDanmaku.clear();
         Arrays.fill(trackAvailableTime, 0);
     }
+
+    public boolean isListEmpty() {
+        return this.allDanmaku == null || this.allDanmaku.isEmpty();
+    }
 }
