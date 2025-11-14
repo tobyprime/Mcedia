@@ -95,6 +95,7 @@ public class CommandHelp {
                 source.sendFeedback(Component.literal("§6第3页: 其他设置"));
                 source.sendFeedback(Component.literal("  §e第一行: §flooping §7(开启列表/单项循环)"));
                 source.sendFeedback(Component.literal("  §e第二行: §fautoplay §7(开启B站分P/番剧连播)"));
+                source.sendFeedback(Component.literal("  §b- §flight: <0-15> §7(自定义光照等级，15为最亮)"));
                 source.sendFeedback(Component.literal("§6第4页: 全局清晰度"));
                 source.sendFeedback(Component.literal("  §7(只写清晰度名称，例如: §e1080P 高清§7, 或 §e自动§7)"));
                 source.sendFeedback(Component.literal("§6第5页: 弹幕设置"));
@@ -112,7 +113,7 @@ public class CommandHelp {
                 source.sendFeedback(Component.literal("  §fActions: §fpause, resume, stop, skip, seek <时间>"));
                 source.sendFeedback(Component.literal("§6--- 参数设置 ---"));
                 source.sendFeedback(Component.literal("§e/mcedia control set <property> [value]"));
-                source.sendFeedback(Component.literal("  §fProperties: §furl, volume, loop, autoplay, danmaku..."));
+                source.sendFeedback(Component.literal("  §fProperties: §furl, volume, loop, autoplay, danmaku, screen..."));
                 source.sendFeedback(Component.literal("§7输入 §a/mcedia help danmaku §7查看详细弹幕指令。"));
             }
             case "playlist" -> {

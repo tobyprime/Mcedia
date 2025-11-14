@@ -31,13 +31,17 @@ shadowJar {
     archiveClassifier.set('all') // 会生成 xxx-all.jar
     mergeServiceFiles() // 处理 META-INF/services 文件合并（如 SLF4J）
 
-    // 可选：只打包你关心的依赖
     dependencies {
         include(dependency("org.json:json"))
-
         include(dependency("org.bytedeco:javacv"))
         include(dependency("org.bytedeco:javacpp"))
         include(dependency("org.bytedeco:ffmpeg"))
+
+        include(dependency("org.brotli:dec"))
+
+        include(dependency("com.squareup.okhttp3:.*"))
+        include(dependency("com.squareup.okio:.*"))
+        include(dependency("org.jetbrains.kotlin:.*"))
     }
 }
 test {

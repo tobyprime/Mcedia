@@ -1,6 +1,7 @@
 package top.tobyprime.mcedia;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.GpuDevice;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
@@ -15,96 +16,106 @@ import top.tobyprime.mcedia.interfaces.ITexture;
 
 public class VideoTexture extends AbstractTexture implements ITexture {
     private final Logger logger = LoggerFactory.getLogger(VideoTexture.class);
-    ResourceLocation resourceLocation;
+    private final ResourceLocation resourceLocation;
+    private volatile boolean isInitialized = false;
+    private int width = -1;
+    private int height = -1;
 
     public VideoTexture(ResourceLocation id) {
         super();
-        Minecraft.getInstance().getTextureManager().register(id, this);
         this.resourceLocation = id;
+        Minecraft.getInstance().getTextureManager().register(id, this);
     }
 
-    /**
-     * 新的统一入口方法，接受一个回调函数。
-     */
+    public boolean isInitialized() {
+        return this.isInitialized;
+    }
+
     public void prepareAndPrewarm(int width, int height, Runnable onReadyCallback) {
+        if (width <= 0 || height <= 0) {
+            logger.warn("尝试使用无效的尺寸 {}x{} 准备纹理", width, height);
+            return;
+        }
+
         Minecraft.getInstance().execute(() -> {
-            // 这整个 lambda 表达式现在都在渲染线程上安全执行
+            RenderSystem.assertOnRenderThread();
+            try {
+                if (this.texture == null || this.width != width || this.height != height) {
+                    resize(width, height);
+                }
 
-            // 调整纹理大小
-            if (texture == null || texture.getWidth(0) != width || texture.getHeight(0) != height) {
-                resize(width, height);
-            }
+                try (var blackFrame = VideoFrame.createBlack(width, height)) {
+                    upload(blackFrame);
+                }
 
-            // 上传“黑屏帧”以预热
-            try (var blackFrame = VideoFrame.createBlack(width, height)) {
-                uploadInternal(blackFrame);
+                this.isInitialized = true;
+
+                if (onReadyCallback != null) {
+                    onReadyCallback.run();
+                }
             } catch (Exception e) {
-                logger.error("在渲染线程上预热帧上传失败", e);
-            }
-
-            // 所有GPU工作已完成，执行回调，通知 PlayerAgent 可以开始渲染了
-            if (onReadyCallback != null) {
-                onReadyCallback.run();
+                logger.error("在渲染线程上准备纹理失败", e);
             }
         });
     }
 
     private void resize(int width, int height) {
-        logger.info("正在为视频纹理分配显存: {}x{}", width, height);
+        RenderSystem.assertOnRenderThread();
+        logger.info("正在为视频纹理分配/重新分配显存: {}x{}", width, height);
 
-        if (this.textureView != null) this.textureView.close();
-        if (this.texture != null) this.texture.close();
+        this.closeInternal();
 
         GpuDevice gpuDevice = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST;
 
         this.texture = gpuDevice.createTexture(this.resourceLocation.toString(), usage, TextureFormat.RGBA8, width, height, 1, 1);
         this.textureView = gpuDevice.createTextureView(this.texture);
+        this.width = width;
+        this.height = height;
+
         this.setClamp(true);
         this.setFilter(true, false);
     }
 
-    /**
-     * 公共的 upload 方法，供外部（PlayerAgent.render）调用。
-     * 它假定自己总是在渲染线程上被调用。
-     */
     @Override
     public void upload(VideoFrame frame) {
         RenderSystem.assertOnRenderThread();
-        uploadInternal(frame);
-    }
-
-    /**
-     * 内部的上传实现，不进行线程检查，因为它只被已在渲染线程上的代码调用。
-     */
-    private void uploadInternal(VideoFrame frame) {
-        if (this.texture == null || this.texture.getWidth(0) != frame.width || this.texture.getHeight(0) != frame.height) {
-            return; // 纹理未准备好或尺寸不匹配，安全退出
+        if (!this.isInitialized || this.texture == null || frame.buffer == null || this.width != frame.width || this.height != frame.height) {
+            return;
         }
 
         GpuDevice gpuDevice = RenderSystem.getDevice();
         frame.buffer.rewind();
 
-        gpuDevice.createCommandEncoder().writeToTexture(
-                texture, frame.buffer.asIntBuffer(), NativeImage.Format.RGBA,
-                0, 0, 0, 0,
-                this.texture.getWidth(0), this.texture.getHeight(0)
+        CommandEncoder commandEncoder = gpuDevice.createCommandEncoder();
+        commandEncoder.writeToTexture(
+                this.texture,
+                frame.buffer.asIntBuffer(),
+                NativeImage.Format.RGBA,
+                0,
+                0,
+                0,
+                0,
+                frame.width,
+                frame.height
         );
     }
 
     @Override
     public void close() {
-        // 确保在主线程上关闭GPU资源
-        Minecraft.getInstance().execute(super::close);
+        if (!RenderSystem.isOnRenderThread()) {
+            Minecraft.getInstance().execute(this::closeInternal);
+        } else {
+            closeInternal();
+        }
     }
 
-    public void release() {
-        // AbstractTexture.release() 已经被 close() 调用
-        // 如果需要额外清理，也应在主线程
-        Minecraft.getInstance().execute(() -> {
-            if (this.textureView != null) this.textureView.close();
-            if (this.texture != null) this.texture.close();
-        });
+    private void closeInternal() {
+        RenderSystem.assertOnRenderThread();
+        super.close();
+        this.isInitialized = false;
+        this.width = -1;
+        this.height = -1;
     }
 
     public ResourceLocation getResourceLocation() {

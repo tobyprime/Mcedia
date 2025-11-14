@@ -221,7 +221,7 @@ public class Mcedia implements ModInitializer {
         PlayerAgent agent = this.entityToPlayer.remove(entity);
         if (agent != null) {
             LOGGER.info("通过移除事件清理 Mcedia Player 实例，位于 {}", entity.position());
-            agent.closeSync();
+            agent.shutdownAsync();
         }
     }
 
@@ -231,7 +231,7 @@ public class Mcedia implements ModInitializer {
     public void cleanupAllAgents() {
         LOGGER.info("正在清理所有 Mcedia Player 实例...");
         for (PlayerAgent agent : this.entityToPlayer.values()) {
-            agent.closeSync();
+            agent.shutdownAsync();
         }
         this.entityToPlayer.clear();
         LOGGER.info("所有 Mcedia Player 实例已清理完毕。");

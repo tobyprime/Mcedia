@@ -7,9 +7,15 @@ import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.Danmaku;
 import top.tobyprime.mcedia.core.Danmaku.DanmakuType;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -21,8 +27,45 @@ import java.util.zip.InflaterInputStream;
 
 public class DanmakuFetcher {
     private static final Logger LOGGER = LoggerFactory.getLogger(DanmakuFetcher.class);
-    private static final OkHttpClient OK_HTTP_CLIENT = new OkHttpClient();
+    private static OkHttpClient OK_HTTP_CLIENT;
     private static final Pattern DANMAKU_PATTERN = Pattern.compile("<d p=\"([^\"]*)\">([^<]*)</d>");
+
+    static {
+        try {
+            final TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public X509Certificate[] getAcceptedIssuers() {
+                            return new X509Certificate[]{};
+                        }
+                    }
+            };
+
+            final SSLContext sslContext = SSLContext.getInstance("SSL");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+            final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+
+            OkHttpClient.Builder builder = new OkHttpClient.Builder();
+            builder.sslSocketFactory(sslSocketFactory, (X509TrustManager) trustAllCerts[0]);
+            builder.hostnameVerifier((hostname, session) -> true);
+
+            OK_HTTP_CLIENT = builder.build();
+            LOGGER.warn("!!! MCEDIA 调试模式 !!! OkHttp 正在使用不安全的 SSLSocketFactory，将信任所有证书！请勿在生产环境中使用！");
+
+        } catch (Exception e) {
+            LOGGER.error("无法创建不安全的 OkHttpClient，将使用默认客户端。", e);
+            OK_HTTP_CLIENT = new OkHttpClient();
+        }
+    }
+
 
     public static CompletableFuture<List<Danmaku>> fetchDanmaku(long cid) {
         if (cid <= 0) {
@@ -90,7 +133,7 @@ public class DanmakuFetcher {
                             } else if (mode == 5) {
                                 type = DanmakuType.TOP;
                             } else {
-                                continue; // 忽略其他特殊类型弹幕
+                                continue;
                             }
 
                             danmakuList.add(new Danmaku(timestamp, text, argbColor, type));

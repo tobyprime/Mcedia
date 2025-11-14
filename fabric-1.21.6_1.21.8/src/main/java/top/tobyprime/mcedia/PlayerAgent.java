@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.state.ArmorStandRenderState;
@@ -26,6 +27,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.client.McediaRenderTypes;
 import top.tobyprime.mcedia.core.*;
 import top.tobyprime.mcedia.interfaces.IMediaInfo;
 import top.tobyprime.mcedia.manager.DanmakuManager;
@@ -67,6 +69,7 @@ public class PlayerAgent {
     private int playlistOriginalSize = 0;
     private final AtomicLong playbackToken = new AtomicLong(0);
     private volatile boolean isReconnecting = false;
+    private volatile boolean isApplyingConfigChange = false;
 
     private enum PlaybackSource {
         BOOK,
@@ -114,6 +117,7 @@ public class PlayerAgent {
     public float speed = 1;
     private long lastRenderTime = 0;
     private int saveProgressTicker = 0;
+    private int customLightLevel = -1;
     private String desiredQuality = "自动";
     private String previousQuality = "自动";
     private String qualityForNextPlayback = "自动";
@@ -174,7 +178,7 @@ public class PlayerAgent {
             if (!offHandPages.isEmpty()) updateOffset(offHandPages.get(0));
             if (offHandPages.size() > 1) updateAudioOffset(offHandPages.get(1));
             if (offHandPages.size() > 2) updateOther(offHandPages.get(2));
-            if (offHandPages.size() > 4) updateDanmakuConfig(offHandPages.get(4)); // [新增]
+            if (offHandPages.size() > 4) updateDanmakuConfig(offHandPages.get(4));
             else updateDanmakuConfig(null);
 
             String newQuality = (offHandPages.size() > 3) ? offHandPages.get(3) : null;
@@ -299,6 +303,9 @@ public class PlayerAgent {
     }
 
     public void update() {
+        if (isApplyingConfigChange) {
+            return;
+        }
         try {
             ItemStack mainHandItem = entity.getItemInHand(InteractionHand.MAIN_HAND);
             List<String> bookPages = getBookPages(mainHandItem);
@@ -318,38 +325,53 @@ public class PlayerAgent {
 
             ItemStack offHandItem = entity.getItemInHand(InteractionHand.OFF_HAND);
             if (!ItemStack.matches(offHandItem, preOffHandItemStack)) {
-                preloadOffHandConfig();
+                LOGGER.info("检测到副手配置书变更，正在应用新设置...");
+                isApplyingConfigChange = true;
                 List<String> offHandPages = getBookPages(offHandItem);
-                boolean qualityChanged = false;
                 if (offHandPages != null) {
                     if (!offHandPages.isEmpty()) updateOffset(offHandPages.get(0));
                     if (offHandPages.size() > 1) updateAudioOffset(offHandPages.get(1));
                     if (offHandPages.size() > 2) updateOther(offHandPages.get(2));
-                    qualityChanged = updateQuality(offHandPages.size() > 3 ? offHandPages.get(3) : null);
                     if (offHandPages.size() > 4) updateDanmakuConfig(offHandPages.get(4));
-                    else updateDanmakuConfig(null);
+                    else resetDanmakuConfig();
                 } else {
                     resetOffset();
                     resetAudioOffset();
-                    qualityChanged = updateQuality(null);
                     resetDanmakuConfig();
+                    updateOther(null);
                 }
 
-                if (qualityChanged && player.getMedia() != null && playingUrl != null) {
-                    LOGGER.info("检测到清晰度变更: '{}' -> '{}'，正在软重载...", this.previousQuality, this.desiredQuality);
+                String newQualityFromBook = (offHandPages != null && offHandPages.size() > 3) ? offHandPages.get(3) : null;
+                String newQuality = (newQualityFromBook == null || newQualityFromBook.isBlank()) ? "自动" : newQualityFromBook.trim();
 
-                    Media currentMedia = player.getMedia();
-                    long seekTo = 0;
-                    if (currentMedia != null && !currentMedia.isLiveStream()) {
-                        seekTo = currentMedia.getDurationUs();
+                boolean qualityChanged = !this.desiredQuality.equals(newQuality);
+
+                if (qualityChanged) {
+                    LOGGER.info("检测到清晰度变更: '{}' -> '{}'，正在软重载...", this.desiredQuality, newQuality);
+                    this.previousQuality = this.desiredQuality;
+                    this.desiredQuality = newQuality;
+
+                    if (player.getMedia() != null && playingUrl != null) {
+                        Media currentMedia = player.getMedia();
+                        long seekTo = (currentMedia != null && !currentMedia.isLiveStream()) ? currentMedia.getDurationUs() : 0;
+                        this.qualityForNextPlayback = this.desiredQuality;
+                        this.finalSeekTimestampUs = seekTo;
+
+                        this.open(playingUrl);
+                        this.startPlayback(false);
+                    } else {
+                        isApplyingConfigChange = false;
+                        preOffHandItemStack = offHandItem.copy();
                     }
-                    this.qualityForNextPlayback = this.desiredQuality;
-                    this.open(playingUrl);
-                    this.startPlayback(false);
-                    this.finalSeekTimestampUs = seekTo;
+                } else {
+                    isApplyingConfigChange = false;
+                    preOffHandItemStack = offHandItem.copy();
                 }
             }
         } catch (Exception ignored) {
+            if (isApplyingConfigChange) {
+                isApplyingConfigChange = false;
+            }
         }
     }
 
@@ -593,10 +615,12 @@ public class PlayerAgent {
         player.closeAsync().thenRun(() -> {
             if (playbackToken.get() != currentToken) {
                 LOGGER.debug("Playback token {} is outdated, aborting start.", currentToken);
+                isApplyingConfigChange = false;
                 return;
             }
 
             if (playingUrl == null) {
+                isApplyingConfigChange = false;
                 return;
             }
 
@@ -626,6 +650,8 @@ public class PlayerAgent {
                         }
                         player.play();
                         player.setSpeed(speed);
+                        this.preOffHandItemStack = this.entity.getItemInHand(InteractionHand.OFF_HAND).copy();
+                        this.isApplyingConfigChange = false;
                     } else {
                         LOGGER.error("从缓存打开媒体后未能获取Media实例，回退到网络播放。");
                         fallbackToNetworkPlayback(initialUrl, isLooping, currentToken);
@@ -844,6 +870,8 @@ public class PlayerAgent {
 
         player.play();
         player.setSpeed(speed);
+        this.preOffHandItemStack = this.entity.getItemInHand(InteractionHand.OFF_HAND).copy();
+        this.isApplyingConfigChange = false;
     }
 
     private void handlePlaybackFailure(Throwable throwable, String initialUrl, String finalMediaUrl, boolean isLooping) {
@@ -859,7 +887,8 @@ public class PlayerAgent {
         } else if (!isLooping) {
             Mcedia.msgToPlayer("§c[Mcedia] §f无法解析或播放: " + initialUrl);
         }
-
+        this.preOffHandItemStack = this.entity.getItemInHand(InteractionHand.OFF_HAND).copy();
+        this.isApplyingConfigChange = false;
     }
 
     private float halfW = 1.777f;
@@ -916,6 +945,13 @@ public class PlayerAgent {
             } else halfW = 1.777f;
         }
 
+        int finalLightValue;
+        if (this.customLightLevel != -1) {
+            finalLightValue = LightTexture.pack(this.customLightLevel, this.customLightLevel);
+        } else {
+            finalLightValue = i;
+        }
+
         poseStack.pushPose();
         try {
             poseStack.mulPose(new Quaternionf().rotationYXZ((float) Math.toRadians(-state.yRot), 0, 0));
@@ -923,13 +959,13 @@ public class PlayerAgent {
             poseStack.translate(offsetX, offsetY + 1.02 * state.scale, offsetZ + 0.6 * state.scale);
             poseStack.scale(size, size, size);
 
-            renderScreen(poseStack, bufferSource, i);
+            renderScreen(poseStack, bufferSource, finalLightValue);
 
             if (player.getMedia() != null && this.isTextureReady.get()) {
                 if(danmakuEnable) {
-                    renderDanmakuWithClipping(poseStack, bufferSource, i);
+                    renderDanmakuWithClipping(poseStack, bufferSource, finalLightValue);
                 }
-                renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
+                renderProgressBar(poseStack, bufferSource, player.getProgress(), finalLightValue);
             }
         } finally {
             poseStack.popPose();
@@ -960,8 +996,11 @@ public class PlayerAgent {
                 screenTexture = idleScreen;
                 break;
         }
-        VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(screenTexture));
+        RenderType renderType = RenderType.entityCutoutNoCull(screenTexture);
+
+        VertexConsumer consumer = bufferSource.getBuffer(renderType);
         var matrix = poseStack.last().pose();
+
         consumer.addVertex(matrix, -halfW, -1, 0).setUv(0, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1).setLight(i);
         consumer.addVertex(matrix, halfW, -1, 0).setUv(1, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1).setLight(i);
         consumer.addVertex(matrix, halfW, 1, 0).setUv(1, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1).setLight(i);
@@ -969,19 +1008,26 @@ public class PlayerAgent {
     }
 
     private void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i) {
-        float barHeight = 1f / 50f, barY = -1f, barLeft = -halfW, barRight = halfW;
-        VertexConsumer black = bufferSource.getBuffer(RenderType.debugQuads());
-        black.addVertex(poseStack.last().pose(), barLeft, barY - barHeight, 0).setColor(0xFF000000).setLight(i);
-        black.addVertex(poseStack.last().pose(), barRight, barY - barHeight, 0).setColor(0xFF000000).setLight(i);
-        black.addVertex(poseStack.last().pose(), barRight, barY, 0).setColor(0xFF000000).setLight(i);
-        black.addVertex(poseStack.last().pose(), barLeft, barY, 0).setColor(0xFF000000).setLight(i);
+        float barHeight = 1f / 50f;
+        float barY = -1f;
+        float barLeft = -halfW;
+        float barRight = halfW;
+        float zOffsetBg = 0.002f;
+        float zOffsetFg = 0.003f;
+
+        VertexConsumer consumer = bufferSource.getBuffer(McediaRenderTypes.PROGRESS_BAR);
+
+        consumer.addVertex(poseStack.last().pose(), barLeft, barY - barHeight, zOffsetBg).setColor(0.0f, 0.0f, 0.0f, 0.5f).setLight(i);
+        consumer.addVertex(poseStack.last().pose(), barRight, barY - barHeight, zOffsetBg).setColor(0.0f, 0.0f, 0.0f, 0.5f).setLight(i);
+        consumer.addVertex(poseStack.last().pose(), barRight, barY, zOffsetBg).setColor(0.0f, 0.0f, 0.0f, 0.5f).setLight(i);
+        consumer.addVertex(poseStack.last().pose(), barLeft, barY, zOffsetBg).setColor(0.0f, 0.0f, 0.0f, 0.5f).setLight(i);
+
         if (progress > 0) {
-            VertexConsumer white = bufferSource.getBuffer(RenderType.debugQuads());
             float progressRight = barLeft + (barRight - barLeft) * Math.max(0, Math.min(progress, 1));
-            white.addVertex(poseStack.last().pose(), barLeft, barY - barHeight, 1e-3f).setColor(-1).setLight(i);
-            white.addVertex(poseStack.last().pose(), progressRight, barY - barHeight, 1e-3f).setColor(-1).setLight(i);
-            white.addVertex(poseStack.last().pose(), progressRight, barY, 1e-3f).setColor(-1).setLight(i);
-            white.addVertex(poseStack.last().pose(), barLeft, barY, 1e-3f).setColor(-1).setLight(i);
+            consumer.addVertex(poseStack.last().pose(), barLeft, barY - barHeight, zOffsetFg).setColor(1.0f, 1.0f, 1.0f, 1.0f).setLight(i);
+            consumer.addVertex(poseStack.last().pose(), progressRight, barY - barHeight, zOffsetFg).setColor(1.0f, 1.0f, 1.0f, 1.0f).setLight(i);
+            consumer.addVertex(poseStack.last().pose(), progressRight, barY, zOffsetFg).setColor(1.0f, 1.0f, 1.0f, 1.0f).setLight(i);
+            consumer.addVertex(poseStack.last().pose(), barLeft, barY, zOffsetFg).setColor(1.0f, 1.0f, 1.0f, 1.0f).setLight(i);
         }
     }
 
@@ -991,7 +1037,7 @@ public class PlayerAgent {
 
     private void renderDanmakuText(PoseStack poseStack, MultiBufferSource bufferSource, int light) {
         poseStack.pushPose();
-        poseStack.translate(0, 0, 0.001f);
+        poseStack.translate(0, 0, 0.004f);
 
         Font font = Minecraft.getInstance().font;
         float videoHeightUnits = 2.0f;
@@ -1181,11 +1227,26 @@ public class PlayerAgent {
         }
     }
 
-    public void close() {
+    public CompletableFuture<Void> shutdownAsync() {
+        LOGGER.info("正在异步关闭 PlayerAgent，实体位于 {}", entity.position());
+        this.currentStatus = PlaybackStatus.IDLE;
         playingUrl = null;
         isLoopingInProgress = false;
-        cacheManager.cleanup();
-        player.closeAsync();
+
+        return CompletableFuture.runAsync(() -> {
+            // 在后台线程执行所有耗时操作
+            if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+                Media currentMedia = player.getMedia();
+                if (currentMedia != null && !currentMedia.isLiveStream() && currentMedia.getDurationUs() > 0) {
+                    Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), currentMedia.getDurationUs());
+                    LOGGER.debug("异步关闭：已保存最终播放进度。");
+                } else {
+                    Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), 0);
+                }
+            }
+            danmakuManager.clear();
+            player.closeSync(); // 在后台线程执行同步关闭，确保所有资源被释放
+        }, Mcedia.getInstance().getBackgroundExecutor());
     }
 
     public void closeSync() {
@@ -1245,13 +1306,31 @@ public class PlayerAgent {
             this.player.setLooping(false);
             this.shouldCacheForLoop = false;
             this.videoAutoplay = false;
+            this.customLightLevel = -1;
             return;
         }
         String[] lines = pageContent.split("\n");
-        boolean looping = (lines.length > 0) && lines[0].trim().equalsIgnoreCase("looping");
-        this.player.setLooping(looping);
-        this.shouldCacheForLoop = looping && McediaConfig.CACHING_ENABLED;
-        this.videoAutoplay = (lines.length > 1) && lines[1].trim().equalsIgnoreCase("autoplay");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim().toLowerCase();
+            if (i == 0 && line.equals("looping")) {
+                this.player.setLooping(true);
+                this.shouldCacheForLoop = McediaConfig.CACHING_ENABLED;
+            } else if (i == 1 && line.equals("autoplay")) {
+                this.videoAutoplay = true;
+            } else if (line.startsWith("light:")) {
+                try {
+                    String valueStr = line.substring("light:".length()).trim();
+                    int light = Integer.parseInt(valueStr);
+                    this.customLightLevel = Mth.clamp(light, 0, 15);
+                } catch (Exception e) {
+                }
+            } else if (line.equals("looping")) {
+                this.player.setLooping(true);
+                this.shouldCacheForLoop = McediaConfig.CACHING_ENABLED;
+            } else if (line.equals("autoplay")) {
+                this.videoAutoplay = true;
+            }
+        }
     }
 
     public boolean updateQuality(String quality) {
@@ -1585,7 +1664,7 @@ public class PlayerAgent {
 
     public void commandPlaylistAdd(String url) {
         switchToCommandSource();
-        PlaybackItem item = new PlaybackItem(url); // 简化处理，可后续扩展
+        PlaybackItem item = new PlaybackItem(url);
         playlist.offer(item);
         playlistOriginalSize++;
         Mcedia.msgToPlayer("§a[Mcedia] §f已将URL添加到播放列表末尾 (当前共 " + playlistOriginalSize + " 项)。");
@@ -1736,5 +1815,15 @@ public class PlayerAgent {
                 break;
         }
         Mcedia.msgToPlayer(String.format("§f[Mcedia] §7%s已§%s。", typeName, visible ? "a开启" : "e关闭"));
+    }
+
+    public void commandSetScreenLightLevel(int level) {
+        if (level >= 0 && level <= 15) {
+            this.customLightLevel = level;
+            Mcedia.msgToPlayer(String.format("§a[Mcedia] §f屏幕光照等级已设置为 §e%d§f。", level));
+        } else {
+            this.customLightLevel = -1;
+            Mcedia.msgToPlayer("§e[Mcedia] §f屏幕光照已重置为§7跟随世界光照§f。");
+        }
     }
 }
