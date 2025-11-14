@@ -76,7 +76,7 @@ public class DanmakuFetcher {
         Request request = new Request.Builder()
                 .url("https://api.bilibili.com/x/v1/dm/list.so?oid=" + cid)
                 .header("User-Agent", "Mozilla/5.0")
-                .header("Accept-Encoding", "deflate") // 明确请求这个特殊的deflate
+                .header("Accept-Encoding", "deflate")
                 .build();
 
         CompletableFuture<List<Danmaku>> future = new CompletableFuture<>();

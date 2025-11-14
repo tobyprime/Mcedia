@@ -37,6 +37,8 @@ import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
 import top.tobyprime.mcedia.video_fetcher.DanmakuFetcher;
 import top.tobyprime.mcedia.video_fetcher.UrlExpander;
 
+import java.util.EnumSet;
+import java.util.Set;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -154,6 +156,13 @@ public class PlayerAgent {
             this.originalUrl = url;
         }
     }
+
+    private enum ConfigOverride {
+        LOOPING, AUTOPLAY, SCREEN_LIGHT_LEVEL,
+        DANMAKU_ENABLED, DANMAKU_AREA, DANMAKU_OPACITY, DANMAKU_FONT_SCALE, DANMAKU_SPEED_SCALE,
+        DANMAKU_TYPE_SCROLLING, DANMAKU_TYPE_TOP, DANMAKU_TYPE_BOTTOM
+    }
+    private final Set<ConfigOverride> commandOverrides = EnumSet.noneOf(ConfigOverride.class);
 
     private volatile PlaybackStatus currentStatus = PlaybackStatus.IDLE;
 
@@ -1150,60 +1159,43 @@ public class PlayerAgent {
 
         String[] lines = pageContent.split("\n");
 
-        this.danmakuEnable = lines.length > 0 && lines[0].contains("弹幕");
-
-        if (lines.length > 1) this.danmakuDisplayArea = parsePercentage(lines[1]);
-        else this.danmakuDisplayArea = 1.0f;
-
-        if (lines.length > 2) this.danmakuOpacity = parsePercentage(lines[2]);
-        else this.danmakuOpacity = 1.0f;
-
-        if (lines.length > 3) this.danmakuFontScale = parseFloat(lines[3], 1.0f);
-        else this.danmakuFontScale = 1.0f;
-
-        if (lines.length > 4) this.danmakuSpeedScale = parseFloat(lines[4], 1.0f);
-        else this.danmakuSpeedScale = 1.0f;
-
-        this.showScrollingDanmaku = true;
-        this.showTopDanmaku = true;
-        this.showBottomDanmaku = true;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_ENABLED)) {
+            this.danmakuEnable = lines.length > 0 && lines[0].contains("弹幕");
+        }
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_AREA)) {
+            this.danmakuDisplayArea = lines.length > 1 ? parsePercentage(lines[1]) : 1.0f;
+        }
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_OPACITY)) {
+            this.danmakuOpacity = lines.length > 2 ? parsePercentage(lines[2]) : 1.0f;
+        }
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_FONT_SCALE)) {
+            this.danmakuFontScale = lines.length > 3 ? parseFloat(lines[3], 1.0f) : 1.0f;
+        }
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_SPEED_SCALE)) {
+            this.danmakuSpeedScale = lines.length > 4 ? parseFloat(lines[4], 1.0f) : 1.0f;
+        }
 
         if (lines.length > 5) {
-            List<String> configLines = new ArrayList<>();
-            for (int i = 5; i < lines.length; i++) {
-                configLines.add(lines[i]);
-            }
-            String combinedConfig = String.join(" ", configLines).toLowerCase(); // 转为小写以便匹配
-
-            if (combinedConfig.contains("屏蔽滚动")) {
-                this.showScrollingDanmaku = false;
-            } else if (combinedConfig.contains("显示滚动")) {
-                this.showScrollingDanmaku = true;
-            }
-
-            if (combinedConfig.contains("屏蔽顶部")) {
-                this.showTopDanmaku = false;
-            } else if (combinedConfig.contains("显示顶部")) {
-                this.showTopDanmaku = true;
-            }
-
-            if (combinedConfig.contains("屏蔽底部")) {
-                this.showBottomDanmaku = false;
-            } else if (combinedConfig.contains("显示底部")) {
-                this.showBottomDanmaku = true;
-            }
+            String combinedConfig = String.join(" ", Arrays.copyOfRange(lines, 5, lines.length)).toLowerCase();
+            if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_SCROLLING)) this.showScrollingDanmaku = !combinedConfig.contains("屏蔽滚动");
+            if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_TOP)) this.showTopDanmaku = !combinedConfig.contains("屏蔽顶部");
+            if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_BOTTOM)) this.showBottomDanmaku = !combinedConfig.contains("屏蔽底部");
+        } else {
+            if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_SCROLLING)) this.showScrollingDanmaku = true;
+            if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_TOP)) this.showTopDanmaku = true;
+            if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_BOTTOM)) this.showBottomDanmaku = true;
         }
     }
 
     private void resetDanmakuConfig() {
-        this.danmakuEnable = false;
-        this.danmakuDisplayArea = 1.0f;
-        this.danmakuOpacity = 1.0f;
-        this.danmakuFontScale = 1.0f;
-        this.danmakuSpeedScale = 1.0f;
-        this.showScrollingDanmaku = true;
-        this.showTopDanmaku = true;
-        this.showBottomDanmaku = true;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_ENABLED)) this.danmakuEnable = false;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_AREA)) this.danmakuDisplayArea = 1.0f;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_OPACITY)) this.danmakuOpacity = 1.0f;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_FONT_SCALE)) this.danmakuFontScale = 1.0f;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_SPEED_SCALE)) this.danmakuSpeedScale = 1.0f;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_SCROLLING)) this.showScrollingDanmaku = true;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_TOP)) this.showTopDanmaku = true;
+        if (!commandOverrides.contains(ConfigOverride.DANMAKU_TYPE_BOTTOM)) this.showBottomDanmaku = true;
     }
 
     private float parsePercentage(String line) {
@@ -1302,33 +1294,37 @@ public class PlayerAgent {
     }
 
     public void updateOther(String pageContent) {
-        if (pageContent == null) {
+        if (!commandOverrides.contains(ConfigOverride.LOOPING)) {
             this.player.setLooping(false);
             this.shouldCacheForLoop = false;
+        }
+        if (!commandOverrides.contains(ConfigOverride.AUTOPLAY)) {
             this.videoAutoplay = false;
+        }
+        if (!commandOverrides.contains(ConfigOverride.SCREEN_LIGHT_LEVEL)) {
             this.customLightLevel = -1;
+        }
+
+        if (pageContent == null || pageContent.isBlank()) {
             return;
         }
+
         String[] lines = pageContent.split("\n");
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim().toLowerCase();
-            if (i == 0 && line.equals("looping")) {
+        for (String lineRaw : lines) {
+            String line = lineRaw.trim().toLowerCase();
+
+            if (line.equals("looping") && !commandOverrides.contains(ConfigOverride.LOOPING)) {
                 this.player.setLooping(true);
                 this.shouldCacheForLoop = McediaConfig.CACHING_ENABLED;
-            } else if (i == 1 && line.equals("autoplay")) {
+            } else if (line.equals("autoplay") && !commandOverrides.contains(ConfigOverride.AUTOPLAY)) {
                 this.videoAutoplay = true;
-            } else if (line.startsWith("light:")) {
+            } else if (line.startsWith("light:") && !commandOverrides.contains(ConfigOverride.SCREEN_LIGHT_LEVEL)) {
                 try {
                     String valueStr = line.substring("light:".length()).trim();
                     int light = Integer.parseInt(valueStr);
                     this.customLightLevel = Mth.clamp(light, 0, 15);
                 } catch (Exception e) {
                 }
-            } else if (line.equals("looping")) {
-                this.player.setLooping(true);
-                this.shouldCacheForLoop = McediaConfig.CACHING_ENABLED;
-            } else if (line.equals("autoplay")) {
-                this.videoAutoplay = true;
             }
         }
     }
@@ -1476,6 +1472,7 @@ public class PlayerAgent {
     public void commandSetLooping(boolean enabled) {
         this.player.setLooping(enabled);
         this.shouldCacheForLoop = enabled && McediaConfig.CACHING_ENABLED;
+        this.commandOverrides.add(ConfigOverride.LOOPING);
         if (enabled) {
             Mcedia.msgToPlayer("§a[Mcedia] §f已开启循环。");
         } else {
@@ -1762,6 +1759,7 @@ public class PlayerAgent {
 
     public void commandSetAutoplay(boolean enabled) {
         this.videoAutoplay = enabled;
+        this.commandOverrides.add(ConfigOverride.AUTOPLAY);
         if (enabled) {
             Mcedia.msgToPlayer("§a[Mcedia] §f自动连播已开启。");
         } else {
@@ -1771,6 +1769,7 @@ public class PlayerAgent {
 
     public void commandSetDanmakuEnabled(boolean enabled) {
         this.danmakuEnable = enabled;
+        this.commandOverrides.add(ConfigOverride.DANMAKU_ENABLED);
         if (enabled) {
             Mcedia.msgToPlayer("§a[Mcedia] §f弹幕已开启。");
         } else {
@@ -1780,21 +1779,25 @@ public class PlayerAgent {
 
     public void commandSetDanmakuArea(float percent) {
         this.danmakuDisplayArea = Mth.clamp(percent / 100.0f, 0.0f, 1.0f);
+        this.commandOverrides.add(ConfigOverride.DANMAKU_AREA);
         Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕显示区域已设置为 %.0f%%。", percent));
     }
 
     public void commandSetDanmakuOpacity(float percent) {
         this.danmakuOpacity = Mth.clamp(percent / 100.0f, 0.0f, 1.0f);
+        this.commandOverrides.add(ConfigOverride.DANMAKU_OPACITY);
         Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕不透明度已设置为 %.0f%%。", percent));
     }
 
     public void commandSetDanmakuFontScale(float scale) {
         this.danmakuFontScale = Math.max(0.1f, scale);
+        this.commandOverrides.add(ConfigOverride.DANMAKU_FONT_SCALE);
         Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕字体缩放已设置为 %.2f。", scale));
     }
 
     public void commandSetDanmakuSpeedScale(float scale) {
         this.danmakuSpeedScale = Math.max(0.1f, scale);
+        this.commandOverrides.add(ConfigOverride.DANMAKU_SPEED_SCALE);
         Mcedia.msgToPlayer(String.format("§f[Mcedia] §7弹幕速度缩放已设置为 %.2f。", scale));
     }
 
@@ -1803,14 +1806,17 @@ public class PlayerAgent {
         switch (type.toLowerCase()) {
             case "scrolling":
                 this.showScrollingDanmaku = visible;
+                this.commandOverrides.add(ConfigOverride.DANMAKU_TYPE_SCROLLING);
                 typeName = "滚动弹幕";
                 break;
             case "top":
                 this.showTopDanmaku = visible;
+                this.commandOverrides.add(ConfigOverride.DANMAKU_TYPE_TOP);
                 typeName = "顶部弹幕";
                 break;
             case "bottom":
                 this.showBottomDanmaku = visible;
+                this.commandOverrides.add(ConfigOverride.DANMAKU_TYPE_BOTTOM);
                 typeName = "底部弹幕";
                 break;
         }
@@ -1820,10 +1826,38 @@ public class PlayerAgent {
     public void commandSetScreenLightLevel(int level) {
         if (level >= 0 && level <= 15) {
             this.customLightLevel = level;
+            this.commandOverrides.add(ConfigOverride.SCREEN_LIGHT_LEVEL);
             Mcedia.msgToPlayer(String.format("§a[Mcedia] §f屏幕光照等级已设置为 §e%d§f。", level));
         } else {
             this.customLightLevel = -1;
             Mcedia.msgToPlayer("§e[Mcedia] §f屏幕光照已重置为§7跟随世界光照§f。");
         }
+    }
+
+    public void commandResetSettings(String category) {
+        List<ConfigOverride> toRemove = new ArrayList<>();
+        String feedbackMsg = "§c未知分类。";
+        switch(category.toLowerCase()) {
+            case "all":
+                commandOverrides.clear();
+                feedbackMsg = "§a[Mcedia] §f已重置所有指令覆盖，现在全部配置将跟随书本。";
+                break;
+            case "danmaku":
+                commandOverrides.removeIf(co -> co.name().startsWith("DANMAKU_"));
+                feedbackMsg = "§a[Mcedia] §f已重置弹幕相关指令覆盖，现在弹幕配置将跟随书本。";
+                break;
+            case "playback":
+                commandOverrides.remove(ConfigOverride.LOOPING);
+                commandOverrides.remove(ConfigOverride.AUTOPLAY);
+                feedbackMsg = "§a[Mcedia] §f已重置播放相关指令覆盖。";
+                break;
+            case "screen":
+                commandOverrides.remove(ConfigOverride.SCREEN_LIGHT_LEVEL);
+                feedbackMsg = "§a[Mcedia] §f已重置屏幕相关指令覆盖。";
+                break;
+        }
+        this.preOffHandItemStack = ItemStack.EMPTY;
+        this.tick();
+        Mcedia.msgToPlayer(feedbackMsg);
     }
 }

@@ -3,6 +3,7 @@ package top.tobyprime.mcedia.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.FloatArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -68,6 +69,20 @@ public class CommandControl {
                                             } else {
                                                 ctx.getSource().sendError(Component.literal("§c时间格式无效。请使用 [HH:]MM:SS 或纯秒数。"));
                                             }
+                                        }))
+                                )
+                        )
+                        .then(literal("reset")
+                                .then(argument("category", StringArgumentType.word())
+                                        .suggests((ctx, builder) -> {
+                                            builder.suggest("all");
+                                            builder.suggest("danmaku");
+                                            builder.suggest("playback");
+                                            builder.suggest("screen");
+                                            return builder.buildFuture();
+                                        })
+                                        .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                            agent.commandResetSettings(StringArgumentType.getString(ctx, "category"));
                                         }))
                                 )
                         )
@@ -157,6 +172,13 @@ public class CommandControl {
                                         )
                                 )
                                 .then(literal("screen")
+                                        .then(literal("light_level")
+                                                .then(argument("level", IntegerArgumentType.integer(-1, 15))
+                                                        .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
+                                                            agent.commandSetScreenLightLevel(IntegerArgumentType.getInteger(ctx, "level"));
+                                                        }))
+                                                )
+                                        )
                                         .then(literal("offset")
                                                 .then(argument("x", FloatArgumentType.floatArg())
                                                         .then(argument("y", FloatArgumentType.floatArg())
