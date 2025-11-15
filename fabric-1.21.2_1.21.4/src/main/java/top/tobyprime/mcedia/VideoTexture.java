@@ -7,10 +7,9 @@ import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.jetbrains.annotations.Nullable;
-import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.core.VideoFrame;
+import top.tobyprime.mcedia.decoders.VideoFrame;
 import top.tobyprime.mcedia.interfaces.ITexture;
 
 import java.nio.ByteBuffer;
