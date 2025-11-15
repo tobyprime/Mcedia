@@ -19,7 +19,7 @@ public class MediaPlayFactory {
         return t;
     });
     private static Logger logger = LoggerFactory.getLogger(MediaPlayFactory.class);
-    static public List<IMediaPlayResolver> resolvers = List.of(new BilibiliVideoMediaPlayResolver());
+    static public List<IMediaPlayResolver> resolvers = List.of(new BilibiliVideoMediaPlayResolver(), new BilibiliBangumiMediaPlayResolver());
 
     public static @NotNull IMediaPlay createMediaPlay(String url) {
         if (url == null) throw new NullPointerException("url is null");

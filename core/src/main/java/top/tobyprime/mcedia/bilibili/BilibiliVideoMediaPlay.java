@@ -1,43 +1,31 @@
 package top.tobyprime.mcedia.bilibili;
 
-import org.jetbrains.annotations.Nullable;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.core.BaseMediaPlay;
 import top.tobyprime.mcedia.core.IMediaPlay;
 import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 import top.tobyprime.mcedia.video_fetcher.MediaInfo;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatusUpdateEventHandler {
+public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay, BilibiliAccountStatusUpdateEventHandler {
 
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliVideoMediaPlay.class);
 
     private volatile boolean waitForLoginStatusUpdate = false;
 
-    @Nullable
-    private MediaInfo mediaInfo;
-
-    private String videoUrl;
-    private ArrayList<Consumer<MediaInfo>> onUpdatedListeners = new ArrayList<>();
-    private ArrayList<Consumer<String>> onMessageListeners = new ArrayList<>();
-    private boolean loading;
+    private final String videoUrl;
 
     public BilibiliVideoMediaPlay(String videoUrl) {
         BilibiliAuthManager.getInstance().AddStatusUpdateHandler(this);
@@ -65,100 +53,10 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
         return null;
     }
 
-    private static StreamSelection findBestStream(JSONArray streams, @Nullable JSONArray formats, String desiredQuality) {
-        if (streams == null || streams.isEmpty()) {
-            return null;
-        }
-
-        if (formats == null || formats.isEmpty()) {
-            return new StreamSelection(streams.getJSONObject(0), "默认音质");
-        }
-
-        boolean isLoggedIn = BilibiliAuthManager.getInstance().getAccountStatus().isLoggedIn;
-
-        Map<String, Integer> availableQualityMap = new HashMap<>();
-        for (int i = 0; i < formats.length(); i++) {
-            JSONObject format = formats.getJSONObject(i);
-            availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
-        }
-
-        // --- 自动清晰度逻辑 ---
-        if ("自动".equals(desiredQuality)) {
-            if (isLoggedIn) {
-                LOGGER.info("用户已登录，应用1080P60帧为上限的画质策略。");
-                List<String> preferredQualities = List.of(
-                        "1080P 60帧", "1080P 高码率", "1080P 高清", "1080P",
-                        "720P 60帧", "720P 高清", "720P", "高清 720P",
-                        "480P 高清", "480P", "标清 480P"
-                );
-                for (String preferred : preferredQualities) {
-                    Integer targetId = availableQualityMap.get(preferred);
-                    if (targetId != null) {
-                        JSONObject stream = findStreamByIdAndCodec(streams, targetId);
-                        if (stream != null) {
-                            LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
-                            return new StreamSelection(stream, preferred);
-                        }
-                    }
-                }
-                LOGGER.warn("自动清晰度(已登录): 未在偏好列表中找到匹配项，回退到API最高画质。");
-                return new StreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
-            } else {
-                LOGGER.info("用户未登录，尝试锁定至 360P 画质。");
-                String targetQuality = "360P 流畅";
-                Integer targetId = availableQualityMap.get(targetQuality);
-                if (targetId != null) {
-                    JSONObject stream = findStreamByIdAndCodec(streams, targetId);
-                    if (stream != null) {
-                        LOGGER.info("自动清晰度(未登录): 成功锁定到 '{}'", targetQuality);
-                        return new StreamSelection(stream, targetQuality);
-                    }
-                }
-                LOGGER.warn("自动清晰度(未登录): 未找到 '{}'，回退到最低画质。", targetQuality);
-                return new StreamSelection(streams.getJSONObject(streams.length() - 1), formats.getJSONObject(formats.length() - 1).getString("new_description"));
-            }
-        }
-
-        // --- 手动指定清晰度逻辑 ---
-        Integer targetQualityId = availableQualityMap.get(desiredQuality);
-        if (targetQualityId != null) {
-            JSONObject stream = findStreamByIdAndCodec(streams, targetQualityId);
-            if (stream != null) {
-                return new StreamSelection(stream, desiredQuality);
-            }
-        }
-
-        LOGGER.warn("未找到指定的清晰度 '{}'，将使用最高可用清晰度。", desiredQuality);
-        return new StreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
-    }
-
-    // 辅助方法，用于根据ID查找流并选择最佳编码
-    private static JSONObject findStreamByIdAndCodec(JSONArray streams, int targetId) {
-        JSONObject bestStream = null;
-        int bestCodecScore = -1; // -1: 未找到, 1: AV1, 2: HEVC, 3: AVC (H.264)
-
-        for (int i = 0; i < streams.length(); i++) {
-            JSONObject stream = streams.getJSONObject(i);
-            if (stream.getInt("id") == targetId) {
-                String codecs = stream.optString("codecs", "");
-                int currentCodecScore = 0;
-                if (codecs.contains("avc1")) currentCodecScore = 3;
-                else if (codecs.contains("hev1")) currentCodecScore = 2;
-                else if (codecs.contains("av01")) currentCodecScore = 1;
-
-                if (currentCodecScore > bestCodecScore) {
-                    bestStream = stream;
-                    bestCodecScore = currentCodecScore;
-                }
-            }
-        }
-        return bestStream;
-    }
-
     public void load() {
         loading = true;
         try {
-            onMessage("正在获取视频信息...");
+            setStatus("正在获取视频信息...");
             String bvid = parseBvidFromUrl(videoUrl);
             if (bvid == null) {
                 throw new IllegalArgumentException("未找到BV号，请检查视频链接");
@@ -202,12 +100,12 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
 //                page = 1;
                 }
             } else {
-                onMessage("获取视频信息失败:" + viewJson.optString("message"));
+                setStatus("获取视频信息失败:" + viewJson.optString("message"));
                 return;
             }
 
             if (cid == 0) {
-                onMessage("无法确定视频的CID，可能是分P号错误或API已更改。");
+                setStatus("无法确定视频的CID，可能是分P号错误或API已更改。");
                 return;
             }
 
@@ -222,16 +120,27 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
                 playRequestBuilder.header("Cookie", cookie);
             }
 
-            onMessage("正在获取视频播放链接...");
+            setStatus("正在获取视频播放链接...");
 
             HttpResponse<String> playResponse = client.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
             JSONObject playJson = new JSONObject(playResponse.body());
 
             var info = new MediaInfo();
-            info.title = mainTitle + " - " + partName;
+
+            if (partName != null && !partName.isEmpty()) {
+                info.title = mainTitle + " - " + partName;
+            } else {
+                info.title = mainTitle;
+            }
+
             info.author = author;
             info.platform = "bilibili";
             info.cookie = BilibiliConfigs.getCookie();
+            var headers = new HashMap<String, String>();
+            headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            headers.put("Referer", "https://www.bilibili.com/");
+            headers.put("Origin", "https://www.bilibili.com");
+            info.headers = headers;
 
             if (playJson.getInt("code") != 0) {
                 String message = playJson.optString("message");
@@ -239,7 +148,7 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
                     waitForLoginStatusUpdate = true;
                     return;
                 }
-                onMessage("获取视频播放地址失败: " + message);
+                setStatus("获取视频播放地址失败: " + message);
                 return;
             }
 
@@ -252,8 +161,8 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
             if (data.has("dash")) {
                 JSONObject dash = data.getJSONObject("dash");
                 if (dash.has("video") && dash.has("audio") && !dash.getJSONArray("video").isEmpty() && !dash.getJSONArray("audio").isEmpty()) {
-                    StreamSelection videoSelection = findBestStream(dash.getJSONArray("video"), supportFormats, "自动");
-                    StreamSelection audioSelection = findBestStream(dash.getJSONArray("audio"), null, "自动");
+                    BilibiliStreamSelection videoSelection = BilibiliHelper.findBestStream(dash.getJSONArray("video"), supportFormats);
+                    BilibiliStreamSelection audioSelection = BilibiliHelper.findBestStream(dash.getJSONArray("audio"), null);
 
                     if (videoSelection != null && videoSelection.stream != null && audioSelection != null) {
 //                    finalCurrentQuality = videoSelection.qualityDescription;
@@ -262,6 +171,7 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
 
                         info.streamUrl = videoBaseUrl;
                         info.audioUrl = audioBaseUrl;
+                        setStatus("获取播放地址成功");
                         setMediaInfo(info);
                         return;
                     }
@@ -276,6 +186,7 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
 //                }
                     String url = durlArray.getJSONObject(0).getString("url");
                     LOGGER.warn("未找到DASH流，可能为会员内容。正在尝试播放试看片段 (DURL)。");
+                    setStatus("获取试看地址成功");
                     info.streamUrl = url;
                     return;
                 }
@@ -283,15 +194,10 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
 
             waitForLoginStatusUpdate = true;
         } catch (Exception e) {
-            onMessage("加载失败" + e.getMessage());
+            setStatus("加载失败" + e.getMessage());
         } finally {
             loading = false;
         }
-    }
-
-    @Override
-    public void close()  {
-
     }
 
     @Override
@@ -300,42 +206,5 @@ public class BilibiliVideoMediaPlay implements IMediaPlay, BilibiliAccountStatus
             this.waitForLoginStatusUpdate = false;
             this.load();
         }
-    }
-
-    public void onMessage(String message) {
-        onMessageListeners.forEach(listener -> listener.accept(message));
-    }
-
-    @Override
-    public void registerOnMediaInfoUpdatedEvent(Consumer<MediaInfo> onUpdate) {
-        onUpdatedListeners.add(onUpdate);
-    }
-
-    @Override
-    public void registerOnStatusUpdatedEvent(Consumer<String> onMessage) {
-        onMessageListeners.add(onMessage);
-    }
-
-    @Override
-    public @Nullable MediaInfo getMediaInfo() {
-        return mediaInfo;
-    }
-
-    @Override
-    public @Nullable String getStatus() {
-        return null;
-    }
-
-    public void setMediaInfo(MediaInfo mediaInfo) {
-        this.mediaInfo = mediaInfo;
-        onUpdatedListeners.forEach(listener -> listener.accept(mediaInfo));
-    }
-
-    @Override
-    public boolean isLoading() {
-        return loading;
-    }
-
-    private record StreamSelection(JSONObject stream, String qualityDescription) {
     }
 }

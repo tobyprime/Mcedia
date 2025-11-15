@@ -16,6 +16,6 @@ public class MediaInfo {
     @Nullable
     public String cookie;
     @Nullable
-    public final Map<String, String> headers = new HashMap<>();
+    public Map<String, String> headers = new HashMap<>();
 
 }

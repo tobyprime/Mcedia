@@ -17,9 +17,6 @@ public class BilibiliVideoMediaPlayResolver implements IMediaPlayResolver {
 
     @Override
     public @NotNull IMediaPlay resolve(@NotNull String playUrl) {
-        if (!isSupported(playUrl)) {
-            return null;
-        }
         return new BilibiliVideoMediaPlay(playUrl);
     }
 }
