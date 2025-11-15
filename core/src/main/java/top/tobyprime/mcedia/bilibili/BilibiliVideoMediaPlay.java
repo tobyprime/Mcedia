@@ -132,6 +132,7 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
             } else {
                 info.title = mainTitle;
             }
+            info.rawUrl = this.videoUrl;
 
             info.author = author;
             info.platform = "bilibili";

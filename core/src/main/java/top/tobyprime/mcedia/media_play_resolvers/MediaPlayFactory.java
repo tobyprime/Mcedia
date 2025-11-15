@@ -7,7 +7,6 @@ import top.tobyprime.mcedia.core.EmptyMediaPlay;
 import top.tobyprime.mcedia.core.IMediaPlay;
 import top.tobyprime.mcedia.interfaces.IMediaPlayResolver;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,8 +17,8 @@ public class MediaPlayFactory {
         t.setDaemon(true);
         return t;
     });
-    private static Logger logger = LoggerFactory.getLogger(MediaPlayFactory.class);
-    static public List<IMediaPlayResolver> resolvers = List.of(new BilibiliVideoMediaPlayResolver(), new BilibiliBangumiMediaPlayResolver());
+    private static final Logger LOGGER = LoggerFactory.getLogger(MediaPlayFactory.class);
+    static public List<IMediaPlayResolver> resolvers = List.of(new BilibiliVideoMediaPlayResolver(), new BilibiliBangumiMediaPlayResolver(), new BilibiliLiveMediaPlayResolver(), new DouyinVideoMediaPlayResolver());
 
     public static @NotNull IMediaPlay createMediaPlay(String url) {
         if (url == null) throw new NullPointerException("url is null");
@@ -30,7 +29,7 @@ public class MediaPlayFactory {
                 }
             }
         }catch (Exception e) {
-            logger.error("获取 MediaPlay 失败", e);
+            LOGGER.error("获取 MediaPlay 失败", e);
             return new EmptyMediaPlay("无法解析视频: " +url);
         }
 

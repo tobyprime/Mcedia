@@ -156,6 +156,7 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
             mediaInfo.platform = "Bilibili Bangumi";
             mediaInfo.cookie = BilibiliConfigs.getCookie();
             mediaInfo.author = "Bilibili";
+            mediaInfo.rawUrl = this.bangumiUrl;
             var headers = new HashMap<String, String>();
             headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             headers.put("Referer", "https://www.bilibili.com/");

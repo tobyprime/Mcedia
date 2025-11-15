@@ -5,10 +5,11 @@
 
   "name": "mcedia",
   "description": "",
-  "authors": [],
+  "authors": ["UrealToby"],
+  "contributors": ["Oyatsu"],
   "contact": {},
 
-  "license": "All-Rights-Reserved",
+  "license": "MIT",
 
   "environment": "client",
   "entrypoints": {
