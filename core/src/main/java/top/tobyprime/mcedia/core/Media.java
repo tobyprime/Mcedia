@@ -7,7 +7,6 @@ import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.decoders.VideoFrame;
 import top.tobyprime.mcedia.decoders.ffmpeg.FfmpegMediaDecoder;
 import top.tobyprime.mcedia.interfaces.*;
-import top.tobyprime.mcedia.video_fetcher.MediaInfo;
 
 import java.io.Closeable;
 import java.util.ArrayList;

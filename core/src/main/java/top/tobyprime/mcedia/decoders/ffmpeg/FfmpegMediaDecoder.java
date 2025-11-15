@@ -11,7 +11,7 @@ import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.interfaces.IAudioData;
 import top.tobyprime.mcedia.interfaces.IMediaDecoder;
 import top.tobyprime.mcedia.interfaces.IVideoData;
-import top.tobyprime.mcedia.video_fetcher.MediaInfo;
+import top.tobyprime.mcedia.core.MediaInfo;
 
 import java.io.Closeable;
 import java.util.ArrayList;

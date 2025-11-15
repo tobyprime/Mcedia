@@ -1,4 +1,4 @@
-package top.tobyprime.mcedia.video_fetcher;
+package top.tobyprime.mcedia.core;
 
 import org.jetbrains.annotations.Nullable;
 

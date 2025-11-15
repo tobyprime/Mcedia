@@ -18,16 +18,12 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.Utils;
 import top.tobyprime.mcedia.VideoTexture;
 import top.tobyprime.mcedia.core.AudioSourceInstance;
-import top.tobyprime.mcedia.core.IMediaPlay;
 import top.tobyprime.mcedia.core.MediaPlayer;
-import top.tobyprime.mcedia.interfaces.IMediaFetcher;
 import top.tobyprime.mcedia.interfaces.IMediaPlayerScreenRenderer;
 
 import java.util.ArrayList;
-import java.util.function.Consumer;
 
 public class MediaPlayerAgentEntity extends Entity {
 

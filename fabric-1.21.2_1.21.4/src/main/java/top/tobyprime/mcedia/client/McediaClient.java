@@ -25,9 +25,7 @@ public class McediaClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
-            CommandLogin.register(dispatcher);
-        });
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> CommandLogin.register(dispatcher));
 
         ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
             var props = new Properties();
@@ -36,9 +34,11 @@ public class McediaClient implements ClientModInitializer {
             }
             try {
                 props.load(Files.newInputStream(CONFIG_PATH));
-                BilibiliConfigs.saveCookies(props.getProperty("BILIBILI_COOKIES", ""));
+
+                Configs.fromProperties(props);
+                BilibiliConfigs.fromProperties(props);
+
                 BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
-                Configs.MAX_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT)));
             } catch (IOException e) {
                 Mcedia.LOGGER.error("读取配置失败", e);
             }
@@ -50,8 +50,8 @@ public class McediaClient implements ClientModInitializer {
                     Files.createFile(CONFIG_PATH);
                 }
 
-                props.setProperty("BILIBILI_COOKIES", BilibiliConfigs.getCookie());
-                props.setProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT));
+                Configs.writeToProperties(props);
+                BilibiliConfigs.writeToProperties(props);
 
                 props.store(Files.newOutputStream(CONFIG_PATH), "Mcedia props");
 

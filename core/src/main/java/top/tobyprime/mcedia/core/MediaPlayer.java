@@ -7,7 +7,6 @@ import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 import top.tobyprime.mcedia.interfaces.ITexture;
 import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
-import top.tobyprime.mcedia.video_fetcher.MediaInfo;
 
 import java.io.Closeable;
 import java.util.ArrayList;

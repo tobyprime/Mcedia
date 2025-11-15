@@ -1,9 +1,7 @@
 package top.tobyprime.mcedia.core;
 
 import org.jetbrains.annotations.Nullable;
-import top.tobyprime.mcedia.video_fetcher.MediaInfo;
 
-import java.io.IOException;
 import java.util.function.Consumer;
 
 public record EmptyMediaPlay(String info) implements IMediaPlay {

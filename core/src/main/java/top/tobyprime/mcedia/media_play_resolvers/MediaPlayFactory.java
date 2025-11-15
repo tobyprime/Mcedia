@@ -18,7 +18,13 @@ public class MediaPlayFactory {
         return t;
     });
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaPlayFactory.class);
-    static public List<IMediaPlayResolver> resolvers = List.of(new BilibiliVideoMediaPlayResolver(), new BilibiliBangumiMediaPlayResolver(), new BilibiliLiveMediaPlayResolver(), new DouyinVideoMediaPlayResolver());
+    static public List<IMediaPlayResolver> resolvers = List.of(
+            new BilibiliVideoMediaPlayResolver(),
+            new BilibiliBangumiMediaPlayResolver(),
+            new BilibiliLiveMediaPlayResolver(),
+            new DouyinVideoMediaPlayResolver(),
+            new DirectLinkMediaPlayResolver()
+    );
 
     public static @NotNull IMediaPlay createMediaPlay(String url) {
         if (url == null) throw new NullPointerException("url is null");
@@ -28,9 +34,9 @@ public class MediaPlayFactory {
                     return resolver.resolve(url);
                 }
             }
-        }catch (Exception e) {
+        } catch (Exception e) {
             LOGGER.error("获取 MediaPlay 失败", e);
-            return new EmptyMediaPlay("无法解析视频: " +url);
+            return new EmptyMediaPlay("无法解析视频: " + url);
         }
 
         return new EmptyMediaPlay("无法解析视频: " + url);

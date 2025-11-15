@@ -2,7 +2,7 @@ package top.tobyprime.mcedia.bilibili;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import top.tobyprime.mcedia.video_fetcher.MediaInfo;
+import top.tobyprime.mcedia.core.MediaInfo;
 
 import java.util.ArrayList;
 import java.util.List;

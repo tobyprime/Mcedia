@@ -7,7 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.BaseMediaPlay;
 import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
-import top.tobyprime.mcedia.video_fetcher.MediaInfo;
+import top.tobyprime.mcedia.core.MediaInfo;
 
 import java.net.URI;
 import java.net.http.HttpClient;
