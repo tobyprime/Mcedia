@@ -34,7 +34,23 @@ public class DouyinVideoFetcher {
         }
     }
 
-    public static String fetch(String shareUrl) {
+    public static class DouyinVideoDetails {
+        public final String videoUrl;
+        public final String title;
+        public final String author;
+
+        public DouyinVideoDetails(String videoUrl, String title, String author) {
+            this.videoUrl = videoUrl;
+            this.title = title;
+            this.author = author;
+        }
+
+        public String getVideoUrl() { return videoUrl; }
+        public String getTitle() { return title; }
+        public String getAuthor() { return author; }
+    }
+
+    public static DouyinVideoDetails fetch(String shareUrl) {
         try {
             HttpClient client = HttpClient.newBuilder()
                     .followRedirects(Redirect.ALWAYS) // 自动重定向
@@ -93,8 +109,16 @@ public class DouyinVideoFetcher {
                 return null;
             }
 
+            String directVideoUrl = parseVideoUrl(routerDataJsonStr);
+            String title = parseTitle(routerDataJsonStr);
+            String author = parseAuthor(routerDataJsonStr);
+
+            if (directVideoUrl == null) {
+                return null;
+            }
+
             // 解析并返回无水印视频地址
-            return parseVideoUrl(routerDataJsonStr);
+            return new DouyinVideoDetails(directVideoUrl, title, author);
 
         } catch (IOException | InterruptedException e) {
             logger.error("网络请求异常", e);
@@ -146,6 +170,26 @@ public class DouyinVideoFetcher {
         } catch (Exception e) {
             logger.error("解析视频URL异常", e);
             return null;
+        }
+    }
+
+    private static String parseTitle(String jsonStr) {
+        try {
+            JSONObject item = new JSONObject(jsonStr).getJSONObject("loaderData").getJSONObject("video_(id)/page").getJSONObject("videoInfoRes").getJSONArray("item_list").getJSONObject(0);
+            return item.getString("desc");
+        } catch (Exception e) {
+            logger.warn("解析抖音标题失败", e);
+            return "未知视频";
+        }
+    }
+
+    private static String parseAuthor(String jsonStr) {
+        try {
+            JSONObject item = new JSONObject(jsonStr).getJSONObject("loaderData").getJSONObject("video_(id)/page").getJSONObject("videoInfoRes").getJSONArray("item_list").getJSONObject(0);
+            return item.getJSONObject("author").getString("nickname");
+        } catch (Exception e) {
+            logger.warn("解析抖音作者失败", e);
+            return "未知作者";
         }
     }
 }

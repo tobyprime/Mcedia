@@ -3,197 +3,263 @@ package top.tobyprime.mcedia.core;
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
+import org.jetbrains.annotations.Nullable;
+import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.McediaConfig;
+import top.tobyprime.mcedia.provider.VideoInfo;
 
 import java.io.Closeable;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MediaDecoder implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaDecoder.class);
-    public final String inputUrl;
-    public final LinkedBlockingDeque<Frame> videoQueue = new LinkedBlockingDeque<>();
-    public final LinkedBlockingDeque<Frame> audioQueue = new LinkedBlockingDeque<>();
-    private final FFmpegFrameGrabber grabber;
-    private final Thread decoderThread;
+
+    public final LinkedBlockingDeque<VideoFrame> videoQueue;
+    public final LinkedBlockingDeque<Frame> audioQueue;
+
     private final DecoderConfiguration configuration;
-    private volatile boolean decodeEnded = false;
+    private final List<Thread> decoderThreads = new ArrayList<>();
+    private final List<FFmpegFrameGrabber> grabbers = new ArrayList<>();
+    private final FFmpegFrameGrabber primaryGrabber;
 
-    public MediaDecoder(String inputUrl, DecoderConfiguration configuration) throws FFmpegFrameGrabber.Exception {
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
+    private volatile int runningDecoders = 0;
+
+    @Nullable
+    private final VideoFramePool videoFramePool;
+
+    private final ReentrantReadWriteLock grabberLock = new ReentrantReadWriteLock();
+
+    public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration, @Nullable VideoFramePool pool, long initialSeekUs) throws FFmpegFrameGrabber.Exception {
         this.configuration = configuration;
-        this.inputUrl = inputUrl;
+        this.videoFramePool = pool;
+        this.videoQueue = new LinkedBlockingDeque<>(McediaConfig.DECODER_MAX_VIDEO_FRAMES);
+        this.audioQueue = new LinkedBlockingDeque<>(McediaConfig.DECODER_MAX_AUDIO_FRAMES);
 
-        this.grabber = buildGrabber();
-        this.grabber.start();
-        this.decoderThread = new Thread(() -> {
-            LOGGER.info("解码线程启动");
-            try {
-                while (!Thread.currentThread().isInterrupted()) {
-                    Frame frame = grabber.grab();
-                    // 如果 eof 则一直等待
-                    if (frame == null) {
-                        if (!decodeEnded) {
-                            LOGGER.info("EOF");
-                        }
-                        decodeEnded = true;
-                        Thread.sleep(10);
-                        continue;
-                    }
-                    processFrame(frame.clone());
+        primaryGrabber = buildGrabber(info, info.getVideoUrl(), cookie, configuration, true);
+        grabbers.add(primaryGrabber);
+
+        if (info.getAudioUrl() != null && !info.getAudioUrl().isEmpty()) {
+            FFmpegFrameGrabber audioGrabber = buildGrabber(info, info.getAudioUrl(), cookie, configuration, false);
+            grabbers.add(audioGrabber);
+        }
+
+        try {
+            for (FFmpegFrameGrabber grabber : grabbers) {
+                grabber.start();
+                if (initialSeekUs > 0 && grabber.getLengthInTime() > 0) {
+                    grabber.setTimestamp(initialSeekUs, true);
                 }
-            } catch (InterruptedException ignored) {
-            } catch (Exception e) {
-                LOGGER.warn("解码异常", e);
-            } finally {
-                LOGGER.info("解码线程退出");
             }
-        });
-        this.decoderThread.start();
+        } catch (FFmpegFrameGrabber.Exception e) {
+            close();
+            throw e;
+        }
+
+        for (FFmpegFrameGrabber grabber : grabbers) {
+            Thread thread = new Thread(() -> decodeLoop(grabber));
+            thread.setName("Mcedia-Decoder-" + (grabbers.indexOf(grabber) == 0 ? "Video" : "Audio"));
+            thread.setDaemon(true);
+            decoderThreads.add(thread);
+            thread.start();
+        }
     }
 
-    public FFmpegFrameGrabber buildGrabber() {
-        var grabber = new FFmpegFrameGrabber(inputUrl);
-        grabber.setOption("reconnect", "1"); // 自动重连
-        grabber.setOption("reconnect_streamed", "1"); // 流式传输自动重连
-        grabber.setOption("reconnect_delay_max", "5"); // 最大自动重连延迟
-        if (configuration.userAgent != null) grabber.setOption("user_agent", configuration.userAgent);
+    private FFmpegFrameGrabber buildGrabber(VideoInfo info, String url, @Nullable String cookie, DecoderConfiguration configuration, boolean isVideoGrabber) {
+        var grabber = new FFmpegFrameGrabber(url);
+        if (url.startsWith("http")) {
+            StringBuilder headers = new StringBuilder();
+            Map<String, String> customHeaders = info.getHeaders();
 
-        grabber.setOption("timeout", String.valueOf(configuration.timeout));
-        grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
+            if (customHeaders != null && !customHeaders.isEmpty()) {
+                customHeaders.forEach((key, value) -> headers.append(key).append(": ").append(value).append("\r\n"));
+            } else {
+                headers.append("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n");
+                headers.append("Referer: https://www.bilibili.com/\r\n");
+                headers.append("Origin: https://www.bilibili.com\r\n");
+            }
+
+            if (cookie != null && !cookie.isEmpty() && (customHeaders == null || !customHeaders.containsKey("Cookie"))) {
+                headers.append("Cookie: ").append(cookie).append("\r\n");
+            }
+
+            grabber.setOption("headers", headers.toString());
+            grabber.setOption("reconnect", "1");
+            grabber.setOption("reconnect_streamed", "1");
+            grabber.setOption("reconnect_delay_max", "5");
+            grabber.setOption("timeout", String.valueOf(configuration.timeout));
+        }
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
-
-        if (configuration.useHardwareDecoding) {
-            grabber.setOption("hwaccel", "auto");
-        }
-
-        grabber.setAudioChannels(1);  // 不设置为 1 音频会有问题
-
-        if (configuration.videoAlpha) {
+        grabber.setOption("analyzeduration", "10000000");
+        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
+        if (isVideoGrabber) {
+            grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
         } else {
-            grabber.setPixelFormat(avutil.AV_PIX_FMT_RGB24);
+            grabber.setOption("vn", "1");
         }
-        grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
+        grabber.setAudioChannels(1);
         grabber.setOption("an", configuration.enableAudio ? "0" : "1");
         return grabber;
     }
 
-    /**
-     * 解码已结束且 frame 消费完
-     */
-    public boolean isEnded() {
-        return decodeEnded && audioQueue.isEmpty();
+    private void decodeLoop(FFmpegFrameGrabber grabber) {
+        runningDecoders++;
+        try {
+            while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
+                grabberLock.readLock().lock();
+                try {
+                    if (isClosed.get()) {
+                        break;
+                    }
+
+                    Frame frame = grabber.grab();
+                    if (frame == null) {
+                        break;
+                    }
+
+                    boolean isVideo = frame.image != null && configuration.enableVideo;
+                    boolean isAudio = frame.samples != null && configuration.enableAudio;
+
+                    if (isVideo) {
+                        if (videoFramePool != null) {
+                            int width = frame.imageWidth;
+                            int height = frame.imageHeight;
+                            int stride = frame.imageStride;
+                            int tightStride = width * 4;
+
+                            ByteBuffer rawBuffer = (ByteBuffer) frame.image[0];
+
+                            VideoFramePool finalPool = videoFramePool;
+                            ByteBuffer copiedBuffer = videoFramePool.acquire();
+
+                            if (copiedBuffer.capacity() < tightStride * height) {
+                                videoFramePool.release(copiedBuffer);
+                                copiedBuffer = MemoryUtil.memAlloc(tightStride * height);
+                                finalPool = null;
+                            }
+
+                            long rawBufferAddress = MemoryUtil.memAddress(rawBuffer);
+                            long copiedBufferAddress = MemoryUtil.memAddress(copiedBuffer);
+
+                            if (stride == tightStride) {
+                                MemoryUtil.memCopy(rawBufferAddress, copiedBufferAddress, (long)tightStride * height);
+                            } else {
+                                for (int y = 0; y < height; y++) {
+                                    long sourceAddress = rawBufferAddress + (long)y * stride;
+                                    long destAddress = copiedBufferAddress + (long)y * tightStride;
+                                    MemoryUtil.memCopy(sourceAddress, destAddress, tightStride);
+                                }
+                            }
+
+                            copiedBuffer.limit(tightStride * height);
+                            copiedBuffer.rewind();
+
+                            videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, finalPool));
+                        }
+                    } else if (isAudio) {
+                        audioQueue.put(frame.clone());
+                    }
+
+                } catch (FFmpegFrameGrabber.Exception e) {
+                    if (!isClosed.get()) {
+                        LOGGER.warn("在 grabber.grab() 期间发生错误，解码循环将终止。", e);
+                    }
+                    break;
+                } finally {
+                    grabberLock.readLock().unlock();
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            if (!isClosed.get()) {
+                LOGGER.error("在解码循环中发生未捕获的错误", e);
+            }
+        } finally {
+            runningDecoders--;
+        }
     }
 
-    /**
-     * 解码结束
-     */
-    public boolean isDecodeEnded() {
-        return decodeEnded;
+    public boolean isEof() {
+        return runningDecoders == 0;
     }
 
     public long getDuration() {
-        return grabber.getLengthInTime();
+        return primaryGrabber.getLengthInTime();
     }
 
-    /**
-     * 视频宽度
-     */
     public int getWidth() {
-        return grabber.getImageWidth();
+        return primaryGrabber.getImageWidth();
     }
 
-    /**
-     * 视频高度
-     */
     public int getHeight() {
-        return grabber.getImageHeight();
-    }
-
-    /**
-     * 音频采样率
-     */
-    public int getSampleRate() {
-        return grabber.getSampleRate();
-    }
-
-    /**
-     * 音频通道数
-     */
-    public int getChannels() {
-        return grabber.getAudioChannels();
+        return primaryGrabber.getImageHeight();
     }
 
     public void seek(long timestamp) {
-        if (timestamp < 0) {
-            timestamp = 0;
-        }
-        var duration = this.getDuration();
+        if (getDuration() <= 0) return;
+        timestamp = Math.max(0, Math.min(timestamp, getDuration()));
 
-        if (duration <= 0) {
-            return;
-        }
-
-        if (timestamp >= duration) {
-            timestamp = duration;
-        }
-        clearQueue();
+        grabberLock.writeLock().lock();
         try {
-            this.grabber.setTimestamp(timestamp, true);
+            clearQueue();
+            for (FFmpegFrameGrabber grabber : grabbers) {
+                grabber.setTimestamp(timestamp, true);
+            }
         } catch (FFmpegFrameGrabber.Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void processFrame(Frame frame) throws InterruptedException {
-        long frameTimestamp = frame.timestamp;
-
-        // 等待缓存被消费
-        while (true) {
-            if (frame.timestamp < 0 ) break;
-            if (audioQueue.isEmpty()) {
-                break;
-            }
-            if (frameTimestamp - audioQueue.peek().timestamp < configuration.cacheDuration) {
-                break;
-            }
-            Thread.sleep(10);
-        }
-
-        if (frame.image != null) {
-            videoQueue.offer(frame.clone());
-        } else if (frame.samples != null) {
-            audioQueue.offer(frame.clone());
-        }
-        frame.close();
-    }
-
-    public void clearQueue() {
-        for (int i = 0; i < audioQueue.size(); i++) {
-            audioQueue.poll().close();
-        }
-        for (int i = 0; i < videoQueue.size(); i++) {
-            videoQueue.poll().close();
+            throw new RuntimeException("Seek failed", e);
+        } finally {
+            grabberLock.writeLock().unlock();
         }
     }
 
     @Override
     public void close() {
+        if (!isClosed.compareAndSet(false, true)) {
+            return;
+        }
 
+        decoderThreads.forEach(Thread::interrupt);
+        grabberLock.writeLock().lock();
         try {
-            this.decoderThread.interrupt();
-            this.decoderThread.join();
-        } catch (Exception e) {
-            LOGGER.warn("关闭解码线程异常", e);
+            for (FFmpegFrameGrabber grabber : grabbers) {
+                try {
+                    grabber.stop();
+                    grabber.release();
+                } catch (Exception e) {
+                    LOGGER.warn("停止或释放 grabber 时出错", e);
+                }
+            }
+        } finally {
+            grabberLock.writeLock().unlock();
         }
-        this.decodeEnded = true;
+
+        for (Thread thread : decoderThreads) {
+            try {
+                thread.join(500);
+            } catch (InterruptedException ignored) {}
+        }
+
         clearQueue();
-        try {
-            this.grabber.release();
-        } catch (Exception e) {
-            LOGGER.warn("关闭解码器异常", e);
+        if (videoFramePool != null) {
+            videoFramePool.close();
         }
+    }
+
+    private void clearQueue() {
+        videoQueue.forEach(VideoFrame::close);
+        audioQueue.forEach(Frame::close);
+        videoQueue.clear();
+        audioQueue.clear();
     }
 }

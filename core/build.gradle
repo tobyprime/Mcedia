@@ -16,23 +16,32 @@ dependencies {
     implementation "org.slf4j:slf4j-api:${project.sl4j_version}"
     implementation "org.lwjgl:lwjgl-opengl:${project.lwjgl_version}"
     implementation "org.lwjgl:lwjgl-openal:${project.lwjgl_version}"
+    implementation "org.joml:joml:1.10.5"
     implementation "org.json:json:${project.json_version}"
 
     implementation "org.bytedeco:javacv:${project.javacv_version}"
     implementation "org.bytedeco:javacpp:${project.javacpp_version}:windows-x86_64"
     implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}:windows-x86_64"
+    implementation "com.google.code.gson:gson:2.10.1"
+    implementation "com.google.zxing:core:3.5.3"
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'org.brotli:dec:0.1.2'
 }
 shadowJar {
     archiveClassifier.set('all') // 会生成 xxx-all.jar
     mergeServiceFiles() // 处理 META-INF/services 文件合并（如 SLF4J）
 
-    // 可选：只打包你关心的依赖
     dependencies {
         include(dependency("org.json:json"))
-
         include(dependency("org.bytedeco:javacv"))
         include(dependency("org.bytedeco:javacpp"))
         include(dependency("org.bytedeco:ffmpeg"))
+
+        include(dependency("org.brotli:dec"))
+
+        include(dependency("com.squareup.okhttp3:.*"))
+        include(dependency("com.squareup.okio:.*"))
+        include(dependency("org.jetbrains.kotlin:.*"))
     }
 }
 test {
@@ -43,4 +52,19 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+
+repositories {
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+    mavenCentral()
+}
+
+dependencies {
+    // 'compileOnly' means this dependency is needed for compiling,
+    // but it should not be included in the final JAR file.
+    // This is correct because Fabric Loader provides this class at runtime.
+    compileOnly "net.fabricmc:fabric-loader:${rootProject.property('loader_version')}"
 }
