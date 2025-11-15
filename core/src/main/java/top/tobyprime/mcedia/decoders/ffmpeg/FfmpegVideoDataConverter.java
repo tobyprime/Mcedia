@@ -1,11 +1,12 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.decoders.ffmpeg;
 
 import org.bytedeco.javacv.Frame;
 import org.lwjgl.system.MemoryUtil;
+import top.tobyprime.mcedia.decoders.VideoFrame;
 
 import java.nio.*;
 
-public class VideoDataConverter {
+public class FfmpegVideoDataConverter {
 
     public static VideoFrame convertToVideoFrame(Frame frame) {
         if (frame == null || frame.image == null || frame.image.length == 0) {

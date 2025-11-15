@@ -2,20 +2,54 @@ package top.tobyprime.mcedia.video_fetcher;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import top.tobyprime.mcedia.interfaces.IMediaFetcher;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class BiliBiliVideoFetcher {
+public class BiliBiliVideoFetcher implements IMediaFetcher {
 
-    private static final HttpClient client = HttpClient.newHttpClient();
+    HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.ALWAYS) // 关键
+            .build();
 
-    public static String fetch(String videoUrl) {
+    @Override
+    public boolean isValidUrl(String url) {
+        return url.contains("www.bilibili.com/video/BV");
+    }
+
+    public void getTitleAndAuthor(String url, MediaInfo mediaInfo, HttpClient client) throws IOException, InterruptedException {
+        HttpRequest initRequest = HttpRequest.newBuilder()
+                .uri(URI.create(url.split("/\\?")[0]))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36")
+                .header("Accept-Charset", "UTF-8")
+
+                .GET()
+                .build();
+        HttpResponse<String> initResponse = client.send(initRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        var body = initResponse.body();
+        try{
+            String content = body.replaceAll(".*?<title[^>]*>(.*?)</title>.*", "$1");
+            var vars = content.split("_");
+            mediaInfo.title = vars[0];
+        }
+        catch(Exception ignored){
+        }
+    }
+
+    @Override
+    public MediaInfo getMedia(String videoUrl) {
         // 1. 提取 BV 号
+        var media = new MediaInfo();
+        media.platform = "BiliBili";
+        media.rawUrl = videoUrl;
+
         Pattern bvPattern = Pattern.compile("(BV[0-9A-Za-z]+)");
         Matcher matcher = bvPattern.matcher(videoUrl);
         if (!matcher.find()) {
@@ -29,7 +63,12 @@ public class BiliBiliVideoFetcher {
         if (pageMatcher.find()) {
             page = Integer.parseInt(pageMatcher.group(1));
         }
+        try{
+            getTitleAndAuthor(videoUrl, media, client);
+        }
+        catch(Exception ignored){
 
+        }
         // 2. 获取 CID
         String pagelistApi = "https://api.bilibili.com/x/player/pagelist?bvid=" + bvid + "&jsonp=jsonp";
         HttpRequest pagelistRequest = HttpRequest.newBuilder()
@@ -38,11 +77,11 @@ public class BiliBiliVideoFetcher {
                 .GET()
                 .build();
 
-        HttpResponse<String> pagelistResponse = null;
+        HttpResponse<String> pagelistResponse;
         try {
             pagelistResponse = client.send(pagelistRequest, HttpResponse.BodyHandlers.ofString());
         } catch (Exception e) {
-            return null;
+            throw new RuntimeException("获取视频播放地址失败", e);
         }
         JSONObject pagelistJson = new JSONObject(pagelistResponse.body());
         if (pagelistJson.getInt("code") != 0) {
@@ -69,7 +108,7 @@ public class BiliBiliVideoFetcher {
         try {
             playResponse = client.send(playRequest, HttpResponse.BodyHandlers.ofString());
         } catch (Exception e) {
-            return null;
+            throw new RuntimeException("获取视频播放地址失败", e);
         }
         JSONObject playJson = new JSONObject(playResponse.body());
         if (playJson.getInt("code") != 0) {
@@ -77,8 +116,7 @@ public class BiliBiliVideoFetcher {
         }
 
         JSONArray durlArray = playJson.getJSONObject("data").getJSONArray("durl");
-
-        return durlArray.getJSONObject(0).getString("url");
+        media.streamUrl = durlArray.getJSONObject(0).getString("url");
+        return media;
     }
-
 }

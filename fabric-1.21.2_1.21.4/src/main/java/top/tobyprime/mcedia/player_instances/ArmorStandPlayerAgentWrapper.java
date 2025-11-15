@@ -2,7 +2,6 @@ package top.tobyprime.mcedia.player_instances;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -19,7 +18,6 @@ import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
 import top.tobyprime.mcedia.renderers.MediaPlayerScreen;
-import top.tobyprime.mcedia.video_fetcher.MediaFetchers;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -281,31 +279,23 @@ public class ArmorStandPlayerAgentWrapper {
 
         LOGGER.info("准备播放 {}", mediaUrl);
 
-        player.openAsync(() -> {
-            var media = MediaFetchers.getMedia(mediaUrl);
-            Utils.msgToPlayer(poster + "播放" + media.platform + "上的视频: " + media.title);
-
-            return media.streamUrl;
-        }).exceptionally((e) -> {
-            LOGGER.warn("打开视频失败", e);
-            Utils.msgToPlayer("无法解析或播放: " + mediaUrl);
-            throw new RuntimeException(e);
-        }).thenRun(() -> {
+        var mediaPlay =  player.getMediaPlayAndOpen(mediaUrl, (info) -> {
             player.play();
             player.seek(duration);
-            player.setSpeed(2);
-        }).exceptionally(e -> {
-            LOGGER.warn("播放视频失败", e);
-            Utils.msgToPlayer("无法解析或播放: " + mediaUrl);
-            throw new RuntimeException(e);
+            Utils.msgToPlayer("正在播放: " + info.title);
         });
+
+        if (mediaPlay.getStatus() != null){
+            Utils.msgToPlayer("播放器状态" + mediaPlay.getStatus());
+        }
+        mediaPlay.registerOnStatusUpdatedEventAndCallOnce(status -> {Utils.msgToPlayer("播放器状态: " + status);});
     }
 
     /**
      * 关闭媒体
      */
     public void stopMedia() {
-        player.stopAsync();
+        player.stop();
     }
 
     /**

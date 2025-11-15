@@ -12,6 +12,10 @@ public class DouyinLiveFetcher {
             .followRedirects(HttpClient.Redirect.ALWAYS) // 自动跟随短链跳转
             .build();
 
+    public boolean isValid(String liveUrl){
+        return liveUrl.matches("live\\.douyin\\.com");
+    }
+
     public static String fetch(String rid) {
         try {
             HttpRequest request = HttpRequest.newBuilder()

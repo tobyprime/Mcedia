@@ -1,13 +1,13 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.decoders.ffmpeg;
 
 import org.bytedeco.javacv.Frame;
-import org.jetbrains.annotations.Nullable;
 import org.lwjgl.system.MemoryUtil;
 import top.tobyprime.mcedia.BufferHelper;
+import top.tobyprime.mcedia.decoders.AudioBufferData;
 
 import java.nio.*;
 
-public class AudioBufferDataConverter {
+public class FfmpegAudioBufferDataConverter {
 
     public static AudioBufferData AsMixedAudioData(Frame frame) {
         if (frame.samples == null || frame.samples.length == 0) return null;

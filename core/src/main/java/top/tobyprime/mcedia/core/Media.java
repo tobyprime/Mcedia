@@ -1,12 +1,13 @@
 package top.tobyprime.mcedia.core;
 
-import org.bytedeco.javacv.FFmpegFrameGrabber;
-import org.bytedeco.javacv.Frame;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.interfaces.IAudioSource;
-import top.tobyprime.mcedia.interfaces.ITexture;
+import top.tobyprime.mcedia.decoders.DecoderConfiguration;
+import top.tobyprime.mcedia.decoders.VideoFrame;
+import top.tobyprime.mcedia.decoders.ffmpeg.FfmpegMediaDecoder;
+import top.tobyprime.mcedia.interfaces.*;
+import top.tobyprime.mcedia.video_fetcher.MediaInfo;
 
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -17,7 +18,7 @@ import java.util.ArrayList;
 public class Media implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(Media.class);
 
-    private final MediaDecoder decoder;
+    private final IMediaDecoder decoder;
     private final Thread audioThread;
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
     private @Nullable ITexture texture;
@@ -28,24 +29,21 @@ public class Media implements Closeable {
     private long lastAudioPts = -1; // 最近上传的音频帧时间戳
     private float speed = 1;
     private boolean looping = false;
-
+    private MediaInfo mediaInfo;
     // 最近上传的视频帧时间戳
-    private @Nullable Frame currentVideoFrame;
-    public Media(String url, DecoderConfiguration config) {
-        try {
-            decoder = new MediaDecoder(url, config);
-            // 检测是否为直播流（假设duration无效或为0表示直播）
-            isLiveStream = decoder.getDuration() <= 0 || Double.isInfinite(decoder.getDuration());
-            if (isLiveStream) {
-                LOGGER.info("检测到直播流: {}", url);
-            } else {
-                LOGGER.info("检测到点播流: {}", url);
-            }
-        } catch (FFmpegFrameGrabber.Exception e) {
-            throw new RuntimeException(e);
-        }
+    private @Nullable IVideoData currentVideoFrame;
+    public Media(MediaInfo info, DecoderConfiguration config) {
+        decoder = new FfmpegMediaDecoder(info, config, 0L);
+
+        // 检测是否为直播流（假设duration无效或为0表示直播）
+        isLiveStream = decoder.isLiveStream();
         audioThread = new Thread(this::playLoop);
         audioThread.start();
+        mediaInfo = info;
+    }
+
+    public MediaInfo getMediaInfo() {
+        return mediaInfo;
     }
 
     public void playLoop() {
@@ -53,7 +51,7 @@ public class Media implements Closeable {
         try {
             while (!Thread.currentThread().isInterrupted()) {
                 if (!paused) {
-                    Frame currFrame = decoder.audioQueue.poll();
+                    IAudioData currFrame = decoder.getAudioQueue().poll();
                     if (currFrame == null) {
                         if (decoder.isEnded() && looping && decoder.getDuration() != 0) {
                             // 如果循环播放且播放结束则从头开始
@@ -65,15 +63,15 @@ public class Media implements Closeable {
                         continue;
                     }
                     // 消费掉过期的视频帧
-                    while (!decoder.videoQueue.isEmpty()) {
-                        Frame videoFrame = decoder.videoQueue.peek();
+                    while (!decoder.getVideoQueue().isEmpty()) {
+                        IVideoData videoFrame = decoder.getVideoQueue().peek();
                         if (videoFrame == null) break;
                         // 如果视频帧的时间戳小于当前音频帧，则认为过期，消费掉
-                        if (videoFrame.timestamp < currFrame.timestamp) {
+                        if (videoFrame.getTimestamp() < currFrame.getTimestamp()) {
                             synchronized (this) {
                                 if (currentVideoFrame != null)
                                     currentVideoFrame.close();
-                                currentVideoFrame = decoder.videoQueue.poll();
+                                currentVideoFrame = decoder.getVideoQueue().poll();
                             }
                         } else {
                             break;
@@ -81,13 +79,13 @@ public class Media implements Closeable {
                     }
 
                     uploadBuffer(currFrame);
-                    lastAudioPts = currFrame.timestamp;
+                    lastAudioPts = currFrame.getTimestamp();
 
                     // 计算下一个音频帧的间隔
-                    Frame nextFrame = decoder.audioQueue.peek();
+                    IAudioData nextFrame = decoder.getAudioQueue().peek();
                     long intervalUs;
                     if (nextFrame != null) {
-                        intervalUs = (long) ((nextFrame.timestamp - currFrame.timestamp)/speed);
+                        intervalUs = (long) ((nextFrame.getTimestamp() - currFrame.getTimestamp())/speed);
                         if (intervalUs <= 0) intervalUs = 20_000L; // 防止pts异常
                     } else {
                         intervalUs = 20_000L; // 队列空时用默认值
@@ -110,6 +108,7 @@ public class Media implements Closeable {
     public void setLooping(boolean looping) {
         this.looping = looping;
     }
+
     /**
      * 播放
      */
@@ -221,14 +220,14 @@ public class Media implements Closeable {
         // 否则正常渲染
         var frame = currentVideoFrame;
         currentVideoFrame = null;
-        VideoFrame vf = VideoDataConverter.convertToVideoFrame(frame);
+        VideoFrame vf = frame.toFrame();
         texture.upload(vf);
         frame.close();
     }
 
-    private void uploadBuffer(Frame frame) {
+    private void uploadBuffer(IAudioData frame) {
         for (var audioSource: audioSources){
-            audioSource.upload(AudioBufferDataConverter.AsAudioData(frame, -1));
+            audioSource.upload(frame.getMergedAudioData());
         }
     }
 

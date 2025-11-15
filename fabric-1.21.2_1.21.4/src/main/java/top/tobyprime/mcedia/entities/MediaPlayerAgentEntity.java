@@ -16,16 +16,22 @@ import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Utils;
 import top.tobyprime.mcedia.VideoTexture;
 import top.tobyprime.mcedia.core.AudioSourceInstance;
+import top.tobyprime.mcedia.core.IMediaPlay;
 import top.tobyprime.mcedia.core.MediaPlayer;
+import top.tobyprime.mcedia.interfaces.IMediaFetcher;
 import top.tobyprime.mcedia.interfaces.IMediaPlayerScreenRenderer;
 
 import java.util.ArrayList;
+import java.util.function.Consumer;
 
 public class MediaPlayerAgentEntity extends Entity {
 
-
+    public static Logger LOGGER = LoggerFactory.getLogger(MediaPlayerAgentEntity.class);
     public static final EntityType<MediaPlayerAgentEntity> TYPE = Registry.register(
             BuiltInRegistries.ENTITY_TYPE,
             ResourceLocation.fromNamespaceAndPath("mcedia", "player_agent"),
@@ -35,6 +41,7 @@ public class MediaPlayerAgentEntity extends Entity {
     public final ArrayList<IMediaPlayerScreenRenderer> screens = new ArrayList<>();
     public final MediaPlayer player = new MediaPlayer();
     public final ArrayList<AudioSourceInstance> audioSources = new ArrayList<>();
+    public @Nullable String playingUrl;
     public VideoTexture texture = new VideoTexture(ResourceLocation.fromNamespaceAndPath("mcedia", "player_agent" + this.stringUUID));
     public Quaternionf rotation = new Quaternionf();
 
@@ -90,6 +97,7 @@ public class MediaPlayerAgentEntity extends Entity {
     public MediaPlayer getPlayer() {
         return player;
     }
+
 
     @Override
     public void onRemoval(RemovalReason removalReason) {

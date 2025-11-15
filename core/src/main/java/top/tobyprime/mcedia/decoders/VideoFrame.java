@@ -1,9 +1,8 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.decoders;
 
 import org.lwjgl.system.MemoryUtil;
 
 import java.io.Closeable;
-import java.nio.Buffer;
 import java.nio.ByteBuffer;
 
 public class VideoFrame implements Closeable {

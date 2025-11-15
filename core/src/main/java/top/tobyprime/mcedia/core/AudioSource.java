@@ -4,6 +4,7 @@ import org.jetbrains.annotations.Nullable;
 import org.lwjgl.openal.AL10;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.decoders.AudioBufferData;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 
 import java.io.IOException;

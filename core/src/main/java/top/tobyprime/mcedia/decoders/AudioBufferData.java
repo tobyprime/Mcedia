@@ -1,4 +1,4 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.decoders;
 
 import org.lwjgl.system.MemoryUtil;
 

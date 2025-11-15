@@ -1,4 +1,4 @@
-package top.tobyprime.mcedia.core;
+package top.tobyprime.mcedia.decoders;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -10,6 +10,7 @@ public class DecoderConfiguration {
     public final boolean useHardwareDecoding;
     public final boolean videoAlpha ;
     public final int audioSampleRate;
+
 
     public final int timeout;
     public final int bufferSize;

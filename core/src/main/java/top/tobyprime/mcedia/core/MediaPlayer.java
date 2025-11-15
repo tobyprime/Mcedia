@@ -1,28 +1,53 @@
 package top.tobyprime.mcedia.core;
 
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 import top.tobyprime.mcedia.interfaces.ITexture;
+import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
+import top.tobyprime.mcedia.video_fetcher.MediaInfo;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
 
-public class MediaPlayer {
-    // 全局共享线程池（单线程或多线程）
+/**
+ * 播放器核心，同时只播放单一媒体，管理媒体切换等
+ */
+public class MediaPlayer implements Closeable {
+    private static Logger LOGGER = LoggerFactory.getLogger(MediaPlayer.class);
     private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MediaPlayer-Async");
         t.setDaemon(true);
         return t;
     });
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
+    public boolean looping = false;
+    float speed = 1;
     private @Nullable ITexture texture;
+    private volatile boolean loading;
 
     @Nullable
     private Media media;
+    private volatile IMediaPlay mediaPlay;
+
     private volatile DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
+
+    /**
+     * 关闭线程池（全局）
+     */
+    public static void shutdownExecutor() {
+        executor.shutdownNow();
+    }
+
+    public IMediaPlay getMediaPlay() {
+        return mediaPlay;
+    }
 
     public synchronized void bindTexture(ITexture texture) {
         this.texture = texture;
@@ -35,6 +60,10 @@ public class MediaPlayer {
         if (media != null) {
             media.unbindTexture();
         }
+    }
+
+    public float getAspectRatio() {
+        return media == null ? 0 : media.getAspectRatio();
     }
 
     public synchronized void bindAudioSource(IAudioSource audioBuffer) {
@@ -50,12 +79,6 @@ public class MediaPlayer {
             media.unbindAudioSource(audioBuffer);
         }
     }
-    /**
-     * 关闭线程池（全局）
-     */
-    public static void shutdownExecutor() {
-        executor.shutdownNow();
-    }
 
     public DecoderConfiguration getDecoderConfiguration() {
         return decoderConfiguration;
@@ -65,7 +88,10 @@ public class MediaPlayer {
         this.decoderConfiguration = decoderConfiguration;
     }
 
-    private void closeInternal() {
+    /**
+     * 关闭当前 Media
+     */
+    private void stopMediaInternal() {
         Media preMedia = null;
         synchronized (this) {
             if (media != null) {
@@ -78,46 +104,68 @@ public class MediaPlayer {
         }
     }
 
-    public boolean looping = false;
-
     public synchronized @Nullable Media getMedia() {
         return media;
     }
 
-
     /**
-     * 异步关闭
+     * 异步关闭 Media 以及 Media Play
      */
-    public  CompletableFuture<?> closeAsync() {
-        return CompletableFuture.runAsync(this::closeInternal, executor);
+    public void stop() {
+        CompletableFuture.runAsync(this::stopMediaInternal, executor).thenAccept(x -> mediaPlay.close());
     }
 
     /**
      * 异步打开（会先关闭当前媒体）
      */
-    public CompletableFuture<?> openAsync(String inputMedia) {
-        return CompletableFuture.runAsync(() -> {
-            openInternal(inputMedia);
+    private void openMedia(MediaInfo mediaInfo, Consumer<MediaInfo> afterOpened) {
+        CompletableFuture.runAsync(() -> {
+            LOGGER.info("读取: {}", mediaInfo.streamUrl);
+            openMediaInternal(mediaInfo);
+            if (afterOpened != null)
+                afterOpened.accept(mediaInfo);
         }, executor);
     }
 
-    public CompletableFuture<?> openAsync(Supplier<String> inputMediaSupplier) {
-        return CompletableFuture.runAsync(() -> {
-            openInternal(inputMediaSupplier.get());
-        }, executor);
+    public void open(IMediaPlay mediaPlay, Consumer<MediaInfo> afterOpened) {
+        this.mediaPlay = mediaPlay;
+
+        mediaPlay.registerOnMediaInfoUpdatedEventAndCallOnce(mediaInfo -> {
+            if (this.mediaPlay != mediaPlay) {
+                return;
+            }
+
+            if (mediaInfo != null) {
+                openMedia(mediaInfo, afterOpened);
+            }
+        });
     }
 
-    public synchronized void play(){
+    public IMediaPlay getMediaPlayAndOpen(String url, Consumer<MediaInfo> afterOpened) {
+        var mediaPlay = MediaPlayFactory.createMediaPlay(url);
+        open(mediaPlay, afterOpened);
+        return mediaPlay;
+    }
+
+    public synchronized void uploadVideo() {
+        if (media != null) {
+            media.uploadVideo();
+        }
+    }
+
+    public synchronized void play() {
         if (media != null) {
             media.play();
         }
     }
-    public synchronized void pause(){
+
+    public synchronized void pause() {
         if (media != null) {
             media.pause();
         }
     }
-    public void seek(long ms){
+
+    public void seek(long ms) {
         Media preMedia = null;
         synchronized (this) {
             if (media != null) {
@@ -128,24 +176,28 @@ public class MediaPlayer {
             preMedia.seek(ms);
         }
     }
-    float speed = 1;
 
-    private void openInternal(String inputMedia) {
-        closeInternal();
-        if (inputMedia == null) {
-            return;
-        }
-        var newMedia = new Media(inputMedia, decoderConfiguration);
+    private void openMediaInternal(@Nullable MediaInfo inputMedia) {
+        loading = true;
+        try {
+            stopMediaInternal();
+            if (inputMedia == null) {
+                return;
+            }
+            var newMedia = new Media(inputMedia, decoderConfiguration);
 
-        newMedia.bindTexture(texture);
-        for (var audioSource : audioSources) {
-            newMedia.bindAudioSource(audioSource);
+            newMedia.bindTexture(texture);
+            for (var audioSource : audioSources) {
+                newMedia.bindAudioSource(audioSource);
+            }
+            synchronized (this) {
+                media = newMedia;
+            }
+            media.setSpeed(speed);
+            media.setLooping(looping);
+        } finally {
+            loading = false;
         }
-        synchronized (this) {
-            media = newMedia;
-        }
-        media.setSpeed(speed);
-        media.setLooping(looping);
     }
 
     public synchronized void setSpeed(float speed) {
@@ -160,14 +212,19 @@ public class MediaPlayer {
         if (media != null) media.setLooping(looping);
     }
 
-    public synchronized float getProgress(){
+    public synchronized float getProgress() {
         if (media != null) {
-            if (media.getLengthUs() <=0){
+            if (media.getLengthUs() <= 0) {
                 return 0;
             }
             return (float) media.getDurationUs() / media.getLengthUs();
         }
         return 0;
+    }
+
+    @Override
+    public void close() {
+        stopMediaInternal();
     }
 }
 
