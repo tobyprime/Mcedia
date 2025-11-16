@@ -3,7 +3,7 @@ package top.tobyprime.mcedia.media_play_resolvers;
 import org.jetbrains.annotations.NotNull;
 import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.core.DirectLinkMediaPlay;
-import top.tobyprime.mcedia.core.IMediaPlay;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.interfaces.IMediaPlayResolver;
 
 public class DirectLinkMediaPlayResolver implements IMediaPlayResolver {

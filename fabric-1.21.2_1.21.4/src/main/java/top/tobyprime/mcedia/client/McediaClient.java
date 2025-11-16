@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.Minecraft;
 import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
@@ -26,7 +27,6 @@ public class McediaClient implements ClientModInitializer {
     public void onInitializeClient() {
         EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> CommandLogin.register(dispatcher));
-
         ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
             var props = new Properties();
             if (!Files.exists(CONFIG_PATH)) {

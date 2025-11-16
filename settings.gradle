@@ -15,4 +15,4 @@ include 'fabric-1.21.5'
 include 'fabric-1.21.6_1.21.8'
 
 
-include 'paperplugin'
+include 'paperpluginthu'

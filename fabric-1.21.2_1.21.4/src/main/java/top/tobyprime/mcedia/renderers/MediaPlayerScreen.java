@@ -2,11 +2,15 @@ package top.tobyprime.mcedia.renderers;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import org.joml.Vector3f;
+import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.VideoTexture;
 import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.interfaces.IMediaPlayerScreenRenderer;
@@ -26,6 +30,68 @@ public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
         consumer.addVertex(matrix, halfW, -1, 0).setLight(i).setUv(1, 1).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
         consumer.addVertex(matrix, halfW, 1, 0).setLight(i).setUv(1, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
         consumer.addVertex(matrix, -halfW, 1, 0).setLight(i).setUv(0, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1);
+    }
+
+
+    private void renderDanmaku(PoseStack poseStack, MultiBufferSource bufferSource, int i, MediaPlayer player) {
+        poseStack.pushPose();
+
+        poseStack.translate(0, 0, 0.004f);
+        Font font = Minecraft.getInstance().font;
+        float actualLineHeight = 2F / Configs.DANMAKU_TRACKS;
+
+        float actualTextDisplayHeight = actualLineHeight * 0.7f;
+        float scale = actualTextDisplayHeight / font.lineHeight;
+
+        var actualLineWidth = halfW * 2;
+
+        player.setDanmakuWidthPredictor(x -> {
+            var actualWidth = (float) font.width(x.text) * actualTextDisplayHeight / font.lineHeight;
+            return actualWidth / actualLineWidth;
+        });
+
+        var danmakus = player.updateAndGetDanmakus();
+
+        if (danmakus == null) {
+            poseStack.popPose();
+            return;
+        }
+
+
+        int alpha = (int) (Mth.clamp(Configs.DANMAKU_OPACITY, 0, 1) * 255);
+        int alphaMask = alpha << 24;
+
+
+        for (var danmaku : danmakus) {
+            poseStack.pushPose();
+
+            String text2render = danmaku.danmaku.text;
+            float width = (float) font.width(text2render) * actualTextDisplayHeight / font.lineHeight;
+            float left = -halfW + danmaku.position * actualLineWidth;
+            float right = left + width;
+
+            while (left < -halfW && !text2render.isEmpty()) {
+                text2render = text2render.substring(1);
+                width = (float) font.width(text2render) * actualTextDisplayHeight / font.lineHeight;
+                left = right - width;
+            }
+
+            while (right > halfW && !text2render.isEmpty()) {
+                text2render = text2render.substring(0, text2render.length() - 1);
+                width = (float) font.width(text2render) * actualTextDisplayHeight / font.lineHeight;
+                right = left + width;
+            }
+
+
+            poseStack.translate(left, 1F - danmaku.trackId * actualLineHeight, 0);
+            poseStack.scale(scale, -scale, scale);
+            int color = alphaMask | (danmaku.danmaku.color & 0x00FFFFFF);
+
+            font.drawInBatch(text2render, 0, 0, color, true, poseStack.last().pose(), bufferSource, Font.DisplayMode.NORMAL, 0, i);
+            poseStack.popPose();
+        }
+
+        poseStack.popPose();
     }
 
     private void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i) {
@@ -68,6 +134,7 @@ public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
         poseStack.scale(Height, Height, Height);
 
         renderScreen(texture, poseStack, bufferSource, i, player);
+        renderDanmaku(poseStack, bufferSource, i, player);
         renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
 
         poseStack.popPose();

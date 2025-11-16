@@ -4,7 +4,7 @@ import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.EmptyMediaPlay;
-import top.tobyprime.mcedia.core.IMediaPlay;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.interfaces.IMediaPlayResolver;
 
 import java.util.List;

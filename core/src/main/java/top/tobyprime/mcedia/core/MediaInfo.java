@@ -1,8 +1,9 @@
 package top.tobyprime.mcedia.core;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.danmaku.Danmaku;
 
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class MediaInfo {
@@ -16,6 +17,7 @@ public class MediaInfo {
     @Nullable
     public String cookie;
     @Nullable
-    public Map<String, String> headers = new HashMap<>();
-
+    public Map<String, String> headers = null;
+    @Nullable
+    public List<Danmaku> danmakus = null;
 }

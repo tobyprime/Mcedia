@@ -17,6 +17,9 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
+/**
+ * 负责 bilibili 账户的状态管理、登录
+ */
 
 public class BilibiliAuthManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliAuthManager.class);

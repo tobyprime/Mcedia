@@ -5,9 +5,9 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.BaseMediaPlay;
-import top.tobyprime.mcedia.core.IMediaPlay;
-import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.core.MediaInfo;
+import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -56,7 +56,6 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
     public void load() {
         loading = true;
         try {
-            setStatus("正在获取视频信息...");
             String bvid = parseBvidFromUrl(videoUrl);
             if (bvid == null) {
                 throw new IllegalArgumentException("未找到BV号，请检查视频链接");
@@ -120,7 +119,7 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
                 playRequestBuilder.header("Cookie", cookie);
             }
 
-            setStatus("正在获取视频播放链接...");
+//            setStatus("正在获取视频播放链接...");
 
             HttpResponse<String> playResponse = client.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
             JSONObject playJson = new JSONObject(playResponse.body());
@@ -142,7 +141,10 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
             headers.put("Referer", "https://www.bilibili.com/");
             headers.put("Origin", "https://www.bilibili.com");
             info.headers = headers;
-
+            BilibiliDanmakuFetcher.fetchDanmakuAsync(cid).thenAccept(dmk -> {
+                info.danmakus = dmk;
+                LOGGER.info("加载了 {} 条弹幕", dmk.size());
+            });
             if (playJson.getInt("code") != 0) {
                 String message = playJson.optString("message");
                 if (playJson.getInt("code") == -10403) {
