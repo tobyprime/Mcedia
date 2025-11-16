@@ -4,11 +4,9 @@
   "package": "top.tobyprime.mcedia.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "MixinArmorStand"
   ],
   "client": [
-    "MixinArmorStandRenderer",
-    "MixinArmorStandRenderState",
+    "MixinArmorStand",
     "MixinSoundEngine",
     "MixinSoundManager"
   ],

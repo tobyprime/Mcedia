@@ -9,7 +9,7 @@ import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.tobyprime.mcedia.core.VideoFrame;
+import top.tobyprime.mcedia.decoders.VideoFrame;
 import top.tobyprime.mcedia.interfaces.ITexture;
 
 public class VideoTexture extends AbstractTexture implements ITexture {
