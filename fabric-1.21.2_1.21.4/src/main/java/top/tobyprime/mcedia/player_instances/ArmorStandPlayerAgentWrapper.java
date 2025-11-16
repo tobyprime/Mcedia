@@ -288,7 +288,10 @@ public class ArmorStandPlayerAgentWrapper {
         if (mediaPlay.getStatus() != null){
             Utils.msgToPlayer("播放器状态" + mediaPlay.getStatus());
         }
-        mediaPlay.registerOnStatusUpdatedEventAndCallOnce(status -> {Utils.msgToPlayer("播放器状态: " + status);});
+        mediaPlay.registerOnStatusUpdatedEventAndCallOnce(status -> {
+            if (status != null)
+                Utils.msgToPlayer("播放器状态: " + status);
+        });
     }
 
     /**

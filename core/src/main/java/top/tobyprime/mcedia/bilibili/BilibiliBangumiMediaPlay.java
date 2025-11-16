@@ -132,12 +132,12 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
             }
 
             if (result.has("is_preview") && result.getInt("is_preview") == 1) {
-                setStatus("该内容需要大会员或已登录。API返回了预览内容。");
+                setStatus("该内容可能需要登录或大会员。尝试 /mcedia bilibili login");
                 waitForLoginStatusUpdate = true;
                 return;
             }
             if (result.has("code") && result.getInt("code") == -10403) {
-                setStatus("B站返回权限错误(-10403)，该内容需要大会员或已登录。");
+                setStatus("B该内容可能需要登录或大会员。尝试 /mcedia bilibili login");
                 waitForLoginStatusUpdate = true;
                 return;
             }
