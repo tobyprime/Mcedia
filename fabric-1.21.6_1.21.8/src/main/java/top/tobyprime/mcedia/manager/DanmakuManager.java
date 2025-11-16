@@ -30,13 +30,12 @@ public class DanmakuManager {
         this.allDanmaku = danmakuList;
     }
 
-    public void update(float deltaTime, long currentVideoTimeUs, float halfW, float fontScale, float speedScale,
+    public void update(float deltaTime, long currentVideoTimeUs, float mediaSpeed, float halfW, float fontScale, float speedScale,
                        boolean showScrolling, boolean showTop, boolean showBottom) {
         if (allDanmaku.isEmpty()) return;
 
         float currentVideoTimeSec = currentVideoTimeUs / 1_000_000.0f;
 
-        // 熔断与流量控制
         if (activeDanmaku.size() < McediaConfig.DANMAKU_HARD_CAP) {
             int spawnedThisTick = 0;
             while (danmakuPoolIndex < allDanmaku.size() &&
@@ -44,7 +43,7 @@ public class DanmakuManager {
                     spawnedThisTick < McediaConfig.DANMAKU_MAX_PER_TICK &&
                     activeDanmaku.size() < McediaConfig.DANMAKU_HARD_CAP) {
 
-                Danmaku newDanmaku = allDanmaku.get(danmakuPoolIndex++); // 取出并推进指针
+                Danmaku newDanmaku = allDanmaku.get(danmakuPoolIndex++);
 
                 boolean shouldSpawn = switch (newDanmaku.type) {
                     case SCROLLING -> showScrolling;
@@ -58,16 +57,16 @@ public class DanmakuManager {
             }
         }
 
-        updateActiveDanmaku(deltaTime);
+        updateActiveDanmaku(deltaTime, mediaSpeed);
     }
 
-    private void updateActiveDanmaku(float deltaTime) {
+    private void updateActiveDanmaku(float deltaTime, float mediaSpeed) {
         activeDanmaku.removeIf(danmaku -> {
             if (danmaku.type == DanmakuType.SCROLLING) {
-                danmaku.x -= danmaku.speed * deltaTime;
+                danmaku.x -= danmaku.speed * mediaSpeed * deltaTime;
                 return danmaku.x + danmaku.width < 0;
             } else {
-                danmaku.lifetime -= deltaTime;
+                danmaku.lifetime -= deltaTime * mediaSpeed;
                 return danmaku.lifetime <= 0;
             }
         });

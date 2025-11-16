@@ -76,7 +76,8 @@ public class PlayerRenderer {
         lastRenderTime = now;
 
         if (media != null && media.isPlaying() && config.danmakuEnable) {
-            agent.getDanmakuManager().update(deltaTime, media.getDurationUs(), this.halfW, config.danmakuFontScale, config.danmakuSpeedScale,
+            agent.getDanmakuManager().update(deltaTime, media.getDurationUs(), speed,
+                    this.halfW, config.danmakuFontScale, config.danmakuSpeedScale,
                     config.showScrollingDanmaku, config.showTopDanmaku, config.showBottomDanmaku);
         }
 
