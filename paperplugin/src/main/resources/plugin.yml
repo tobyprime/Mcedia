@@ -1,6 +1,6 @@
 name: mcedia-sync-plugin
 version: '${version}'
 main: top.tobyprime.mcedia_paper.McediaPlugin
-api-version: '1.21.7'
+api-version: "1.17"
 authors: [UrealToby]
 folia-supported: true
