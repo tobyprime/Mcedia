@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "mcedia",
+  "version": "${version}",
+
+  "name": "mcedia",
+  "description": "",
+  "authors": ["UrealToby"],
+  "contributors": ["Oyatsu", "Meow_kirisong"],
+  "contact": {},
+
+  "license": "All-Rights-Reserved",
+
+  "environment": "client",
+  "entrypoints": {
+    "client": ["top.tobyprime.mcedia.client.McediaClient"],
+    "main": ["top.tobyprime.mcedia.Mcedia"]
+  },
+
+  "mixins": [
+    "mcedia.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version_range}"
+  }
+}

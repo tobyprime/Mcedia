@@ -1,6 +1,0 @@
-name: mcedia-plugin
-version: '1.0-SNAPSHOT'
-main: top.tobyprime.mcediaPlugin.McediaPlugin
-api-version: '1.21.8'
-authors: [UrealToby]
-folia-supported: true

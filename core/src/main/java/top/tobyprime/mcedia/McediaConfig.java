@@ -16,6 +16,7 @@ public class McediaConfig {
     private static final Path COOKIE_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.cookie.properties");
     private static final Properties properties = new Properties();
 
+    public static String YTDLP_BROWSER_COOKIE = "none";
     public static String BILIBILI_COOKIE = "";
     public static boolean CACHING_ENABLED = false;
     public static boolean RESUME_ON_RELOAD_ENABLED = false;
@@ -149,6 +150,7 @@ public class McediaConfig {
                 Properties cookieProps = new Properties();
                 cookieProps.load(Files.newInputStream(COOKIE_PATH));
                 BILIBILI_COOKIE = cookieProps.getProperty("bilibili.cookie", "");
+                YTDLP_BROWSER_COOKIE = properties.getProperty("ytdlp.browser_cookie", "none");
             }
         } catch (IOException e) {
             LOGGER.error("Failed to load Mcedia cookie file", e);
@@ -159,6 +161,7 @@ public class McediaConfig {
         BILIBILI_COOKIE = cookie;
         Properties cookieProps = new Properties();
         cookieProps.setProperty("bilibili.cookie", BILIBILI_COOKIE);
+        properties.setProperty("ytdlp.browser_cookie", YTDLP_BROWSER_COOKIE);
         try (FileWriter writer = new FileWriter(COOKIE_PATH.toFile())) {
             cookieProps.store(writer, "Bilibili authentication cookie. Do not edit this manually.");
         } catch (IOException e) {

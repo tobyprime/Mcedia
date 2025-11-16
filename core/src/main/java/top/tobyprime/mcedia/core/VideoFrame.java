@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class VideoFrame implements Closeable {
     public final int width;
     public final int height;
-    public final long ptsUs; // Presentation Timestamp in Microseconds
+    public final long ptsUs;
     private boolean released;
     public ByteBuffer buffer;
 

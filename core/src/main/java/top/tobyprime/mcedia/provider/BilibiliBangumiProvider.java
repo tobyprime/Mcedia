@@ -2,8 +2,10 @@
 package top.tobyprime.mcedia.provider;
 
 import org.jetbrains.annotations.Nullable;
-import top.tobyprime.mcedia.provider.BilibiliBangumiInfo;
+import top.tobyprime.mcedia.interfaces.IMediaProvider;
 import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
+
+import java.nio.file.Path;
 
 public class BilibiliBangumiProvider implements IMediaProvider {
     @Override

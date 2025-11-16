@@ -190,6 +190,21 @@ public class MediaDecoder implements Closeable {
         }
     }
 
+    public static void prewarm() {
+        LOGGER.info("开始预热 FFmpeg 原生库...");
+        int oldLevel = avutil.av_log_get_level();
+        try {
+            avutil.av_log_set_level(avutil.AV_LOG_QUIET);
+            FFmpegFrameGrabber grabber = new FFmpegFrameGrabber("prewarm");
+            grabber.close();
+            LOGGER.info("FFmpeg 原生库预热成功。");
+        } catch (Exception e) {
+            LOGGER.error("预热 FFmpeg 失败。", e);
+        } finally {
+            avutil.av_log_set_level(oldLevel);
+        }
+    }
+
     public boolean isEof() {
         return runningDecoders == 0;
     }
