@@ -39,9 +39,9 @@ public class DecoderConfiguration {
         private boolean videoAlpha = true;
         private int audioSampleRate = 44100;
 
-        private int timeout = McediaConfig.FFMPEG_TIMEOUT;
-        private int bufferSize = McediaConfig.FFMPEG_BUFFER_SIZE;
-        private int probesize = McediaConfig.FFMPEG_PROBE_SIZE;
+        private int timeout = McediaConfig.getFfmpegTimeout();
+        private int bufferSize = McediaConfig.getFfmpegBufferSize();
+        private int probesize = McediaConfig.getFfmpegProbeSize();
 
         public Builder setEnableVideo(boolean enableVideo) {
             this.enableVideo = enableVideo;
@@ -54,7 +54,7 @@ public class DecoderConfiguration {
         }
 
         public Builder setUseHardwareDecoding(boolean useHardwareDecoding) {
-            this.useHardwareDecoding = McediaConfig.HARDWARE_DECODING_ENABLED;
+            this.useHardwareDecoding = McediaConfig.isHardwareDecodingEnabled();
             return this;
         }
 

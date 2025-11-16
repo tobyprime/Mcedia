@@ -21,6 +21,7 @@ import top.tobyprime.mcedia.core.Media;
 import top.tobyprime.mcedia.core.MediaPlayer;
 import top.tobyprime.mcedia.interfaces.IMediaInfo;
 import top.tobyprime.mcedia.interfaces.IMediaProvider;
+import top.tobyprime.mcedia.manager.BilibiliAuthManager;
 import top.tobyprime.mcedia.manager.DanmakuManager;
 import top.tobyprime.mcedia.provider.*;
 import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
@@ -133,7 +134,7 @@ public class PlayerAgent {
             update();
             Media currentMedia = player.getMedia();
             if (currentMedia != null && !isReconnecting) {
-                if (McediaConfig.RESUME_ON_RELOAD_ENABLED && !currentMedia.isLiveStream() && currentMedia.isPlaying()) {
+                if (McediaConfig.isResumeOnReloadEnabled() && !currentMedia.isLiveStream() && currentMedia.isPlaying()) {
                     if (++saveProgressTicker >= 100) {
                         saveProgressTicker = 0;
                         Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), currentMedia.getDurationUs());
@@ -219,7 +220,7 @@ public class PlayerAgent {
             if (playingUrl == null) return;
 
             final String initialUrl = playingUrl;
-            if (McediaConfig.CACHING_ENABLED && Mcedia.getInstance().getCacheManager().isCached(initialUrl)) {
+            if (McediaConfig.isCachingEnabled() && Mcedia.getInstance().getCacheManager().isCached(initialUrl)) {
                 VideoInfo cachedInfo = Mcedia.getInstance().getCacheManager().getCachedVideoInfo(initialUrl);
                 if (cachedInfo != null) {
                     LOGGER.info("正在从缓存播放: {}", initialUrl);
@@ -263,21 +264,28 @@ public class PlayerAgent {
                 if (warning != null && !warning.isEmpty()) Mcedia.msgToPlayer(warning);
             }
             LOGGER.info(isLooping ? "正在重新加载循环..." : "准备从网络播放 {}...", expandedUrl);
-            final String cookie = (provider instanceof BilibiliVideoProvider || provider instanceof BilibiliBangumiProvider) ? McediaConfig.BILIBILI_COOKIE : null;
             return CompletableFuture.supplyAsync(() -> {
                 try {
-                    if (provider == null)
-                        throw new UnsupportedOperationException("No provider found for URL: " + expandedUrl);
-                    Path cacheDir = Mcedia.getInstance().getCacheDirectory();
-                    if (provider instanceof BilibiliBangumiProvider) {
-                        this.currentBangumiInfo = BilibiliBangumiFetcher.fetch(expandedUrl, cookie, quality);
-                        return currentBangumiInfo.getVideoInfo();
-                    } else {
-                        this.currentBangumiInfo = null;
-                        return provider.resolve(expandedUrl, cookie, quality);
-                    }
+                    final String cookie = BilibiliAuthManager.getInstance().getCookie();
+                    if (provider == null) throw new UnsupportedOperationException("No provider found for URL: " + expandedUrl);
+
+                    return provider.resolve(expandedUrl, cookie, quality);
                 } catch (Exception e) {
-                    throw new RuntimeException(e);
+                    Throwable rootCause = e;
+                    while (rootCause.getCause() != null) {
+                        rootCause = rootCause.getCause();
+                    }
+                    if (rootCause instanceof BilibiliAuthRequiredException && !"none".equalsIgnoreCase(McediaConfig.getYtdlpBrowserCookie())) {
+                        LOGGER.warn("原生解析需要登录，正在回退到 YtDlpProvider 尝试使用浏览器 Cookie...");
+                        try {
+                            IMediaProvider ytdlpProvider = new YtDlpProvider();
+                            return ytdlpProvider.resolve(expandedUrl, null, quality);
+                        } catch (Exception ytdlpException) {
+                            throw new RuntimeException("YtDlpProvider 回退失败", ytdlpException);
+                        }
+                    } else {
+                        throw new RuntimeException(e);
+                    }
                 }
             }, Mcedia.getInstance().getBackgroundExecutor());
         }, Mcedia.getInstance().getBackgroundExecutor());
@@ -336,7 +344,7 @@ public class PlayerAgent {
 
         if (configManager.shouldCacheForLoop && !media.isLiveStream() && !Mcedia.getInstance().getCacheManager().isCached(finalMediaUrl) && !Mcedia.getInstance().getCacheManager().isCaching(finalMediaUrl)) {
             LOGGER.info("正在为循环播放在后台缓存视频: {}", finalMediaUrl);
-            String cookie = (provider != null && provider.getClass().getSimpleName().toLowerCase().contains("bilibili")) ? McediaConfig.BILIBILI_COOKIE : null;
+            String cookie = (provider != null && provider.getClass().getSimpleName().toLowerCase().contains("bilibili")) ? McediaConfig.getBilibiliCookie() : null;
             Mcedia.getInstance().getCacheManager().cacheVideoAsync(finalMediaUrl, videoInfo, cookie).handle((unused, cacheThrowable) -> {
                 if (cacheThrowable != null) Mcedia.msgToPlayer("§e[Mcedia] §c视频后台缓存失败: " + finalMediaUrl);
                 else Mcedia.msgToPlayer("§a[Mcedia] §f视频已缓存: " + finalMediaUrl);
@@ -401,7 +409,7 @@ public class PlayerAgent {
 
     public CompletableFuture<Void> shutdownAsync() {
         LOGGER.info("正在异步关闭 PlayerAgent，实体位于 {}", entity.position());
-        if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+        if (McediaConfig.isResumeOnReloadEnabled()) {
             Media currentMedia = player.getMedia();
             if (currentMedia != null && !currentMedia.isLiveStream() && currentMedia.getDurationUs() > 0) {
                 Mcedia.getInstance().savePlayerProgress(this.entity.getUUID(), currentMedia.getDurationUs());
@@ -497,7 +505,7 @@ public class PlayerAgent {
 
     public void commandSetLooping(boolean enabled) {
         player.setLooping(enabled);
-        configManager.shouldCacheForLoop = enabled && McediaConfig.CACHING_ENABLED;
+        configManager.shouldCacheForLoop = enabled && McediaConfig.isCachingEnabled();
         Mcedia.msgToPlayer(enabled ? "§a[Mcedia] §f已开启循环。" : "§e[Mcedia] §f已关闭循环。");
     }
 

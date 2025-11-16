@@ -44,10 +44,10 @@ public class Media implements Closeable {
     private final AtomicLong currentPtsUs = new AtomicLong(0);
     private final AtomicBoolean needsReconnect = new AtomicBoolean(false);
 
-    private static final int AUDIO_BUFFER_TARGET = McediaConfig.BUFFERING_AUDIO_TARGET;
-    private static final int VIDEO_BUFFER_TARGET = McediaConfig.BUFFERING_VIDEO_TARGET;
-    private static final int VIDEO_BUFFER_LOW_WATERMARK = McediaConfig.BUFFERING_VIDEO_LOW_WATERMARK;
-    private static final long STREAM_STALL_TIMEOUT_MS = McediaConfig.PLAYER_STALL_TIMEOUT_MS;
+    private static final int AUDIO_BUFFER_TARGET = McediaConfig.getBufferingAudioTarget();
+    private static final int VIDEO_BUFFER_TARGET = McediaConfig.getBufferingVideoTarget();
+    private static final int VIDEO_BUFFER_LOW_WATERMARK = McediaConfig.getBufferingVideoLowWatermark();
+    private static final long STREAM_STALL_TIMEOUT_MS = McediaConfig.getPlayerStallTimeoutMs();
 
     public VideoInfo getVideoInfo() {
         return this.videoInfo;

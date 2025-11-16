@@ -196,7 +196,7 @@ public class PlaylistManager {
     }
 
     private void playNextInQueue() {
-        if (McediaConfig.RESUME_ON_RELOAD_ENABLED && this.currentPlayingItem != null) {
+        if (McediaConfig.isResumeOnReloadEnabled() && this.currentPlayingItem != null) {
             Mcedia.getInstance().savePlayerProgress(agent.getEntity().getUUID(), 0);
         }
         PlayerAgent.PlaybackItem nextItem = playlist.poll();
@@ -216,11 +216,11 @@ public class PlaylistManager {
             if (serverSyncTime > 0) {
                 finalSeekTimestampUs = serverSyncTime;
                 LOGGER.info("应用服务器实时同步时间: {}us", serverSyncTime);
-                if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+                if (McediaConfig.isResumeOnReloadEnabled()) {
                     Mcedia.getInstance().savePlayerProgress(agent.getEntity().getUUID(), 0);
                 }
             } else {
-                if (McediaConfig.RESUME_ON_RELOAD_ENABLED) {
+                if (McediaConfig.isResumeOnReloadEnabled()) {
                     long resumeTime = Mcedia.getInstance().loadPlayerProgress(agent.getEntity().getUUID());
                     if (resumeTime > 0) {
                         finalSeekTimestampUs += resumeTime;

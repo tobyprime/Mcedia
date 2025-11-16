@@ -46,7 +46,7 @@ public class CommandLogin {
                 );
         var browserNode = literal("browser")
                 .executes(c -> {
-                    Mcedia.msgToPlayer("§e当前 yt-dlp 浏览器 Cookie 设置: §f" + McediaConfig.YTDLP_BROWSER_COOKIE);
+                    Mcedia.msgToPlayer("§e当前 yt-dlp 浏览器 Cookie 设置: §f" + McediaConfig.getYtdlpBrowserCookie());
                     Mcedia.msgToPlayer("§7用法: /mcedia login browser <浏览器名称>");
                     return 1;
                 })
@@ -55,8 +55,8 @@ public class CommandLogin {
                         .executes(c -> {
                             String browser = StringArgumentType.getString(c, "browser_name");
                             if (Arrays.asList(SUPPORTED_BROWSERS).contains(browser.toLowerCase())) {
-                                McediaConfig.YTDLP_BROWSER_COOKIE = browser;
-                                McediaConfig.save();
+                                McediaConfig.setYtdlpBrowserCookie(browser);
+                                McediaConfig.saveCookieConfig();
                                 if (browser.equalsIgnoreCase("none")) {
                                     Mcedia.msgToPlayer("§a[Mcedia] §f已禁用浏览器 Cookie。");
                                 } else {

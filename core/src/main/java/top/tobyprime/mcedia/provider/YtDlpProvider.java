@@ -98,7 +98,7 @@ public class YtDlpProvider implements IMediaProvider {
             try {
                 List<String> command = new ArrayList<>(List.of(ytDlpPath.toString()));
 
-                String browser = McediaConfig.YTDLP_BROWSER_COOKIE;
+                String browser = McediaConfig.getYtdlpBrowserCookie();
                 if (browser != null && !browser.equalsIgnoreCase("none") && !browser.isBlank()) {
                     command.add("--cookies-from-browser");
                     command.add(browser.toLowerCase());
@@ -125,18 +125,24 @@ public class YtDlpProvider implements IMediaProvider {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                     String line;
                     String lastLine = null;
+                    LOGGER.info("---------- yt-dlp 输出开始 ----------");
                     while ((line = reader.readLine()) != null) {
+                        LOGGER.info("[yt-dlp] {}", line);
                         if (!line.trim().isEmpty()) {
                             lastLine = line;
                         }
                     }
+                    LOGGER.info("---------- yt-dlp 输出结束 ----------");
                     if (lastLine != null && lastLine.trim().startsWith("{")) {
                         jsonLine = lastLine;
                     }
                 }
 
                 boolean finished = process.waitFor(60, TimeUnit.SECONDS);
-                if (!finished || process.exitValue() != 0 || jsonLine == null) {
+                int exitCode = process.exitValue();
+
+                if (!finished || exitCode != 0 || jsonLine == null) {
+                    LOGGER.error("yt-dlp 进程失败。超时: {}, 退出码: {}, 是否收到 JSON: {}", !finished, exitCode, jsonLine != null);
                     throw new RuntimeException("yt-dlp 进程失败或没有返回 JSON。");
                 }
                 return new JSONObject(jsonLine);

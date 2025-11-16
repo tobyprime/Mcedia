@@ -36,12 +36,12 @@ public class DanmakuManager {
 
         float currentVideoTimeSec = currentVideoTimeUs / 1_000_000.0f;
 
-        if (activeDanmaku.size() < McediaConfig.DANMAKU_HARD_CAP) {
+        if (activeDanmaku.size() < McediaConfig.getDanmakuHardCap()) {
             int spawnedThisTick = 0;
             while (danmakuPoolIndex < allDanmaku.size() &&
                     allDanmaku.get(danmakuPoolIndex).timestamp <= currentVideoTimeSec &&
-                    spawnedThisTick < McediaConfig.DANMAKU_MAX_PER_TICK &&
-                    activeDanmaku.size() < McediaConfig.DANMAKU_HARD_CAP) {
+                    spawnedThisTick < McediaConfig.getDanmakuMaxPerTick() &&
+                    activeDanmaku.size() < McediaConfig.getDanmakuHardCap()) {
 
                 Danmaku newDanmaku = allDanmaku.get(danmakuPoolIndex++);
 
@@ -73,7 +73,7 @@ public class DanmakuManager {
     }
 
     private boolean spawnDanmaku(Danmaku danmaku, float currentTime, float halfW, float fontScale, float speedScale) {
-        int dynamicTrackCount = (int) (McediaConfig.DANMAKU_BASE_TRACK_COUNT / fontScale);
+        int dynamicTrackCount = (int) (McediaConfig.getDanmakuBaseTrackCount() / fontScale);
         if (dynamicTrackCount < 1) dynamicTrackCount = 1;
         if (dynamicTrackCount >= trackAvailableTime.length) dynamicTrackCount = trackAvailableTime.length - 1;
 
@@ -93,7 +93,7 @@ public class DanmakuManager {
 
         if (danmaku.type == DanmakuType.SCROLLING) {
             float totalRelativeDistance = 1.0f + danmaku.width;
-            float duration = (McediaConfig.DANMAKU_BASE_DURATION_SEC + random.nextFloat() * 4.0f) / speedScale;
+            float duration = (McediaConfig.getDanmakuBaseDurationSec() + random.nextFloat() * 4.0f) / speedScale;
             danmaku.speed = totalRelativeDistance / duration;
             danmaku.x = 1.0f;
             trackAvailableTime[trackIdx] = currentTime + (1.0f / danmaku.speed); // 记录弹幕头到达左边的时间
@@ -147,7 +147,7 @@ public class DanmakuManager {
     }
 
     public void injectDanmaku(Danmaku danmaku, float currentVideoTimeSec, float halfW, float fontScale, float speedScale) {
-        if (activeDanmaku.size() >= McediaConfig.DANMAKU_HARD_CAP) {
+        if (activeDanmaku.size() >= McediaConfig.getDanmakuHardCap()) {
             return;
         }
         if (danmaku.type == Danmaku.DanmakuType.SCROLLING) {

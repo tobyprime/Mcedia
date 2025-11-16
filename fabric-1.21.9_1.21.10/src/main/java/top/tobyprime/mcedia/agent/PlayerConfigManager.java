@@ -188,7 +188,7 @@ public class PlayerConfigManager {
         }
 
         agent.getPlayer().setLooping(loopingFound);
-        this.shouldCacheForLoop = loopingFound && McediaConfig.CACHING_ENABLED;
+        this.shouldCacheForLoop = loopingFound && McediaConfig.isCachingEnabled();
         this.videoAutoplay = autoplayFound;
         if (!pageContent.toLowerCase().contains("light:")) {
             this.customLightLevel = -1;

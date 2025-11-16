@@ -205,7 +205,7 @@ public class PlayerRenderer {
         DanmakuManager danmakuManager = agent.getDanmakuManager();
         float videoHeightUnits = 2.0f;
 
-        int dynamicTrackCount = (int) (McediaConfig.DANMAKU_BASE_TRACK_COUNT / config.danmakuFontScale);
+        int dynamicTrackCount = (int) (McediaConfig.getDanmakuBaseTrackCount() / config.danmakuFontScale);
         if (dynamicTrackCount < 1) dynamicTrackCount = 1;
 
         float desiredDanmakuHeight = videoHeightUnits / dynamicTrackCount;

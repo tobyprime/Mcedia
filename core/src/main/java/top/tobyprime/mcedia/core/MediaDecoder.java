@@ -41,8 +41,8 @@ public class MediaDecoder implements Closeable {
     public MediaDecoder(VideoInfo info, @Nullable String cookie, DecoderConfiguration configuration, @Nullable VideoFramePool pool, long initialSeekUs) throws FFmpegFrameGrabber.Exception {
         this.configuration = configuration;
         this.videoFramePool = pool;
-        this.videoQueue = new LinkedBlockingDeque<>(McediaConfig.DECODER_MAX_VIDEO_FRAMES);
-        this.audioQueue = new LinkedBlockingDeque<>(McediaConfig.DECODER_MAX_AUDIO_FRAMES);
+        this.videoQueue = new LinkedBlockingDeque<>(McediaConfig.getDecoderMaxVideoFrames());
+        this.audioQueue = new LinkedBlockingDeque<>(McediaConfig.getDecoderMaxAudioFrames());
 
         primaryGrabber = buildGrabber(info, info.getVideoUrl(), cookie, configuration, true);
         grabbers.add(primaryGrabber);

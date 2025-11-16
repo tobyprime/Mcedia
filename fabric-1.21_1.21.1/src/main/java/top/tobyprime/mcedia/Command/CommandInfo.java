@@ -57,7 +57,7 @@ public class CommandInfo {
     }
 
     private static int executeCacheList(CommandContext<FabricClientCommandSource> context) {
-        if (!McediaConfig.CACHING_ENABLED) {
+        if (!McediaConfig.isCachingEnabled()) {
             context.getSource().sendError(Component.literal("§c缓存功能未启用，请在配置文件中开启。"));
             return 0;
         }
@@ -79,7 +79,7 @@ public class CommandInfo {
     }
 
     private static int executeCacheClear(CommandContext<FabricClientCommandSource> context) {
-        if (!McediaConfig.CACHING_ENABLED) {
+        if (!McediaConfig.isCachingEnabled()) {
             context.getSource().sendError(Component.literal("§c缓存功能未启用。"));
             return 0;
         }
@@ -89,7 +89,7 @@ public class CommandInfo {
     }
 
     private static int executeCachePrefetch(CommandContext<FabricClientCommandSource> context) {
-        if (!McediaConfig.CACHING_ENABLED) {
+        if (!McediaConfig.isCachingEnabled()) {
             context.getSource().sendError(Component.literal("§c缓存功能未启用。"));
             return 0;
         }
@@ -99,8 +99,8 @@ public class CommandInfo {
         CompletableFuture.runAsync(() -> {
             try {
                 String expandedUrl = UrlExpander.expand(url).join();
-                VideoInfo info = MediaProviderRegistry.getInstance().resolve(expandedUrl, McediaConfig.BILIBILI_COOKIE, "自动");
-                String cookie = expandedUrl.contains("bilibili.com") ? McediaConfig.BILIBILI_COOKIE : null;
+                VideoInfo info = MediaProviderRegistry.getInstance().resolve(expandedUrl, McediaConfig.getBilibiliCookie(), "自动");
+                String cookie = expandedUrl.contains("bilibili.com") ? McediaConfig.getBilibiliCookie() : null;
 
                 Mcedia.getInstance().getCacheManager().cacheVideoAsync(expandedUrl, info, cookie)
                         .thenRun(() -> Mcedia.msgToPlayer("§a[Mcedia] §f预缓存成功: " + url))
