@@ -1,6 +1,9 @@
 package top.tobyprime.mcedia.provider;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.interfaces.IMediaProvider;
+
+import java.nio.file.Path;
 
 /**
  * 默认的媒体提供者。

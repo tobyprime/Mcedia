@@ -1,7 +1,10 @@
 package top.tobyprime.mcedia.provider;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.interfaces.IMediaProvider;
 import top.tobyprime.mcedia.video_fetcher.BiliBiliLiveFetcher;
+
+import java.nio.file.Path;
 
 /**
  * 负责处理 Bilibili 直播 (live.bilibili.com) 的 Provider。

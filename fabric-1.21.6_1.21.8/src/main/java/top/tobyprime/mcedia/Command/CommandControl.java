@@ -63,7 +63,7 @@ public class CommandControl {
                                 .then(argument("timestamp", StringArgumentType.greedyString())
                                         .executes(ctx -> executeOnTargetedAgent(ctx, agent -> {
                                             String timeStr = StringArgumentType.getString(ctx, "timestamp");
-                                            long seekUs = PlayerAgent.parseTimestampToMicros(timeStr);
+                                            long seekUs = agent.parseTimestampToMicros(timeStr);
                                             if (seekUs >= 0) {
                                                 agent.commandSeek(seekUs);
                                             } else {

@@ -1,7 +1,9 @@
 package top.tobyprime.mcedia.provider;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.interfaces.IMediaProvider;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;

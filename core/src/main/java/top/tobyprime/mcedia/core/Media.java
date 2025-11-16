@@ -49,7 +49,7 @@ public class Media implements Closeable {
     private static final int VIDEO_BUFFER_LOW_WATERMARK = McediaConfig.BUFFERING_VIDEO_LOW_WATERMARK;
     private static final long STREAM_STALL_TIMEOUT_MS = McediaConfig.PLAYER_STALL_TIMEOUT_MS;
 
-    public VideoInfo getVideoInfo() { // [新增]
+    public VideoInfo getVideoInfo() {
         return this.videoInfo;
     }
 

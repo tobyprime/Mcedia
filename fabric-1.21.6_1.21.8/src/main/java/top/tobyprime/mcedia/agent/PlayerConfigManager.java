@@ -1,4 +1,4 @@
-package top.tobyprime.mcedia.playeragent;
+package top.tobyprime.mcedia.agent;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.component.DataComponents;
@@ -9,14 +9,18 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.WritableBookContent;
 import net.minecraft.world.item.component.WrittenBookContent;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.McediaConfig;
 import top.tobyprime.mcedia.PlayerAgent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class PlayerConfigManager {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PlayerConfigManager.class);
     private final PlayerAgent agent;
 
     // --- 配置字段 ---
@@ -30,7 +34,7 @@ public class PlayerConfigManager {
     public float audioMaxVolume2 = 5f;
     public float audioRangeMin2 = 2;
     public float audioRangeMax2 = 500;
-    public boolean isSecondaryAudioActive = false;
+    public boolean isSecondarySourceActive = false;
     public boolean danmakuEnable = false;
     public boolean showScrollingDanmaku = true;
     public boolean showTopDanmaku = true;
@@ -42,69 +46,71 @@ public class PlayerConfigManager {
     public boolean videoAutoplay = false;
     public int customLightLevel = -1;
     public String desiredQuality = "自动";
+    public boolean shouldCacheForLoop = false;
+
+    public enum ConfigChangeType {
+        NONE,           // 无变化
+        RELOAD_MEDIA,   // 需要重载视频流 (如清晰度变化)
+        HOT_UPDATE      // 只需要热更新 (如字幕、弹幕开关变化)
+    }
 
     public PlayerConfigManager(PlayerAgent agent) {
         this.agent = agent;
     }
 
     /**
-     * 从副手物品更新所有配置，并返回清晰度是否发生变化
-     *
+     * 从副手物品更新所有配置。
      * @param offHandItem 副手物品
-     * @return 如果清晰度发生变化，则返回true，提示需要重载视频
+     * @return 如果清晰度发生变化，则返回 true
      */
-    public boolean updateConfigFrom(ItemStack offHandItem) {
+    public ConfigChangeType updateConfigFrom(ItemStack offHandItem) {
         List<String> pages = getBookPages(offHandItem);
+        String previousQuality = this.desiredQuality;
 
-        if (pages == null) {
-            resetAllToDefaults();
-            return !this.desiredQuality.equals("自动"); // 如果之前不是自动，现在是了，也算变更
-        }
-
-        // 解析配置
-        updateOffset(pages.size() > 0 ? pages.get(0) : null);
-        updateAudio(pages.size() > 1 ? pages.get(1) : null);
-        updateOther(pages.size() > 2 ? pages.get(2) : null);
-        updateDanmaku(pages.size() > 4 ? pages.get(4) : null);
-
-        // 处理清晰度变更
-        String newQualityFromBook = (pages.size() > 3) ? pages.get(3) : null;
-        String newQuality = (newQualityFromBook == null || newQualityFromBook.isBlank()) ? "自动" : newQualityFromBook.trim();
-
-        if (!this.desiredQuality.equals(newQuality)) {
-            this.desiredQuality = newQuality;
-            return true; // 清晰度已改变
-        }
-        return false; // 清晰度未改变
-    }
-
-    private void resetAllToDefaults() {
-        resetOffset();
-        resetAudio();
-        resetDanmaku();
-        updateOther(null);
-        this.desiredQuality = "自动";
-    }
-
-    // --- Private Helper Methods (从PlayerAgent移动过来) ---
-
-    private void updateOffset(@Nullable String page) {
-        if (page == null) {
+        if (pages != null) {
+            if (!pages.isEmpty()) updateOffset(pages.get(0)); else resetOffset();
+            if (pages.size() > 1) updateAudioOffset(pages.get(1)); else resetAudioOffset();
+            if (pages.size() > 2) updateOther(pages.get(2)); else updateOther(null);
+            if (pages.size() > 3) updateQuality(pages.get(3)); else resetQuality();
+            if (pages.size() > 4) updateDanmakuConfig(pages.get(4)); else resetDanmakuConfig();
+        } else {
             resetOffset();
-            return;
+            resetAudioOffset();
+            updateOther(null);
+            resetQuality();
+            resetDanmakuConfig();
         }
+
+        boolean qualityChanged = !Objects.equals(this.desiredQuality, previousQuality);
+
+        if (qualityChanged) {
+            return ConfigChangeType.RELOAD_MEDIA;
+        }
+
+        return ConfigChangeType.NONE;
+    }
+
+    // --- 内部实现方法 ---
+
+    public void updateOffset(String offset) {
         try {
-            var vars = page.split("\n");
+            var vars = offset.split("\n");
             offsetX = Float.parseFloat(vars[0]);
             offsetY = Float.parseFloat(vars[1]);
             offsetZ = Float.parseFloat(vars[2]);
             scale = Float.parseFloat(vars[3]);
         } catch (Exception ignored) {
-            resetOffset();
         }
     }
 
-    public void updateAudio(String config) {
+    public void resetOffset() {
+        this.offsetX = 0;
+        this.offsetY = 0;
+        this.offsetZ = 0;
+        this.scale = 1;
+    }
+
+    public void updateAudioOffset(String config) {
         if (config == null) return;
         String[] blocks = config.split("\\n\\s*\\n");
 
@@ -127,13 +133,13 @@ public class PlayerConfigManager {
                 audioRangeMin2 = Float.parseFloat(vars[4]);
                 audioRangeMax2 = Float.parseFloat(vars[5]);
                 if (!isSecondarySourceActive) {
-                    player.bindAudioSource(secondaryAudioSource);
+                    agent.getPlayer().bindAudioSource(agent.getSecondaryAudioSource());
                     isSecondarySourceActive = true;
                     LOGGER.info("已启用并配置副声源。");
                 }
             } else {
                 if (isSecondarySourceActive) {
-                    player.unbindAudioSource(secondaryAudioSource);
+                    agent.getPlayer().unbindAudioSource(agent.getSecondaryAudioSource());
                     isSecondarySourceActive = false;
                     LOGGER.info("已禁用副声源。");
                 }
@@ -143,39 +149,61 @@ public class PlayerConfigManager {
         }
     }
 
+    public void resetAudioOffset() {
+        this.audioOffsetX = 0;
+        this.audioOffsetY = 0;
+        this.audioOffsetZ = 0;
+        this.audioMaxVolume = 5;
+        this.audioRangeMin = 2;
+        this.audioRangeMax = 500;
+    }
+
     public void updateOther(String pageContent) {
         if (pageContent == null) {
-            this.player.setLooping(false);
+            agent.getPlayer().setLooping(false);
             this.shouldCacheForLoop = false;
             this.videoAutoplay = false;
             this.customLightLevel = -1;
             return;
         }
+        boolean loopingFound = false;
+        boolean autoplayFound = false;
+
         String[] lines = pageContent.split("\n");
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim().toLowerCase();
-            if (i == 0 && line.equals("looping")) {
-                this.player.setLooping(true);
-                this.shouldCacheForLoop = McediaConfig.CACHING_ENABLED;
-            } else if (i == 1 && line.equals("autoplay")) {
-                this.videoAutoplay = true;
+        for (String lineRaw : lines) {
+            String line = lineRaw.trim().toLowerCase();
+            if (line.equals("looping")) {
+                loopingFound = true;
+            } else if (line.equals("autoplay")) {
+                autoplayFound = true;
             } else if (line.startsWith("light:")) {
                 try {
                     String valueStr = line.substring("light:".length()).trim();
                     int light = Integer.parseInt(valueStr);
                     this.customLightLevel = Mth.clamp(light, 0, 15);
                 } catch (Exception e) {
+                    this.customLightLevel = -1;
                 }
-            } else if (line.equals("looping")) {
-                this.player.setLooping(true);
-                this.shouldCacheForLoop = McediaConfig.CACHING_ENABLED;
-            } else if (line.equals("autoplay")) {
-                this.videoAutoplay = true;
             }
+        }
+
+        agent.getPlayer().setLooping(loopingFound);
+        this.shouldCacheForLoop = loopingFound && McediaConfig.CACHING_ENABLED;
+        this.videoAutoplay = autoplayFound;
+        if (!pageContent.toLowerCase().contains("light:")) {
+            this.customLightLevel = -1;
         }
     }
 
-    private void updateDanmaku(@Nullable String pageContent) {
+    private void updateQuality(@Nullable String pageContent) {
+        this.desiredQuality = (pageContent == null || pageContent.isBlank()) ? "自动" : pageContent.trim();
+    }
+
+    private void resetQuality() {
+        this.desiredQuality = "自动";
+    }
+
+    private void updateDanmakuConfig(@Nullable String pageContent) {
         if (pageContent == null || pageContent.isBlank()) {
             resetDanmakuConfig();
             return;
@@ -206,45 +234,20 @@ public class PlayerConfigManager {
             for (int i = 5; i < lines.length; i++) {
                 configLines.add(lines[i]);
             }
-            String combinedConfig = String.join(" ", configLines).toLowerCase(); // 转为小写以便匹配
+            String combinedConfig = String.join(" ", configLines).toLowerCase();
 
-            if (combinedConfig.contains("屏蔽滚动")) {
-                this.showScrollingDanmaku = false;
-            } else if (combinedConfig.contains("显示滚动")) {
-                this.showScrollingDanmaku = true;
-            }
+            if (combinedConfig.contains("屏蔽滚动")) this.showScrollingDanmaku = false;
+            else if (combinedConfig.contains("显示滚动")) this.showScrollingDanmaku = true;
 
-            if (combinedConfig.contains("屏蔽顶部")) {
-                this.showTopDanmaku = false;
-            } else if (combinedConfig.contains("显示顶部")) {
-                this.showTopDanmaku = true;
-            }
+            if (combinedConfig.contains("屏蔽顶部")) this.showTopDanmaku = false;
+            else if (combinedConfig.contains("显示顶部")) this.showTopDanmaku = true;
 
-            if (combinedConfig.contains("屏蔽底部")) {
-                this.showBottomDanmaku = false;
-            } else if (combinedConfig.contains("显示底部")) {
-                this.showBottomDanmaku = true;
-            }
+            if (combinedConfig.contains("屏蔽底部")) this.showBottomDanmaku = false;
+            else if (combinedConfig.contains("显示底部")) this.showBottomDanmaku = true;
         }
     }
 
-    public void resetOffset() {
-        this.offsetX = 0;
-        this.offsetY = 0;
-        this.offsetZ = 0;
-        this.scale = 1;
-    }
-
-    public void resetAudio() {
-        this.audioOffsetX = 0;
-        this.audioOffsetY = 0;
-        this.audioOffsetZ = 0;
-        this.audioMaxVolume = 5;
-        this.audioRangeMin = 2;
-        this.audioRangeMax = 500;
-    }
-
-    private void resetDanmaku() {
+    private void resetDanmakuConfig() {
         this.danmakuEnable = false;
         this.danmakuDisplayArea = 1.0f;
         this.danmakuOpacity = 1.0f;
@@ -255,7 +258,7 @@ public class PlayerConfigManager {
         this.showBottomDanmaku = true;
     }
 
-    // 工具方法
+    // --- 辅助方法 ---
 
     @Nullable
     private List<String> getBookPages(ItemStack bookStack) {
@@ -269,5 +272,26 @@ public class PlayerConfigManager {
                 return content.getPages(isTextFilteringEnabled).stream().map(Component::getString).collect(Collectors.toList());
         }
         return null;
+    }
+
+    private float parsePercentage(String line) {
+        try {
+            String numericPart = line.replaceAll("[^\\d.]", "");
+            if (numericPart.isBlank()) return 1.0f;
+            float value = Float.parseFloat(numericPart);
+            return Mth.clamp(value / 100.0f, 0.0f, 1.0f);
+        } catch (NumberFormatException e) {
+            return 1.0f;
+        }
+    }
+
+    private float parseFloat(String line, float defaultValue) {
+        try {
+            String numericPart = line.replaceAll("[^\\d.]", "");
+            if (numericPart.isBlank()) return defaultValue;
+            return Float.parseFloat(numericPart);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 }

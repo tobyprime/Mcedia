@@ -1,8 +1,10 @@
 package top.tobyprime.mcedia.provider;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.interfaces.IMediaProvider;
 import top.tobyprime.mcedia.video_fetcher.DouyinVideoFetcher;
-import java.net.http.HttpClient;
+
+import java.nio.file.Path;
 import java.util.Map;
 
 public class DouyinVideoProvider implements IMediaProvider {

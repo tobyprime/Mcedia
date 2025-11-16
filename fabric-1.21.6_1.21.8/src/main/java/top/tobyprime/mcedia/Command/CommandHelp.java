@@ -34,7 +34,7 @@ public class CommandHelp {
                                     builder.suggest("preset");
                                     builder.suggest("config");
                                     builder.suggest("cache");
-                                    builder.suggest("bilibili");
+                                    builder.suggest("login");
                                     return builder.buildFuture();
                                 })
                                 .executes(ctx -> {
@@ -161,10 +161,11 @@ public class CommandHelp {
                 source.sendFeedback(Component.literal("§e/mcedia cache clear §7- 清空所有视频缓存。"));
                 source.sendFeedback(Component.literal("§e/mcedia cache prefetch <URL> §7- 在后台预缓存一个视频。"));
             }
-            case "bilibili" -> {
-                source.sendFeedback(Component.literal("§a>> 指令参考: Bilibili <<"));
-                source.sendFeedback(Component.literal("§e/mcedia bilibili login [force] §7- 登录B站以观看高清/会员内容。"));
-                source.sendFeedback(Component.literal("§e/mcedia bilibili logout §7- 登出当前B站账号。"));
+            case "login" -> {
+                source.sendFeedback(Component.literal("§a>> 指令参考: 登录 <<"));
+                source.sendFeedback(Component.literal("§e/mcedia login bilibili §7- 登录B站以观看高清/会员内容。"));
+                source.sendFeedback(Component.literal("§e/mcedia login bilibili logout §7- 登出当前B站账号。"));
+                source.sendFeedback(Component.literal("§e/mcedia login browser <浏览器名称> §7- 从浏览器中获取Cookie。"));
             }
             default -> { // main page
                 source.sendFeedback(Component.literal("§7欢迎使用 Mcedia!"));

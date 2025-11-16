@@ -130,7 +130,7 @@ public class BilibiliAuthManager {
 
                                 Mcedia.msgToPlayer("§a[Mcedia] §f请点击下方链接，在打开的网页中用B站App扫描二维码登录：");
                                 Mcedia.msgToPlayer(Component.literal("§b§n[点我打开二维码]").setStyle(style));
-                                new Thread(() -> pollLoginStatus(qrcodeKey), "Mcedia-Bili-Login-Poll").start();
+                                Mcedia.getInstance().getBackgroundExecutor().submit(() -> pollLoginStatus(qrcodeKey));
                             } else {
                                 Mcedia.msgToPlayer("§c[Mcedia] §f生成二维码失败: " + json.get("message").getAsString());
                             }

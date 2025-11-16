@@ -21,15 +21,20 @@ import static org.bytedeco.ffmpeg.global.avutil.av_log_set_level;
 
 public class MediaPlayer {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaPlayer.class);
-    private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "MediaPlayer-Async");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ExecutorService executor;
 
     static {
         FFmpegLogCallback.set();
         av_log_set_level(AV_LOG_ERROR);
+    }
+
+    public MediaPlayer() {
+        this.executor = Executors.newSingleThreadExecutor(r -> {
+            // 为线程命名，方便调试
+            Thread t = new Thread(r, "MediaPlayer-Async-" + this.hashCode());
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     private final ReentrantLock lock = new ReentrantLock();
@@ -60,8 +65,8 @@ public class MediaPlayer {
         if (media != null) media.unbindAudioSource(audioBuffer);
     }
 
-    public static void shutdownExecutor() {
-        executor.shutdownNow();
+    public void shutdown() {
+        this.executor.shutdownNow();
     }
 
     public DecoderConfiguration getDecoderConfiguration() {

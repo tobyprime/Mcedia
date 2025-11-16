@@ -1,25 +1,15 @@
 package top.tobyprime.mcedia.client;
 
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
 
-/**
- * 存放 Mcedia Mod 自定义 RenderType 的工具类。
- * [修复] 这个类不应该继承任何东西，它只是一个静态常量的容器。
- */
-public final class McediaRenderTypes {
+public final class McediaRenderTypes extends RenderStateShard {
 
-    /**
-     * 私有构造函数，防止这个工具类被实例化。
-     */
-    private McediaRenderTypes() {
+    private McediaRenderTypes(String string, Runnable runnable, Runnable runnable2) {
+        super(string, runnable, runnable2);
     }
 
-    /**
-     * 在 1.21.x 中，核心渲染状态（如透明、深度测试、剔除）被捆绑在 RenderPipeline 中。
-     * 我们选用 {@link RenderPipelines#LIGHTNING}，因为它天生就是为渲染半透明、无光照、
-     * 无纹理的彩色几何体而设计的。
-     */
     public static final RenderType PROGRESS_BAR = RenderType.create(
             "mcedia_progress_bar",
             256, // 缓冲区大小 (默认即可)

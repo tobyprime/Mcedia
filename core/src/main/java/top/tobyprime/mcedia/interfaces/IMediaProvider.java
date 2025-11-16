@@ -1,6 +1,9 @@
-package top.tobyprime.mcedia.provider;
+package top.tobyprime.mcedia.interfaces;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.provider.VideoInfo;
+
+import java.nio.file.Path;
 
 /**
  * 媒体提供者接口，定义了一个视频源提供者应该具备的基本功能。
@@ -20,7 +23,7 @@ public interface IMediaProvider {
      * @return 包含可播放URL的VideoInfo对象
      * @throws Exception 解析失败时抛出异常
      */
-    VideoInfo resolve(String url, @Nullable String cookie, String desiredQuality) throws Exception;
+    VideoInfo resolve(String url, @Nullable String cookie, String desiredQuality) throws Exception; // [修改]
 
     default boolean isSeekSupported() {
         return  true;
