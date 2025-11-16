@@ -3,6 +3,9 @@ package top.tobyprime.mcedia.core;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.danmaku.Danmaku;
+import top.tobyprime.mcedia.danmaku.DanmakuEntity;
+import top.tobyprime.mcedia.danmaku.DanmakuScreen;
 import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.decoders.VideoFrame;
 import top.tobyprime.mcedia.decoders.ffmpeg.FfmpegMediaDecoder;
@@ -10,6 +13,8 @@ import top.tobyprime.mcedia.interfaces.*;
 
 import java.io.Closeable;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.function.Function;
 
 /**
  * 负责单一媒体文件的音视频同步解码，支持直播和点播
@@ -28,9 +33,11 @@ public class Media implements Closeable {
     private long lastAudioPts = -1; // 最近上传的音频帧时间戳
     private float speed = 1;
     private boolean looping = false;
-    private MediaInfo mediaInfo;
+    private final MediaInfo mediaInfo;
+    private final DanmakuScreen danmakuScreen;
     // 最近上传的视频帧时间戳
     private @Nullable IVideoData currentVideoFrame;
+
     public Media(MediaInfo info, DecoderConfiguration config) {
         decoder = new FfmpegMediaDecoder(info, config, 0L);
 
@@ -39,11 +46,22 @@ public class Media implements Closeable {
         audioThread = new Thread(this::playLoop);
         audioThread.start();
         mediaInfo = info;
+        this.danmakuScreen = new DanmakuScreen(mediaInfo.danmakus);
+
+    }
+
+    public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus() {
+        var screen  = danmakuScreen;
+        if (screen != null) {
+            return screen.update((float) this.getDurationSeconds());
+        }
+        return null;
     }
 
     public MediaInfo getMediaInfo() {
         return mediaInfo;
     }
+
 
     public void playLoop() {
         long nextPlayTime = System.nanoTime();
@@ -267,5 +285,9 @@ public class Media implements Closeable {
         }
         audioSources.forEach(IAudioSource::clearBuffer);
         decoder.close();
+    }
+
+    public void setDanmakuWidthPredictor(@Nullable Function<Danmaku, Float> danmakuWidthPredictor) {
+        this.danmakuScreen.setWidthPredictor(danmakuWidthPredictor);
     }
 }

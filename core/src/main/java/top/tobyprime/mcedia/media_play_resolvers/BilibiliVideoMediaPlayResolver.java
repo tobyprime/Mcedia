@@ -1,13 +1,9 @@
 package top.tobyprime.mcedia.media_play_resolvers;
 
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.bilibili.BilibiliVideoMediaPlay;
-import top.tobyprime.mcedia.core.IMediaPlay;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.interfaces.IMediaPlayResolver;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class BilibiliVideoMediaPlayResolver implements IMediaPlayResolver {
 

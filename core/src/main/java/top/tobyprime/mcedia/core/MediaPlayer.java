@@ -3,17 +3,22 @@ package top.tobyprime.mcedia.core;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.danmaku.Danmaku;
+import top.tobyprime.mcedia.danmaku.DanmakuEntity;
 import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.interfaces.ITexture;
 import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 
 import java.io.Closeable;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * 播放器核心，同时只播放单一媒体，管理媒体切换等
@@ -30,10 +35,12 @@ public class MediaPlayer implements Closeable {
     float speed = 1;
     private @Nullable ITexture texture;
     private volatile boolean loading;
-
+    @Nullable
+    public static Function<Danmaku, Float> danmakuWidthPredictor;
     @Nullable
     private Media media;
     private volatile IMediaPlay mediaPlay;
+
 
     private volatile DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
 
@@ -55,9 +62,26 @@ public class MediaPlayer implements Closeable {
         }
     }
 
+
+    public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus(){
+        var media = getMedia();
+        if (media != null){
+            return getMedia().updateAndGetDanmakus();
+        }
+        return null;
+    }
+
     public synchronized void unbindTexture() {
         if (media != null) {
             media.unbindTexture();
+        }
+    }
+
+    public  void setDanmakuWidthPredictor(@Nullable Function<Danmaku, Float> danmakuWidthPredictor) {
+        MediaPlayer.danmakuWidthPredictor = danmakuWidthPredictor;
+        var media = getMedia();
+        if (media != null) {
+            media.setDanmakuWidthPredictor(danmakuWidthPredictor);
         }
     }
 
@@ -194,6 +218,7 @@ public class MediaPlayer implements Closeable {
             }
             media.setSpeed(speed);
             media.setLooping(looping);
+            media.setDanmakuWidthPredictor(danmakuWidthPredictor);
         } finally {
             loading = false;
         }

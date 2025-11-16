@@ -2,7 +2,7 @@ package top.tobyprime.mcedia.media_play_resolvers;
 
 import org.jetbrains.annotations.NotNull;
 import top.tobyprime.mcedia.bilibili.BilibiliBangumiMediaPlay;
-import top.tobyprime.mcedia.core.IMediaPlay;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.interfaces.IMediaPlayResolver;
 
 public class BilibiliBangumiMediaPlayResolver implements IMediaPlayResolver {

@@ -1,6 +1,7 @@
 package top.tobyprime.mcedia.core;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 
 import java.util.ArrayList;
 import java.util.function.Consumer;
