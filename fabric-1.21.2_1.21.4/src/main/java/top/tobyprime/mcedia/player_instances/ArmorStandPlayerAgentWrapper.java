@@ -275,20 +275,21 @@ public class ArmorStandPlayerAgentWrapper {
 
         var name = entity.getMainHandItem().getDisplayName().getString().substring(1);
         var poster = name.contains(":") ? Arrays.stream(entity.getMainHandItem().getDisplayName().getString().substring(1).split(":")).findFirst().orElse("未知") : "未知";
-        Utils.msgToPlayer(poster + "点播: " + mediaUrl);
 
         LOGGER.info("准备播放 {}", mediaUrl);
 
         var mediaPlay =  player.getMediaPlayAndOpen(mediaUrl, (info) -> {
             player.play();
             player.seek(duration);
-            Utils.msgToPlayer("正在播放: " + info.title);
+            Utils.msgToPlayer(poster + "播放: " + info.title);
         });
-
         if (mediaPlay.getStatus() != null){
             Utils.msgToPlayer("播放器状态" + mediaPlay.getStatus());
         }
-        mediaPlay.registerOnStatusUpdatedEventAndCallOnce(status -> {Utils.msgToPlayer("播放器状态: " + status);});
+        mediaPlay.registerOnStatusUpdatedEventAndCallOnce(status -> {
+            if (status != null)
+                Utils.msgToPlayer("播放器状态: " + status);
+        });
     }
 
     /**

@@ -104,17 +104,7 @@ public class DanmakuPlay {
         result.newDanmakus = lookForward();
 
         result.activeDanmakus = this.activeDanmakus;
-        if (!result.removedDanmakus.isEmpty()) {
-            logger.info("removed damakus {}", result.removedDanmakus.size());
 
-        }
-        if (result.newDanmakus != null && !result.newDanmakus.isEmpty()) {
-            float floatNExt = -1;
-            if (pendingDanmaku != null) {
-                floatNExt = pendingDanmaku.secs - secs;
-            }
-            logger.info("new damakus {}, next {}", result.newDanmakus.size(), floatNExt);
-        }
         return result;
     }
 

@@ -119,8 +119,6 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
                 playRequestBuilder.header("Cookie", cookie);
             }
 
-//            setStatus("正在获取视频播放链接...");
-
             HttpResponse<String> playResponse = client.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
             JSONObject playJson = new JSONObject(playResponse.body());
 
