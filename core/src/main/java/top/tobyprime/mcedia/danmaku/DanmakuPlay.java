@@ -3,6 +3,7 @@ package top.tobyprime.mcedia.danmaku;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Configs;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -10,7 +11,6 @@ import java.util.List;
 
 public class DanmakuPlay {
     public static Logger logger = LoggerFactory.getLogger(DanmakuPlay.class);
-    float danmakuDuration = 2;
     float secs = 0;
 
     List<Danmaku> activeDanmakus = new ArrayList<>();
@@ -19,15 +19,14 @@ public class DanmakuPlay {
     ArrayList<Danmaku> sortedDanmakus;
     Iterator<Danmaku> it;
 
-    public DanmakuPlay(List<Danmaku> danmakus, float danmakuDuration) {
+    public DanmakuPlay(List<Danmaku> danmakus) {
         this.sortedDanmakus = new ArrayList<>(danmakus.stream().sorted().toList());
         it = sortedDanmakus.listIterator();
-        this.danmakuDuration = danmakuDuration;
     }
 
 
     private boolean isExpired(Danmaku danmaku) {
-        return danmaku.secs + danmakuDuration < secs;
+        return danmaku.secs + Configs.DANMAKU_DURATION < secs;
     }
 
     private boolean isFuture(Danmaku danmaku) {

@@ -18,7 +18,7 @@ public class DanmakuScreen {
     private Function<Danmaku, Float> widthPredictor;
 
     public DanmakuScreen(List<Danmaku> danmakus) {
-        this.danmakuPlay = new DanmakuPlay(danmakus, Configs.DANMAKU_DURATION);
+        this.danmakuPlay = new DanmakuPlay(danmakus);
         for (int i = 0; i < Configs.DANMAKU_TRACKS; i++) {
             this.tracks.add(new Track(i));
         }
