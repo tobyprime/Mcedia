@@ -8,7 +8,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
-import top.tobyprime.mcedia.bilibili.BilibiliConfigs;
+import top.tobyprime.mcedia.bilibili.BilibiliCookie;
 import top.tobyprime.mcedia.commands.CommandBilibiliLogin;
 import top.tobyprime.mcedia.commands.CommandDanmaku;
 import top.tobyprime.mcedia.commands.CommandCommon;
@@ -23,15 +23,22 @@ import java.util.Properties;
 public class McediaClient implements ClientModInitializer {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
 
+    private static Path getCookieConfig(){
+        return Path.of(System.getProperty("user.home"), ".mcedia", "cookie.properties");
+    }
+
     public static void SaveConfig() {
         var props = new Properties();
         try {
             if (!Files.exists(CONFIG_PATH)) {
                 Files.createFile(CONFIG_PATH);
             }
-
+            if (!Files.exists(getCookieConfig())) {
+                Files.createDirectories(getCookieConfig().getParent());
+                Files.createFile(getCookieConfig());
+            }
             Configs.writeToProperties(props);
-            BilibiliConfigs.writeToProperties(props);
+            BilibiliCookie.writeToProperties(props);
 
             props.store(Files.newOutputStream(CONFIG_PATH), "Mcedia props");
 
@@ -58,7 +65,7 @@ public class McediaClient implements ClientModInitializer {
                 props.load(Files.newInputStream(CONFIG_PATH));
 
                 Configs.fromProperties(props);
-                BilibiliConfigs.fromProperties(props);
+                BilibiliCookie.fromProperties(props);
 
                 BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
             } catch (IOException e) {

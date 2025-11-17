@@ -114,7 +114,7 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
                     .uri(URI.create(playApi))
                     .header("User-Agent", "Mozilla/5.0")
                     .header("Referer", "https://www.bilibili.com/");
-            var cookie = BilibiliConfigs.getCookie();
+            var cookie = BilibiliCookie.getCookie();
             if (cookie != null && !cookie.isEmpty()) {
                 playRequestBuilder.header("Cookie", cookie);
             }
@@ -133,7 +133,7 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
 
             info.author = author;
             info.platform = "bilibili";
-            info.cookie = BilibiliConfigs.getCookie();
+            info.cookie = BilibiliCookie.getCookie();
             var headers = new HashMap<String, String>();
             headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             headers.put("Referer", "https://www.bilibili.com/");

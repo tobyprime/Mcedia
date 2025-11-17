@@ -111,7 +111,7 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
                     .uri(URI.create(playApi))
                     .header("User-Agent", "Mozilla/5.0")
                     .header("Referer", "https://www.bilibili.com/");
-            var cookie = BilibiliConfigs.getCookie();
+            var cookie = BilibiliCookie.getCookie();
             if (cookie != null && !cookie.isEmpty()) {
                 requestBuilder.header("Cookie", cookie);
             }
@@ -148,7 +148,7 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
 
             mediaInfo.title = bangumiInfo.title + " - " + bangumiInfo.getCurrentEpisode().title;
             mediaInfo.platform = "Bilibili Bangumi";
-            mediaInfo.cookie = BilibiliConfigs.getCookie();
+            mediaInfo.cookie = BilibiliCookie.getCookie();
             mediaInfo.author = "Bilibili";
             mediaInfo.rawUrl = this.bangumiUrl;
             var headers = new HashMap<String, String>();

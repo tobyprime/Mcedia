@@ -1,11 +1,14 @@
 package top.tobyprime.mcedia.bilibili;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.util.Properties;
 
-public class BilibiliConfigs {
+public class BilibiliCookie {
+    @Nullable
     private static String COOKIES;
 
-    public static String getCookie() {
+    public static @Nullable String getCookie() {
         return COOKIES;
     }
     public static void saveCookies(String cookies) {
@@ -17,6 +20,7 @@ public class BilibiliConfigs {
     }
 
     public static void writeToProperties(Properties props){
-        props.setProperty("BILIBILI_COOKIES",COOKIES);
+        if (COOKIES != null)
+            props.setProperty("BILIBILI_COOKIES",COOKIES);
     }
 }

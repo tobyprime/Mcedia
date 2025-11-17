@@ -48,7 +48,7 @@ public class BilibiliAuthManager {
     public void logout() {
         LOGGER.info("正在执行登出操作...");
         this.setAccountStatus(new BilibiliAccountStatus(false, false, "游客"));
-        BilibiliConfigs.saveCookies("");
+        BilibiliCookie.saveCookies("");
     }
 
     private void setAccountStatus(BilibiliAccountStatus accountStatus) {
@@ -58,7 +58,7 @@ public class BilibiliAuthManager {
     }
 
     public CompletableFuture<String> checkAndUpdateLoginStatusAsync() {
-        String cookie = BilibiliConfigs.getCookie();
+        String cookie = BilibiliCookie.getCookie();
 
         // 本地没有 cookie → 直接返回一个已完成的 Future
         if (cookie == null || cookie.isEmpty()) {
@@ -103,7 +103,7 @@ public class BilibiliAuthManager {
                 setAccountStatus(new BilibiliAccountStatus(false, false, ""));
 
                 LOGGER.warn("检查Bilibili Cookie时失败: {}", e.getMessage());
-                BilibiliConfigs.saveCookies("");
+                BilibiliCookie.saveCookies("");
 
                 return "登录已失效";
             }
@@ -191,7 +191,7 @@ public class BilibiliAuthManager {
 
                     String fullCookie = cookieHeaders.stream().map(h -> h.split(";", 2)[0]).collect(Collectors.joining("; "));
 
-                    BilibiliConfigs.saveCookies(fullCookie);
+                    BilibiliCookie.saveCookies(fullCookie);
                     future.complete(null); // 登录完成
                     return;
                 }
