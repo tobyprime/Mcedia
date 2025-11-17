@@ -19,6 +19,7 @@ public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     public float Height;
     public Vector3f offset = new Vector3f(0.0f, 0.0f, 0.0f);
+    public boolean renderDanmaku = true;
     private float halfW = 1.777f;
 
     private void renderScreen(VideoTexture texture, PoseStack poseStack, MultiBufferSource bufferSource, int i, MediaPlayer player) {
@@ -34,7 +35,8 @@ public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
 
 
     private void renderDanmaku(PoseStack poseStack, MultiBufferSource bufferSource, int i, MediaPlayer player) {
-        poseStack.pushPose();
+        if (!Configs.DANMAKU_VISIBLE || !renderDanmaku) return;
+
 
         poseStack.translate(0, 0, 0.004f);
         Font font = Minecraft.getInstance().font;

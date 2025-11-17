@@ -59,7 +59,7 @@ public class BilibiliHelper {
         List<String> ignoreQualities = new ArrayList<>();
 
         if (Configs.QUALITY <= 2){
-            ignoreQualities.add("8k 超高清");
+            ignoreQualities.add("8K 超高清");
         }
         if (Configs.QUALITY <= 1){
             ignoreQualities.add("4K 超高清");

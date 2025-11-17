@@ -9,22 +9,21 @@ import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.Style;
 import top.tobyprime.mcedia.Utils;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
-
-import java.net.URI;
+import top.tobyprime.mcedia.client.McediaClient;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
-public class CommandLogin {
+public class CommandBilibiliLogin {
 
     public static void login() {
         BilibiliAuthManager.getInstance().loginAsync((qrCodeUrl -> {
             Utils.msgToPlayer("请在浏览器打开并使用手机端 bilibili 扫码:");
             Style style = Style.EMPTY
-                    .withClickEvent(new ClickEvent.OpenUrl(URI.create(qrCodeUrl)))
-                    .withHoverEvent(new HoverEvent.ShowText(Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
+                    .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, qrCodeUrl))
+                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
 
             Utils.msgToPlayer(Component.literal("§b§n[点我打开二维码]").setStyle(style));
-        })).thenAccept(Utils::msgToPlayer);
+        })).thenAccept(Utils::msgToPlayer).thenRun(McediaClient::SaveConfig);
 
     }
 
@@ -51,6 +50,7 @@ public class CommandLogin {
                         .executes(context -> {
                             if (BilibiliAuthManager.getInstance().getAccountStatus().isLoggedIn) {
                                 BilibiliAuthManager.getInstance().logout();
+                                McediaClient.SaveConfig();
                             } else {
                                 Utils.msgToPlayer("无 bilibili 登录记录");
                             }
@@ -58,6 +58,5 @@ public class CommandLogin {
                         })
                 );
         dispatcher.register(literal("mcedia").then(bilibiliNode));
-        dispatcher.register(literal("mcedia").then(literal("b").redirect(bilibiliNode.build())));
     }
 }
