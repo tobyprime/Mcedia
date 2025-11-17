@@ -2,8 +2,8 @@ package top.tobyprime.mcedia.decoders.ffmpeg;
 
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
-import org.bytedeco.javacv.FFmpegLogCallback;
 import org.bytedeco.javacv.Frame;
+import org.bytedeco.javacv.FrameGrabber;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,12 +55,13 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         try {
             for (FFmpegFrameGrabber grabber : grabbers) {
                 grabber.start();
+
             }
-        } catch (FFmpegFrameGrabber.Exception e) {
+
+        } catch (Exception e) {
             close();
             throw new RuntimeException(e);
         }
-
         for (FFmpegFrameGrabber grabber : grabbers) {
             Thread thread = new Thread(() -> decodeLoop(grabber));
             thread.setName("Mcedia-Decoder-" + (grabbers.indexOf(grabber) == 0 ? "Video" : "Audio"));
@@ -69,6 +70,20 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             thread.start();
         }
     }
+
+    public void startDecode(){
+        if (runningDecoders.get() != 0) {
+         return;
+        }
+        for (FFmpegFrameGrabber grabber : grabbers) {
+            Thread thread = new Thread(() -> decodeLoop(grabber));
+            thread.setName("Mcedia-Decoder-" + (grabbers.indexOf(grabber) == 0 ? "Video" : "Audio"));
+            thread.setDaemon(true);
+            decoderThreads.add(thread);
+            thread.start();
+        }
+    }
+
     @Override
     public boolean isLiveStream() {
         return getDuration() <= 0 || Double.isInfinite(getDuration());
@@ -179,11 +194,18 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         return runningDecoders.get()==0;
     }
     public boolean isEnded() {
-        return runningDecoders.get()==0 && this.audioQueue.isEmpty() && this.videoQueue.isEmpty();
+        return  this.isDecodeEnded() && (this.getAudioQueue().isEmpty() || this.videoQueue.isEmpty());
     }
+
 
     public long getDuration() {
         return primaryGrabber.getLengthInTime();
+    }
+
+
+    @Override
+    public long getTimestamp() {
+        return primaryGrabber.getTimestamp();
     }
 
     public int getWidth() {
@@ -206,6 +228,9 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     public void seek(long timestamp) {
         if (getDuration() <= 0) return;
+        if (runningDecoders.get()==0) {
+            startDecode();
+        }
         timestamp = Math.max(0, Math.min(timestamp, getDuration()));
 
         grabberLock.writeLock().lock();
@@ -214,7 +239,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             for (FFmpegFrameGrabber grabber : grabbers) {
                 grabber.setTimestamp(timestamp, true);
             }
-        } catch (FFmpegFrameGrabber.Exception e) {
+        } catch (FrameGrabber.Exception e) {
             throw new RuntimeException("Seek failed", e);
         } finally {
             grabberLock.writeLock().unlock();

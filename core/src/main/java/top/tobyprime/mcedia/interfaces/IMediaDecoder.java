@@ -16,9 +16,23 @@ public interface IMediaDecoder extends Closeable {
 
     boolean isEnded();
 
+    /**
+     * 解码结束
+     * @return
+     */
     boolean isDecodeEnded();
 
+    /**
+     * 视频长度
+     * @return us
+     */
     long getDuration();
+
+    /**
+     * 当前播放时间点
+     * @return us
+     */
+    long getTimestamp();
 
     int getWidth();
 

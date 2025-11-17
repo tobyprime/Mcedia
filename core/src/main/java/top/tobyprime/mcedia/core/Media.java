@@ -86,8 +86,8 @@ public class Media implements Closeable {
                 if (!paused) {
                     IAudioData currFrame = decoder.getAudioQueue().poll();
                     if (currFrame == null) {
-                        if (decoder.isEnded() && looping && decoder.getDuration() != 0) {
-                            // 如果循环播放且播放结束则从头开始
+                        if (looping && decoder.isEnded() && decoder.getTimestamp() != 0) {
+                            // 如果播放结束，且需要循环则设置时间到 0
                             LOGGER.info("looping");
                             this.seek(0);
                         }
