@@ -6,7 +6,7 @@
   "mixins": [
   ],
   "client": [
-    "MixinArmorStand",
+    "MixinEntity",
     "MixinSoundEngine",
     "MixinSoundManager"
   ],
