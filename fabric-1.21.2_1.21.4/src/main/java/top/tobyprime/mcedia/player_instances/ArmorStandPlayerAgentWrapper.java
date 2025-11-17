@@ -97,7 +97,8 @@ public class ArmorStandPlayerAgentWrapper {
     public float speed = 1;
 
     public void updateOther(String flags) {
-        this.player.setLooping(flags.contains("looping"));
+        this.player.setLooping(flags.contains("looping") || flags.contains("循环播放"));
+        this.screen.renderDanmaku = !(flags.contains("nodanmaku") || flags.contains("关闭弹幕"));
     }
     public void updateOffset(String offset) {
         try {

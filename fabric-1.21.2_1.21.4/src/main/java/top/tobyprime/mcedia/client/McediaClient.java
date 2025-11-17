@@ -5,12 +5,13 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.Minecraft;
 import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliConfigs;
-import top.tobyprime.mcedia.commands.CommandLogin;
+import top.tobyprime.mcedia.commands.CommandBilibiliLogin;
+import top.tobyprime.mcedia.commands.CommandDanmaku;
+import top.tobyprime.mcedia.commands.CommandQuality;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
 import top.tobyprime.mcedia.renderers.MediaPlayerAgentEntityRenderer;
 
@@ -26,7 +27,11 @@ public class McediaClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> CommandLogin.register(dispatcher));
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            CommandBilibiliLogin.register(dispatcher);
+            CommandDanmaku.register(dispatcher);
+            CommandQuality.register(dispatcher);
+        });
         ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
             var props = new Properties();
             if (!Files.exists(CONFIG_PATH)) {

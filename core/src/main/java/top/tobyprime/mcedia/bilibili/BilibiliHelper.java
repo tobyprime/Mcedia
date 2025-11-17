@@ -5,10 +5,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Configs;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class BilibiliHelper {
     public static Logger  LOGGER = LoggerFactory.getLogger(BilibiliHelper.class);
@@ -44,61 +43,48 @@ public class BilibiliHelper {
             return new BilibiliStreamSelection(streams.getJSONObject(0), "默认音质");
         }
 
-        boolean isLoggedIn = BilibiliAuthManager.getInstance().getAccountStatus().isLoggedIn;
-
         Map<String, Integer> availableQualityMap = new HashMap<>();
         for (int i = 0; i < formats.length(); i++) {
             JSONObject format = formats.getJSONObject(i);
             availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
         }
+        if (Configs.QUALITY == 0){
+            String lowestQualityDesc = formats.getJSONObject(formats.length() - 1).getString("new_description");
+            var selection = new BilibiliStreamSelection(streams.getJSONObject(streams.length() - 1), lowestQualityDesc);
+            LOGGER.info("清晰度{}: 找到匹配 '{}'",Configs.QUALITY, selection);
+            return selection;
+        }
 
-        // todo: 配置画质设置
-        if (true) {
-            if (isLoggedIn) {
-//                LOGGER.info("用户已登录，应用1080P60帧为上限的画质策略。");
-//                List<String> preferredQualities = List.of(
-//                        "1080P 60帧", "1080P 高码率", "1080P 高清", "1080P",
-//                        "720P 60帧", "720P 高清", "720P", "高清 720P",
-//                        "480P 高清", "480P", "标清 480P"
-//                );
-//                for (String preferred : preferredQualities) {
-//                    Integer targetId = availableQualityMap.get(preferred);
-//                    if (targetId != null) {
-//                        JSONObject stream = findStreamByIdAndCodec(streams, targetId);
-//                        if (stream != null) {
-//                            LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
-//                            return new BilibiliStreamSelection(stream, preferred);
-//                        }
-//                    }
-//                }
-                var selection = new BilibiliStreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
-                LOGGER.warn("自动清晰度(已登录): 使用API最高画质 {}", selection.qualityDescription);
-            } else {
-                LOGGER.info("用户未登录，尝试锁定至 360P 画质。");
-                String targetQuality = "360P 流畅";
-                Integer targetId = availableQualityMap.get(targetQuality);
-                if (targetId != null) {
-                    JSONObject stream = findStreamByIdAndCodec(streams, targetId);
-                    if (stream != null) {
-                        LOGGER.info("自动清晰度(未登录): 成功锁定到 '{}'", targetQuality);
-                        return new BilibiliStreamSelection(stream, targetQuality);
-                    }
+
+        List<String> ignoreQualities = new ArrayList<>();
+
+        if (Configs.QUALITY <= 2){
+            ignoreQualities.add("8k 超高清");
+        }
+        if (Configs.QUALITY <= 1){
+            ignoreQualities.add("4K 超高清");
+        }
+
+
+        for (var preferred : availableQualityMap.entrySet().stream().sorted(Comparator.comparingInt(Map.Entry::getValue)).toList().reversed()) {
+            if (ignoreQualities.contains(preferred.getKey())) {
+                continue;
+            }
+
+            Integer targetId = availableQualityMap.get(preferred.getKey());
+            if (targetId != null) {
+                JSONObject stream = findStreamByIdAndCodec(streams, targetId);
+                if (stream != null) {
+                    LOGGER.info("清晰度{}: 找到匹配 '{}'",Configs.QUALITY, preferred);
+                    return new BilibiliStreamSelection(stream, preferred.getKey());
                 }
-                LOGGER.warn("自动清晰度(未登录): 未找到 '{}'，回退到最低画质。", targetQuality);
-                return new BilibiliStreamSelection(streams.getJSONObject(streams.length() - 1), formats.getJSONObject(formats.length() - 1).getString("new_description"));
             }
         }
 
-        // --- 手动指定清晰度逻辑 ---
-        Integer targetQualityId = availableQualityMap.get("自动");
-        if (targetQualityId != null) {
-            JSONObject stream = findStreamByIdAndCodec(streams, targetQualityId);
-            if (stream != null) {
-                return new BilibiliStreamSelection(stream, "自动");
-            }
-        }
+        String lowestQualityDesc = formats.getJSONObject(formats.length() - 1).getString("new_description");
+        var selection = new BilibiliStreamSelection(streams.getJSONObject(streams.length() - 1), lowestQualityDesc);
+        LOGGER.warn("未找到符合清晰度，使用低画质 {}", selection.qualityDescription);
+        return selection;
 
-        LOGGER.warn("未找到指定的清晰度 '{}'，将使用最高可用清晰度。", "自动");
-        return new BilibiliStreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
     }
 }

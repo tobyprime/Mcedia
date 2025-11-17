@@ -7,16 +7,12 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.Style;
-import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.Utils;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
-import top.tobyprime.mcedia.bilibili.BilibiliException;
-
-import java.net.URI;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
-public class CommandLogin {
+public class CommandBilibiliLogin {
 
     public static void login() {
         BilibiliAuthManager.getInstance().loginAsync((qrCodeUrl -> {
@@ -60,6 +56,5 @@ public class CommandLogin {
                         })
                 );
         dispatcher.register(literal("mcedia").then(bilibiliNode));
-        dispatcher.register(literal("mcedia").then(literal("b").redirect(bilibiliNode.build())));
     }
 }
