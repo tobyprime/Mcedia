@@ -13,7 +13,7 @@ import top.tobyprime.mcedia.client.McediaClient;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
-public class CommandBilibiliLogin {
+public class CommandBilibili {
 
     public static void login() {
         BilibiliAuthManager.getInstance().loginAsync((qrCodeUrl -> {
@@ -45,7 +45,16 @@ public class CommandBilibiliLogin {
                                     return 1;
                                 })
                         )
-                )
+                ).then(literal("account").executes(ctx->{
+
+                    var status = BilibiliAuthManager.getInstance().getAccountStatus();
+                    if (status.isLoggedIn) {
+                        Utils.msgToPlayer("你是 " + status.username);
+                    }else {
+                        Utils.msgToPlayer("未登录");
+                    }
+                    return 1;
+                }))
                 .then(literal("logout")
                         .executes(context -> {
                             if (BilibiliAuthManager.getInstance().getAccountStatus().isLoggedIn) {
