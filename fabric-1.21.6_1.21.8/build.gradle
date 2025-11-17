@@ -2,5 +2,7 @@ plugins {
     id 'fabric-loom' version '1.11-SNAPSHOT'
     id 'maven-publish'
 }
-
+loom {
+    accessWidenerPath = file("src/main/resources/mcedia.accesswidener")
+}
 apply from: "$rootDir/buildSrc/fabric.gradle"
