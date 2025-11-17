@@ -27,6 +27,6 @@ public class FfmpegVideoData  implements IVideoData {
 
     @Override
     public void close()  {
-//        frame.close();
+        frame.close();
     }
 }
