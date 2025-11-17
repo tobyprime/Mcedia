@@ -55,24 +55,24 @@ public class BilibiliHelper {
         // todo: 配置画质设置
         if (true) {
             if (isLoggedIn) {
-                LOGGER.info("用户已登录，应用1080P60帧为上限的画质策略。");
-                List<String> preferredQualities = List.of(
-                        "1080P 60帧", "1080P 高码率", "1080P 高清", "1080P",
-                        "720P 60帧", "720P 高清", "720P", "高清 720P",
-                        "480P 高清", "480P", "标清 480P"
-                );
-                for (String preferred : preferredQualities) {
-                    Integer targetId = availableQualityMap.get(preferred);
-                    if (targetId != null) {
-                        JSONObject stream = findStreamByIdAndCodec(streams, targetId);
-                        if (stream != null) {
-                            LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
-                            return new BilibiliStreamSelection(stream, preferred);
-                        }
-                    }
-                }
-                LOGGER.warn("自动清晰度(已登录): 未在偏好列表中找到匹配项，回退到API最高画质。");
-                return new BilibiliStreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
+//                LOGGER.info("用户已登录，应用1080P60帧为上限的画质策略。");
+//                List<String> preferredQualities = List.of(
+//                        "1080P 60帧", "1080P 高码率", "1080P 高清", "1080P",
+//                        "720P 60帧", "720P 高清", "720P", "高清 720P",
+//                        "480P 高清", "480P", "标清 480P"
+//                );
+//                for (String preferred : preferredQualities) {
+//                    Integer targetId = availableQualityMap.get(preferred);
+//                    if (targetId != null) {
+//                        JSONObject stream = findStreamByIdAndCodec(streams, targetId);
+//                        if (stream != null) {
+//                            LOGGER.info("自动清晰度(已登录): 找到匹配 '{}'", preferred);
+//                            return new BilibiliStreamSelection(stream, preferred);
+//                        }
+//                    }
+//                }
+                var selection = new BilibiliStreamSelection(streams.getJSONObject(0), formats.getJSONObject(0).getString("new_description"));
+                LOGGER.warn("自动清晰度(已登录): 使用API最高画质 {}", selection.qualityDescription);
             } else {
                 LOGGER.info("用户未登录，尝试锁定至 360P 画质。");
                 String targetQuality = "360P 流畅";

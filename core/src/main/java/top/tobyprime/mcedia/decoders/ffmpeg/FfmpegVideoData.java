@@ -5,24 +5,28 @@ import top.tobyprime.mcedia.decoders.VideoFrame;
 import top.tobyprime.mcedia.interfaces.IVideoData;
 
 public class FfmpegVideoData  implements IVideoData {
-    public Frame ffmpegFrame;
+    private final long timestamp;
+    public VideoFrame frame;
 
     public FfmpegVideoData(Frame ffmpegFrame) {
-        this.ffmpegFrame = ffmpegFrame.clone();
+        var clonedFrame = ffmpegFrame.clone();
+        this.frame = FfmpegVideoDataConverter.convertToVideoFrame(clonedFrame);
+        clonedFrame.close();
+        this.timestamp = ffmpegFrame.timestamp;
     }
 
     @Override
     public long getTimestamp() {
-        return ffmpegFrame.timestamp;
+        return timestamp;
     }
 
     @Override
     public VideoFrame toFrame() {
-        return FfmpegVideoDataConverter.convertToVideoFrame(ffmpegFrame);
+        return frame;
     }
 
     @Override
     public void close()  {
-        ffmpegFrame.close();
+//        frame.close();
     }
 }

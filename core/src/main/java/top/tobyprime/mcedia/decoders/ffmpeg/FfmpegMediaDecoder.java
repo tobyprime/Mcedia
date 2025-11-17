@@ -7,11 +7,11 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.Configs;
+import top.tobyprime.mcedia.core.MediaInfo;
 import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.interfaces.IAudioData;
 import top.tobyprime.mcedia.interfaces.IMediaDecoder;
 import top.tobyprime.mcedia.interfaces.IVideoData;
-import top.tobyprime.mcedia.core.MediaInfo;
 
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -110,12 +110,18 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
         grabber.setOption("analyzeduration", "10000000");
-        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
+        if (configuration.useHardwareDecoding)
+            grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
+
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
+            grabber.setOption("vf", "format=rgba");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
         } else {
             grabber.setOption("vn", "1");
+            if (configuration.audioSampleRate > 0) {
+                grabber.setSampleRate(configuration.audioSampleRate);
+            }
         }
         grabber.setAudioChannels(1);
         grabber.setOption("an", configuration.enableAudio ? "0" : "1");
