@@ -1,16 +1,14 @@
 package top.tobyprime.mcedia.commands;// CommandLogin.java
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.network.chat.ClickEvent;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.HoverEvent;
-import net.minecraft.network.chat.Style;
 import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.Utils;
-import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
+import top.tobyprime.mcedia.client.McediaClient;
 
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
 public class CommandDanmaku {
@@ -25,9 +23,17 @@ public class CommandDanmaku {
                             }else {
                                 Utils.msgToPlayer("已关闭弹幕");
                             }
+                            McediaClient.SaveConfig();
                             return 1;
-                        })
-                );
+                        })).then(literal("opacity").then(argument("opacity", FloatArgumentType.floatArg(0, 1)).executes(ctx -> {
+                    Configs.DANMAKU_OPACITY = FloatArgumentType.getFloat(ctx, "opacity");
+                    McediaClient.SaveConfig();
+                    return 1;
+                }))).then(literal("duration").then(argument("duration", FloatArgumentType.floatArg(0, 10)).executes(ctx -> {
+                    Configs.DANMAKU_DURATION = FloatArgumentType.getFloat(ctx, "duration");
+                    McediaClient.SaveConfig();
+                    return 1;
+                })));
         dispatcher.register(literal("mcedia").then(danmakuNode));
     }
 }

@@ -11,7 +11,7 @@ import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliConfigs;
 import top.tobyprime.mcedia.commands.CommandBilibiliLogin;
 import top.tobyprime.mcedia.commands.CommandDanmaku;
-import top.tobyprime.mcedia.commands.CommandQuality;
+import top.tobyprime.mcedia.commands.CommandCommon;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
 import top.tobyprime.mcedia.renderers.MediaPlayerAgentEntityRenderer;
 
@@ -23,6 +23,23 @@ import java.util.Properties;
 public class McediaClient implements ClientModInitializer {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
 
+    public static void SaveConfig() {
+        var props = new Properties();
+        try {
+            if (!Files.exists(CONFIG_PATH)) {
+                Files.createFile(CONFIG_PATH);
+            }
+
+            Configs.writeToProperties(props);
+            BilibiliConfigs.writeToProperties(props);
+
+            props.store(Files.newOutputStream(CONFIG_PATH), "Mcedia props");
+
+        } catch (IOException e) {
+            Mcedia.LOGGER.error("保存配置失败", e);
+        }
+    }
+
 
     @Override
     public void onInitializeClient() {
@@ -30,7 +47,7 @@ public class McediaClient implements ClientModInitializer {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             CommandBilibiliLogin.register(dispatcher);
             CommandDanmaku.register(dispatcher);
-            CommandQuality.register(dispatcher);
+            CommandCommon.register(dispatcher);
         });
         ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
             var props = new Properties();
@@ -49,22 +66,7 @@ public class McediaClient implements ClientModInitializer {
             }
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register((client) -> {
-            var props = new Properties();
-            try {
-                if (!Files.exists(CONFIG_PATH)) {
-                    Files.createFile(CONFIG_PATH);
-                }
-
-                Configs.writeToProperties(props);
-                BilibiliConfigs.writeToProperties(props);
-
-                props.store(Files.newOutputStream(CONFIG_PATH), "Mcedia props");
-
-            }
-            catch (IOException e) {
-                Mcedia.LOGGER.error("保存配置失败",e);
-            }
-
+            SaveConfig();
         });
     }
 }
