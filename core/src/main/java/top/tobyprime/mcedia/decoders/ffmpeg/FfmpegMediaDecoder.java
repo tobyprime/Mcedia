@@ -39,8 +39,6 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     private final AtomicInteger runningDecoders = new  AtomicInteger(0);
 
     public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration) {
-        FFmpegLogCallback.set();  // 用于打印详细日志
-
         this.configuration = configuration;
 
         this.videoQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_VIDEO_FRAMES);
