@@ -53,10 +53,23 @@ public class Media implements Closeable {
 
     }
 
+    public long lastDanmakuUpdateDurationUs = -1;
+    public long lastDanmakuDurationUpdateTimeUs = -1;
     public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus() {
         var screen  = danmakuScreen;
         if (screen != null) {
-            return screen.update((float) this.getDurationSeconds());
+            long durationUs = this.getDurationUs();
+            long nowUs = System.currentTimeMillis();
+            double durationSecs = durationUs / 1_000_000.0;
+
+            if (lastDanmakuUpdateDurationUs == durationUs) {
+                durationSecs += (nowUs - lastDanmakuDurationUpdateTimeUs) / 1_000_000.0;
+            } else {
+                lastDanmakuUpdateDurationUs = durationUs;
+                lastDanmakuDurationUpdateTimeUs = nowUs;
+            }
+
+            return screen.update((float) durationSecs);
         }
         return null;
     }
