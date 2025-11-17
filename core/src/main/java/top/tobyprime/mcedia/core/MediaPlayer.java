@@ -147,7 +147,12 @@ public class MediaPlayer implements Closeable {
             openMediaInternal(mediaInfo);
             if (afterOpened != null)
                 afterOpened.accept(mediaInfo);
-        }, executor);
+        }, executor).exceptionally(
+                e -> {
+                    LOGGER.error("打开 {} 失败", mediaInfo.streamUrl, e);
+                    return null;
+                }
+        );
     }
 
     public void open(IMediaPlay mediaPlay, Consumer<MediaInfo> afterOpened) {

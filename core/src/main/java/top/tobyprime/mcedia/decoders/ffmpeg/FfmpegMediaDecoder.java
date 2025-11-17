@@ -2,6 +2,7 @@ package top.tobyprime.mcedia.decoders.ffmpeg;
 
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
+import org.bytedeco.javacv.FFmpegLogCallback;
 import org.bytedeco.javacv.Frame;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -37,7 +38,9 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     private final ReentrantReadWriteLock grabberLock = new ReentrantReadWriteLock();
     private final AtomicInteger runningDecoders = new  AtomicInteger(0);
 
-    public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration, long initialSeekUs) {
+    public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration) {
+        FFmpegLogCallback.set();  // 用于打印详细日志
+
         this.configuration = configuration;
 
         this.videoQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_VIDEO_FRAMES);
@@ -54,9 +57,6 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         try {
             for (FFmpegFrameGrabber grabber : grabbers) {
                 grabber.start();
-                if (initialSeekUs > 0 && grabber.getLengthInTime() > 0) {
-                    grabber.setTimestamp(initialSeekUs, true);
-                }
             }
         } catch (FFmpegFrameGrabber.Exception e) {
             close();
@@ -91,29 +91,35 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         if (url.startsWith("http")) {
             StringBuilder headerStrBuilder = new StringBuilder();
 
-            if (customHeaders != null && !customHeaders.isEmpty()) {
-                customHeaders.forEach((key, value) -> headerStrBuilder.append(key).append(": ").append(value).append("\r\n"));
-            } else {
-                headerStrBuilder.append("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n");
+            if (customHeaders != null) {
+                customHeaders.forEach((k, v) -> headerStrBuilder.append(k).append(": ").append(v).append("\r\n"));
             }
 
-            if (cookie != null && !cookie.isEmpty() && (customHeaders == null || !customHeaders.containsKey("Cookie"))) {
+            if ((customHeaders == null || !customHeaders.containsKey("User-Agent"))
+                    && configuration.userAgent != null) {
+                headerStrBuilder.append("User-Agent: ").append(configuration.userAgent).append("\r\n");
+            }
+
+            if (cookie != null && !cookie.isEmpty()
+                    && (customHeaders == null || !customHeaders.containsKey("Cookie"))) {
                 headerStrBuilder.append("Cookie: ").append(cookie).append("\r\n");
             }
 
             grabber.setOption("headers", headerStrBuilder.toString());
+
             grabber.setOption("reconnect", "1");
             grabber.setOption("reconnect_streamed", "1");
             grabber.setOption("reconnect_delay_max", "5");
             grabber.setOption("timeout", String.valueOf(configuration.timeout));
+            grabber.setOption("rw_timeout", String.valueOf(configuration.timeout));
         }
         grabber.setOption("buffer_size", String.valueOf(configuration.bufferSize));
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
         grabber.setOption("analyzeduration", "10000000");
+
         if (configuration.useHardwareDecoding)
             grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
-
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
             grabber.setOption("vf", "format=rgba");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);

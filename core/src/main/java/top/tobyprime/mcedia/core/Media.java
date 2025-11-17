@@ -39,14 +39,17 @@ public class Media implements Closeable {
     private @Nullable IVideoData currentVideoFrame;
 
     public Media(MediaInfo info, DecoderConfiguration config) {
-        decoder = new FfmpegMediaDecoder(info, config, 0L);
+        decoder = new FfmpegMediaDecoder(info, config);
 
         // 检测是否为直播流（假设duration无效或为0表示直播）
         isLiveStream = decoder.isLiveStream();
         audioThread = new Thread(this::playLoop);
         audioThread.start();
         mediaInfo = info;
-        this.danmakuScreen = new DanmakuScreen(mediaInfo.danmakus);
+        if (mediaInfo.danmakus != null)
+            this.danmakuScreen = new DanmakuScreen(mediaInfo.danmakus);
+        else
+            this.danmakuScreen = null;
 
     }
 
@@ -288,6 +291,9 @@ public class Media implements Closeable {
     }
 
     public void setDanmakuWidthPredictor(@Nullable Function<Danmaku, Float> danmakuWidthPredictor) {
+        if (this.danmakuScreen == null) {
+            return;
+        }
         this.danmakuScreen.setWidthPredictor(danmakuWidthPredictor);
     }
 }

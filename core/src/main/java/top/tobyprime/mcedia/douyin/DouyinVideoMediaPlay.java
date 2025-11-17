@@ -13,6 +13,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -114,7 +115,18 @@ public class DouyinVideoMediaPlay extends BaseMediaPlay {
             }
 
             // 解析并返回无水印视频地址
-            setMediaInfo(getMediaInfo(routerDataJsonStr));
+            var info = getMediaInfo(routerDataJsonStr);
+            if (info == null) {
+                setStatus("读取视频信息失败");
+                return;
+            }
+            info.headers = new HashMap<>();
+
+            info.headers.put("User-Agent", USER_AGENT);
+            info.headers.put("Referer", "https://www.douyin.com/");
+            info.headers.put("Origin", "https://www.douyin.com/");
+
+            setMediaInfo(info);
             setStatus("获取视频信息完成");
             return;
 
