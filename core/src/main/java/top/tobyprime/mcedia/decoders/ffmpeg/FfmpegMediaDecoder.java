@@ -36,7 +36,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReentrantReadWriteLock grabberLock = new ReentrantReadWriteLock();
-    private final AtomicInteger runningDecoders = new  AtomicInteger(0);
+    private final AtomicInteger runningDecoders = new AtomicInteger(0);
 
     public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration) {
         this.configuration = configuration;
@@ -62,20 +62,15 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             close();
             throw new RuntimeException(e);
         }
-        for (FFmpegFrameGrabber grabber : grabbers) {
-            Thread thread = new Thread(() -> decodeLoop(grabber));
-            thread.setName("Mcedia-Decoder-" + (grabbers.indexOf(grabber) == 0 ? "Video" : "Audio"));
-            thread.setDaemon(true);
-            decoderThreads.add(thread);
-            thread.start();
-        }
+        startDecoder();
     }
 
-    public void startDecode(){
+    public void startDecoder() {
         if (runningDecoders.get() != 0) {
-         return;
+            return;
         }
         for (FFmpegFrameGrabber grabber : grabbers) {
+            runningDecoders.incrementAndGet();
             Thread thread = new Thread(() -> decodeLoop(grabber));
             thread.setName("Mcedia-Decoder-" + (grabbers.indexOf(grabber) == 0 ? "Video" : "Audio"));
             thread.setDaemon(true);
@@ -108,13 +103,11 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                 customHeaders.forEach((k, v) -> headerStrBuilder.append(k).append(": ").append(v).append("\r\n"));
             }
 
-            if ((customHeaders == null || !customHeaders.containsKey("User-Agent"))
-                    && configuration.userAgent != null) {
+            if ((customHeaders == null || !customHeaders.containsKey("User-Agent")) && configuration.userAgent != null) {
                 headerStrBuilder.append("User-Agent: ").append(configuration.userAgent).append("\r\n");
             }
 
-            if (cookie != null && !cookie.isEmpty()
-                    && (customHeaders == null || !customHeaders.containsKey("Cookie"))) {
+            if (cookie != null && !cookie.isEmpty() && (customHeaders == null || !customHeaders.containsKey("Cookie"))) {
                 headerStrBuilder.append("Cookie: ").append(cookie).append("\r\n");
             }
 
@@ -130,8 +123,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         grabber.setOption("probesize", String.valueOf(configuration.probesize));
         grabber.setOption("analyzeduration", "10000000");
 
-        if (configuration.useHardwareDecoding)
-            grabber.setOption("hwaccel", "auto");
+        if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
             grabber.setOption("vn", configuration.enableVideo ? "0" : "1");
             grabber.setOption("vf", "format=rgba");
@@ -148,7 +140,6 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
     private void decodeLoop(FFmpegFrameGrabber grabber) {
-        runningDecoders.incrementAndGet();
         try {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
                 grabberLock.readLock().lock();
@@ -190,11 +181,13 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             runningDecoders.decrementAndGet();
         }
     }
-    public boolean isDecodeEnded(){
-        return runningDecoders.get()==0;
+
+    public boolean isDecodeEnded() {
+        return runningDecoders.get() == 0;
     }
+
     public boolean isEnded() {
-        return  this.isDecodeEnded() && (this.getAudioQueue().isEmpty() || this.videoQueue.isEmpty());
+        return this.isDecodeEnded() && (this.getAudioQueue().isEmpty() || this.videoQueue.isEmpty());
     }
 
 
@@ -228,8 +221,8 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     public void seek(long timestamp) {
         if (getDuration() <= 0) return;
-        if (runningDecoders.get()==0) {
-            startDecode();
+        if (runningDecoders.get() == 0) {
+            startDecoder();
         }
         timestamp = Math.max(0, Math.min(timestamp, getDuration()));
 
