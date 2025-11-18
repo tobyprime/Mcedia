@@ -37,6 +37,7 @@ public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
     private void renderDanmaku(PoseStack poseStack, MultiBufferSource bufferSource, int i, MediaPlayer player) {
         if (!Configs.DANMAKU_VISIBLE || !renderDanmaku) return;
 
+        poseStack.pushPose();
 
         poseStack.translate(0, 0, 0.004f);
         Font font = Minecraft.getInstance().font;

@@ -17,7 +17,7 @@ public class Utils {
     public static void msgToPlayer(String msg) {
         var player = Minecraft.getInstance().player;
         if (player != null) {
-            player.displayClientMessage(Component.literal(msg), false);
+            player.displayClientMessage(Component.literal("§e[Mcedia] §f" + msg), false);
         }
     }
 

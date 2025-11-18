@@ -9,9 +9,9 @@ import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliCookie;
-import top.tobyprime.mcedia.commands.CommandBilibiliLogin;
-import top.tobyprime.mcedia.commands.CommandCommon;
+import top.tobyprime.mcedia.commands.CommandBilibili;
 import top.tobyprime.mcedia.commands.CommandDanmaku;
+import top.tobyprime.mcedia.commands.CommandCommon;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
 import top.tobyprime.mcedia.renderers.MediaPlayerAgentEntityRenderer;
 
@@ -53,7 +53,7 @@ public class McediaClient implements ClientModInitializer {
     public void onInitializeClient() {
         EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
-            CommandBilibiliLogin.register(dispatcher);
+            CommandBilibili.register(dispatcher);
             CommandCommon.register(dispatcher);
             CommandDanmaku.register(dispatcher);
         });

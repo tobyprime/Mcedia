@@ -29,6 +29,8 @@ public class McediaClient implements ClientModInitializer {
 
     public static void SaveConfig() {
         var props = new Properties();
+        var cookies = new Properties();
+
         try {
             if (!Files.exists(CONFIG_PATH)) {
                 Files.createFile(CONFIG_PATH);
@@ -38,39 +40,51 @@ public class McediaClient implements ClientModInitializer {
                 Files.createFile(getCookieConfig());
             }
             Configs.writeToProperties(props);
-            BilibiliCookie.writeToProperties(props);
+            BilibiliCookie.writeToProperties(cookies);
 
             props.store(Files.newOutputStream(CONFIG_PATH), "Mcedia props");
-
+            cookies.store(Files.newOutputStream(getCookieConfig()), "Mcedia cookies");
         } catch (IOException e) {
             Mcedia.LOGGER.error("保存配置失败", e);
         }
     }
-
 
     @Override
     public void onInitializeClient() {
         EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             CommandBilibili.register(dispatcher);
-            CommandDanmaku.register(dispatcher);
             CommandCommon.register(dispatcher);
+            CommandDanmaku.register(dispatcher);
         });
         ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
             var props = new Properties();
-            if (!Files.exists(CONFIG_PATH)) {
+            var cookies = new Properties();
+            if (Files.exists(CONFIG_PATH)) {
+                try {
+                    props.load(Files.newInputStream(CONFIG_PATH));
+
+                    Configs.fromProperties(props);
+
+                    BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
+                } catch (IOException e) {
+                    Mcedia.LOGGER.error("读取配置失败", e);
+                }
                 return;
             }
-            try {
-                props.load(Files.newInputStream(CONFIG_PATH));
+            if (Files.exists(getCookieConfig())) {
+                try {
+                    cookies.load(Files.newInputStream(getCookieConfig()));
 
-                Configs.fromProperties(props);
-                BilibiliCookie.fromProperties(props);
+                    BilibiliCookie.fromProperties(cookies);
 
-                BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
-            } catch (IOException e) {
-                Mcedia.LOGGER.error("读取配置失败", e);
+                    BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
+                } catch (IOException e) {
+                    Mcedia.LOGGER.error("读取Cookie失败", e);
+                }
             }
+
+
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register((client) -> {
             SaveConfig();

@@ -3,7 +3,6 @@ package top.tobyprime.mcedia.entities;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -91,7 +90,6 @@ public class MediaPlayerAgentEntity extends Entity {
     protected void addAdditionalSaveData(ValueOutput valueOutput) {
 
     }
-
 
     public MediaPlayer getPlayer() {
         return player;
