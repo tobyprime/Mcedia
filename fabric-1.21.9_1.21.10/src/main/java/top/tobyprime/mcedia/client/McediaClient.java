@@ -3,12 +3,11 @@ package top.tobyprime.mcedia.client;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.renderer.entity.EntityRenderers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.Configs;
-import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliCookie;
 import top.tobyprime.mcedia.commands.CommandBilibili;
@@ -26,7 +25,7 @@ import java.util.Properties;
 
 public class McediaClient implements ClientModInitializer {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
-    private static final Logger LOGGER = LoggerFactory.getLogger(Mcedia.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(McediaClient.class);
 
     private static Path getCookieConfig() {
         return Path.of(System.getProperty("user.home"), ".mcedia", "cookie.properties");
@@ -58,7 +57,7 @@ public class McediaClient implements ClientModInitializer {
     public void onInitializeClient() {
         ArmorStandPlayerManager.getInstance().onInitialize();
 
-        EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
+        EntityRenderers.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             CommandBilibili.register(dispatcher);
             CommandCommon.register(dispatcher);
@@ -78,7 +77,6 @@ public class McediaClient implements ClientModInitializer {
                 } catch (IOException e) {
                     LOGGER.error("读取配置失败", e);
                 }
-                return;
             }
             if (Files.exists(getCookieConfig())) {
                 try {

@@ -8,7 +8,6 @@ import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.Configs;
-import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliCookie;
 import top.tobyprime.mcedia.commands.CommandBilibili;
@@ -26,7 +25,7 @@ import java.util.Properties;
 
 public class McediaClient implements ClientModInitializer {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
-    private static final Logger LOGGER = LoggerFactory.getLogger(Mcedia.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(McediaClient.class);
 
     private static Path getCookieConfig() {
         return Path.of(System.getProperty("user.home"), ".mcedia", "cookie.properties");
@@ -78,7 +77,6 @@ public class McediaClient implements ClientModInitializer {
                 } catch (IOException e) {
                     LOGGER.error("读取配置失败", e);
                 }
-                return;
             }
             if (Files.exists(getCookieConfig())) {
                 try {
