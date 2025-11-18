@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.Configs;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 
@@ -13,7 +14,6 @@ public class DanmakuPlay {
     public static Logger logger = LoggerFactory.getLogger(DanmakuPlay.class);
     float secs = 0;
 
-    List<Danmaku> activeDanmakus = new ArrayList<>();
     Danmaku pendingDanmaku = null;
 
     ArrayList<Danmaku> sortedDanmakus;
@@ -47,7 +47,6 @@ public class DanmakuPlay {
 
         // 下一个已经到了，则先加入活动弹幕，并继续
         if (pendingDanmaku != null && isActive(pendingDanmaku)) {
-            activeDanmakus.add(pendingDanmaku);
             newDanmakus.add(pendingDanmaku);
 
             pendingDanmaku = null;
@@ -68,47 +67,28 @@ public class DanmakuPlay {
                 break;
             }
             newDanmakus.add(danmaku);
-            activeDanmakus.add(danmaku);
         }
         return newDanmakus;
     }
 
-    public List<Danmaku> removeExpired() {
-
-        var expiredDanmakus = activeDanmakus.stream().filter(this::isExpired).toList();
-        this.activeDanmakus.removeIf(expiredDanmakus::contains);
-        return expiredDanmakus;
-    }
-
     public void reset() {
-        this.activeDanmakus = new ArrayList<>();
         this.pendingDanmaku = null;
         this.it = sortedDanmakus.iterator();
         this.secs = 0;
     }
 
-    public DanmakuPlayUpdateResult update(float secs) {
+    public Collection<Danmaku> update(float secs) {
+        if (secs < this.secs) {
+            reset();
+        }
 
         DanmakuPlayUpdateResult result = new DanmakuPlayUpdateResult();
-
-        if (this.secs > secs) {
-            result.removedDanmakus = this.activeDanmakus;
-            reset();
-        } else {
-            result.removedDanmakus = removeExpired();
-        }
 
         this.secs = secs;
 
         result.newDanmakus = lookForward();
 
-        result.activeDanmakus = this.activeDanmakus;
-
-        return result;
-    }
-
-    public List<Danmaku> getActiveDanmakus() {
-        return activeDanmakus;
+        return result.newDanmakus;
     }
 }
 
