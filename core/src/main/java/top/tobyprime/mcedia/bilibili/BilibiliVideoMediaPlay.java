@@ -65,10 +65,10 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
             HttpResponse<String> viewResponse = client.send(viewRequest, HttpResponse.BodyHandlers.ofString());
             JSONObject viewJson = new JSONObject(viewResponse.body());
 
-            String mainTitle = "未知标题";
-            String author = "未知作者";
+            String mainTitle;
+            String author;
             String partName = null;
-            long cid = 0;
+            long cid;
 //        boolean isMultiPart = false;
 
             if (viewJson.optInt("code") == 0) {

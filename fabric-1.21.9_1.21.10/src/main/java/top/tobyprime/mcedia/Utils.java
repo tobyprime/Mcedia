@@ -4,7 +4,6 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.SoundEngineExecutor;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
 import top.tobyprime.mcedia.mixin_bridge.ISoundEngineBridge;
 import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 
