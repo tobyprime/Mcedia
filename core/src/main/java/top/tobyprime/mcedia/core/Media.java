@@ -30,8 +30,6 @@ public class Media implements Closeable {
     public long lastDanmakuUpdateDurationUs = -1;
     public long lastDanmakuDurationUpdateTimeUs = -1;
     private @Nullable ITexture texture;
-    private long baseTime;       // 播放开始的系统时间 (ms)
-    private long baseDuration;   // 点播时累计播放时长 (us), 直播时不使用
     private boolean paused = true;
     private boolean isLiveStream = false; // 标识是否为直播
     private long lastAudioPts = -1; // 最近上传的音频帧时间戳
@@ -61,7 +59,7 @@ public class Media implements Closeable {
             long nowUs = System.currentTimeMillis();
             double durationSecs = durationUs / 1_000_000.0;
 
-            if (lastDanmakuUpdateDurationUs == durationUs) {
+            if (!paused && lastDanmakuUpdateDurationUs == durationUs) {
                 durationSecs += (nowUs - lastDanmakuDurationUpdateTimeUs) / 1_000_000.0;
             } else {
                 lastDanmakuUpdateDurationUs = durationUs;
@@ -83,9 +81,10 @@ public class Media implements Closeable {
     public boolean isEnd(){
         return !looping && this.getDuration() >= this.getLength();
     }
+    volatile long nextPlayTime;
 
     public void playLoop() {
-        long nextPlayTime = System.nanoTime();
+        nextPlayTime = System.nanoTime();
         try {
             while (!Thread.currentThread().isInterrupted()) {
                 if (!paused) {
@@ -154,14 +153,8 @@ public class Media implements Closeable {
     public void play() {
         LOGGER.info("开始播放");
         if (paused) {
-            baseTime = System.currentTimeMillis();
-            if (!isLiveStream) {
-                baseDuration = lastAudioPts < 0 ? 0 : lastAudioPts; // 点播时使用上次PTS
-            } else {
-                baseDuration = 0; // 直播时重置
-                lastAudioPts = -1;
-            }
             paused = false;
+            nextPlayTime = System.nanoTime();
         }
     }
 
@@ -172,9 +165,6 @@ public class Media implements Closeable {
         LOGGER.info("暂停播放");
         if (!paused) {
             paused = true;
-            if (!isLiveStream) {
-                baseDuration = lastAudioPts < 0 ? 0 : lastAudioPts; // 点播时记录暂停时的PTS
-            }
             // 直播时不更新baseDuration
         }
     }
@@ -183,20 +173,12 @@ public class Media implements Closeable {
      * 当前播放时长 (微秒)
      */
     public long getDuration() {
-        if (paused) {
-            return isLiveStream ? 0 : baseDuration; // 直播暂停时返回0
-        }
-        if (isLiveStream) {
-            return lastAudioPts < 0 ? 0 : lastAudioPts; // 直播时返回最新音频PTS
-        }
-        return baseDuration + (System.currentTimeMillis() - baseTime) * 1000L;
+        return lastAudioPts;
     }
 
     public long getLength() {
         return decoder.getLength();
     }
-
-    ;
 
     /**
      * 获取秒数（方便UI）
@@ -230,8 +212,6 @@ public class Media implements Closeable {
                 targetUs = 0;
             }
             decoder.seek(targetUs);
-            baseDuration = targetUs;
-            baseTime = System.currentTimeMillis();
             lastAudioPts = targetUs;
         } catch (Exception e) {
             LOGGER.error("Seek failed", e);
