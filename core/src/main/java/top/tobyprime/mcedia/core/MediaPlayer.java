@@ -24,6 +24,8 @@ import java.util.function.Function;
  * 播放器核心，同时只播放单一媒体，管理媒体切换等
  */
 public class MediaPlayer implements Closeable {
+    public volatile PlayerStatus status;
+
     private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MediaPlayer-Async");
         t.setDaemon(true);
@@ -31,12 +33,11 @@ public class MediaPlayer implements Closeable {
     });
     @Nullable
     public static Function<Danmaku, Float> danmakuWidthPredictor;
-    private static Logger LOGGER = LoggerFactory.getLogger(MediaPlayer.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(MediaPlayer.class);
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
     public boolean looping = false;
     float speed = 1;
     private @Nullable ITexture texture;
-    private volatile boolean loading;
     @Nullable
     private Media media;
     private volatile IMediaPlay mediaPlay;
@@ -147,8 +148,10 @@ public class MediaPlayer implements Closeable {
             openMediaInternal(mediaInfo);
             if (afterOpened != null)
                 afterOpened.accept(mediaInfo);
+            this.status = PlayerStatus.PLAYING;
         }, executor).exceptionally(
                 e -> {
+                    this.status = PlayerStatus.ERROR;
                     LOGGER.error("打开 {} 失败", mediaInfo.streamUrl, e);
                     return null;
                 }
@@ -157,11 +160,13 @@ public class MediaPlayer implements Closeable {
 
     public void open(IMediaPlay mediaPlay, Consumer<MediaInfo> afterOpened) {
         this.mediaPlay = mediaPlay;
+        this.status = PlayerStatus.LOADING_MEDIA_INFO;
 
         mediaPlay.registerOnMediaInfoUpdatedEventAndCallOnce(mediaInfo -> {
             if (this.mediaPlay != mediaPlay) {
                 return;
             }
+            this.status = PlayerStatus.LOADING_MEDIA;
 
             if (mediaInfo != null) {
                 openMedia(mediaInfo, afterOpened);
@@ -206,27 +211,22 @@ public class MediaPlayer implements Closeable {
     }
 
     private void openMediaInternal(@Nullable MediaInfo inputMedia) {
-        loading = true;
-        try {
-            stopMediaInternal();
-            if (inputMedia == null) {
-                return;
-            }
-            var newMedia = new Media(inputMedia, decoderConfiguration);
-
-            newMedia.bindTexture(texture);
-            for (var audioSource : audioSources) {
-                newMedia.bindAudioSource(audioSource);
-            }
-            synchronized (this) {
-                media = newMedia;
-            }
-            media.setSpeed(speed);
-            media.setLooping(looping);
-            media.setDanmakuWidthPredictor(danmakuWidthPredictor);
-        } finally {
-            loading = false;
+        stopMediaInternal();
+        if (inputMedia == null) {
+            return;
         }
+        var newMedia = new Media(inputMedia, decoderConfiguration);
+
+        newMedia.bindTexture(texture);
+        for (var audioSource : audioSources) {
+            newMedia.bindAudioSource(audioSource);
+        }
+        synchronized (this) {
+            media = newMedia;
+        }
+        media.setSpeed(speed);
+        media.setLooping(looping);
+        media.setDanmakuWidthPredictor(danmakuWidthPredictor);
     }
 
     public synchronized void setSpeed(float speed) {
