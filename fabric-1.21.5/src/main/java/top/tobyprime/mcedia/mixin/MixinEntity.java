@@ -10,10 +10,10 @@ import top.tobyprime.mcedia.player_instance_managers.ArmorStandPlayerManager;
 
 @Mixin(Entity.class)
 public class MixinEntity {
-    @Inject(method = "tick", at=@At("RETURN"))
+    @Inject(method = "tick", at = @At("RETURN"))
     public void tick(CallbackInfo ci) {
         Object to = this;
-        if(to instanceof ArmorStand armorStand) {
+        if (to instanceof ArmorStand armorStand) {
             ArmorStandPlayerManager.getInstance().onArmorStandTick(armorStand);
         }
     }

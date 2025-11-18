@@ -27,13 +27,12 @@ import java.util.ArrayList;
 
 public class MediaPlayerAgentEntity extends Entity {
 
-    public static Logger LOGGER = LoggerFactory.getLogger(MediaPlayerAgentEntity.class);
     public static final EntityType<MediaPlayerAgentEntity> TYPE = Registry.register(
             BuiltInRegistries.ENTITY_TYPE,
             ResourceLocation.fromNamespaceAndPath("mcedia", "player_agent"),
             EntityType.Builder.of(MediaPlayerAgentEntity::new, MobCategory.MISC).build(ResourceKey.create(Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath("mcedia", "player_agent")))
     );
-
+    public static Logger LOGGER = LoggerFactory.getLogger(MediaPlayerAgentEntity.class);
     public final ArrayList<IMediaPlayerScreenRenderer> screens = new ArrayList<>();
     public final MediaPlayer player = new MediaPlayer();
     public final ArrayList<AudioSourceInstance> audioSources = new ArrayList<>();
@@ -109,7 +108,7 @@ public class MediaPlayerAgentEntity extends Entity {
         this.audioSources.forEach(i -> {
             var audioOffsetRotated = new Vector3f(i.offsetX, i.offsetY, i.offsetZ).rotateX(this.getXRot()).rotateY(this.getYRot());
 
-            i.audioSource.setPos(((float) this.getX() + audioOffsetRotated.x), ((float)this.getY() + audioOffsetRotated.y), ((float) this.getZ()  + audioOffsetRotated.z));
+            i.audioSource.setPos(((float) this.getX() + audioOffsetRotated.x), ((float) this.getY() + audioOffsetRotated.y), ((float) this.getZ() + audioOffsetRotated.z));
         });
 
     }

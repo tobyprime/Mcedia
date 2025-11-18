@@ -23,10 +23,10 @@ import static org.lwjgl.opengl.GL21.GL_PIXEL_UNPACK_BUFFER;
 
 public class VideoTexture extends AbstractTexture implements ITexture {
     private final Logger logger = LoggerFactory.getLogger(VideoTexture.class);
-    private int width;
-    private int height;
     // PBO 双缓冲
     private final int[] pboIds = new int[2];
+    private int width;
+    private int height;
     private ResourceLocation resourceLocation;
     private int pboIndex = 0;
     private boolean pboInitialized = false;
@@ -35,10 +35,10 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         super();
         this.resourceLocation = id;
         Minecraft.getInstance().getTextureManager().register(id, this);
-        setSize(1920,1080);
+        setSize(1920, 1080);
     }
 
-    public void setSize(int width,int height) {
+    public void setSize(int width, int height) {
         if (this.width != width || this.height != height) {
             resize(width, height);
         }
@@ -76,7 +76,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     }
 
-    public ResourceLocation getResourceLocation(){
+    public ResourceLocation getResourceLocation() {
         return this.resourceLocation;
     }
 
@@ -104,7 +104,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
         // 绑定纹理 + 上一 PBO 异步上传到 GPU
-        GlStateManager._bindTexture(((GlTexture)this.texture).glId());
+        GlStateManager._bindTexture(((GlTexture) this.texture).glId());
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, nextPBO);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
                 GL_RGBA, GL_UNSIGNED_BYTE, 0);
@@ -121,7 +121,7 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         if (frame == null) return;
 
         setSize(frame.width, frame.height);
-        GlStateManager._bindTexture(((GlTexture)this.texture).glId());
+        GlStateManager._bindTexture(((GlTexture) this.texture).glId());
         RenderSystem.assertOnRenderThread();
 
         GlStateManager._pixelStore(GL_UNPACK_ALIGNMENT, 1);

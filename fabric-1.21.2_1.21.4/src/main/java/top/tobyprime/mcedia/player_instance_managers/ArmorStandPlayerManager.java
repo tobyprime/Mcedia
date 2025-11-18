@@ -51,6 +51,7 @@ public class ArmorStandPlayerManager {
             removePlayer(key);
         }
     }
+
     public void onInitialize() {
         INSTANCE = this;
 
@@ -71,6 +72,7 @@ public class ArmorStandPlayerManager {
             clearMap();
         });
     }
+
     public void onArmorStandTick(ArmorStand entity) {
         /// 确保只在客户端处理
         if (!entity.level().isClientSide()) {

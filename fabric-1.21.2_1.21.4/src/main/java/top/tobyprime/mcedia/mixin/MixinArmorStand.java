@@ -8,11 +8,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import top.tobyprime.mcedia.player_instance_managers.ArmorStandPlayerManager;
 
 @Mixin(ArmorStand.class)
-public class MixinArmorStand  {
-    @Inject(method = "tick", at=@At("RETURN"))
+public class MixinArmorStand {
+    @Inject(method = "tick", at = @At("RETURN"))
     public void tick(CallbackInfo ci) {
         Object to = this;
-        if(to instanceof ArmorStand armorStand) {
+        if (to instanceof ArmorStand armorStand) {
             ArmorStandPlayerManager.getInstance().onArmorStandTick(armorStand);
         }
     }

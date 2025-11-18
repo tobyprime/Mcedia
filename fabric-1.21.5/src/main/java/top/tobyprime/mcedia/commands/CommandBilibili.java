@@ -47,12 +47,12 @@ public class CommandBilibili {
                                     return 1;
                                 })
                         )
-                ).then(literal("account").executes(ctx->{
+                ).then(literal("account").executes(ctx -> {
 
                     var status = BilibiliAuthManager.getInstance().getAccountStatus();
                     if (status.isLoggedIn) {
                         Utils.msgToPlayer("你是 " + status.username);
-                    }else {
+                    } else {
                         Utils.msgToPlayer("未登录");
                     }
                     return 1;

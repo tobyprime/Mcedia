@@ -11,7 +11,7 @@ import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 public class MixinSoundManager implements ISoundManagerBridge {
     @Final
     @Shadow
-    private  SoundEngine soundEngine;
+    private SoundEngine soundEngine;
 
     @Override
     public SoundEngine mcdia$getSoundManager() {
