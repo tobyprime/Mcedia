@@ -38,7 +38,7 @@ public class Configs {
         props.setProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT));
         props.setProperty("ALLOW_DIRECT_LINK", String.valueOf(Configs.ALLOW_DIRECT_LINK));
 
-        props.setProperty("DANMAK_VISIBLE", String.valueOf(Configs.DANMAKU_VISIBLE));
+        props.setProperty("DANMAKU_VISIBLE", String.valueOf(Configs.DANMAKU_VISIBLE));
         props.setProperty("DANMAKU_DURATION", String.valueOf(Configs.DANMAKU_DURATION));
         props.setProperty("DANMAKU_TRACKS", String.valueOf(Configs.DANMAKU_TRACKS));
         props.setProperty("DANMAKU_OPACITY", String.valueOf(Configs.DANMAKU_OPACITY));
