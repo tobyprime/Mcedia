@@ -3,16 +3,20 @@ package top.tobyprime.mcedia.client;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.renderer.entity.EntityRenderers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliCookie;
 import top.tobyprime.mcedia.commands.CommandBilibili;
 import top.tobyprime.mcedia.commands.CommandCommon;
+import top.tobyprime.mcedia.commands.CommandControl;
 import top.tobyprime.mcedia.commands.CommandDanmaku;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
+import top.tobyprime.mcedia.player_instance_managers.ArmorStandPlayerManager;
 import top.tobyprime.mcedia.renderers.MediaPlayerAgentEntityRenderer;
 
 import java.io.IOException;
@@ -22,6 +26,7 @@ import java.util.Properties;
 
 public class McediaClient implements ClientModInitializer {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
+    private static final Logger LOGGER = LoggerFactory.getLogger(Mcedia.class);
 
     private static Path getCookieConfig() {
         return Path.of(System.getProperty("user.home"), ".mcedia", "cookie.properties");
@@ -45,17 +50,20 @@ public class McediaClient implements ClientModInitializer {
             props.store(Files.newOutputStream(CONFIG_PATH), "Mcedia props");
             cookies.store(Files.newOutputStream(getCookieConfig()), "Mcedia cookies");
         } catch (IOException e) {
-            Mcedia.LOGGER.error("保存配置失败", e);
+            LOGGER.error("保存配置失败", e);
         }
     }
 
     @Override
     public void onInitializeClient() {
-        EntityRenderers.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
+        ArmorStandPlayerManager.getInstance().onInitialize();
+
+        EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             CommandBilibili.register(dispatcher);
             CommandCommon.register(dispatcher);
             CommandDanmaku.register(dispatcher);
+            CommandControl.register(dispatcher);
         });
         ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
             var props = new Properties();
@@ -68,7 +76,7 @@ public class McediaClient implements ClientModInitializer {
 
                     BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
                 } catch (IOException e) {
-                    Mcedia.LOGGER.error("读取配置失败", e);
+                    LOGGER.error("读取配置失败", e);
                 }
                 return;
             }
@@ -80,7 +88,7 @@ public class McediaClient implements ClientModInitializer {
 
                     BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
                 } catch (IOException e) {
-                    Mcedia.LOGGER.error("读取Cookie失败", e);
+                    LOGGER.error("读取Cookie失败", e);
                 }
             }
 

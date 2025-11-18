@@ -52,7 +52,3 @@ public class MediaPlayerAgentEntityRenderer extends EntityRenderer<MediaPlayerAg
     }
 }
 
-
-
-
-
