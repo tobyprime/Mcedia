@@ -10,8 +10,8 @@ import top.tobyprime.mcedia.mixin_bridge.ISoundManagerBridge;
 public class Utils {
     public static SoundEngineExecutor getAudioExecutor() {
         var manager = (ISoundManagerBridge) Minecraft.getInstance().getSoundManager();
-        var engine = (ISoundEngineBridge) manager.mcdia$getSoundManager();
-        return engine.mcdia$getExecutor();
+        var engine = (ISoundEngineBridge) manager.mcedia$getSoundManager();
+        return engine.mcedia$getExecutor();
     }
 
     public static void msgToPlayer(String msg) {

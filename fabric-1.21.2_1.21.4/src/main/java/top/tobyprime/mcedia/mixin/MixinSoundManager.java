@@ -14,7 +14,7 @@ public class MixinSoundManager implements ISoundManagerBridge {
     private SoundEngine soundEngine;
 
     @Override
-    public SoundEngine mcdia$getSoundManager() {
+    public SoundEngine mcedia$getSoundManager() {
         return soundEngine;
     }
 }

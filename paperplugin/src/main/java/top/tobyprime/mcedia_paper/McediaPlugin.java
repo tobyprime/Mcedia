@@ -24,7 +24,7 @@ public class McediaPlugin extends JavaPlugin implements Listener {
         ArmorStand armorStand = event.getRightClicked();
 
         // 检查盔甲架名称，确保是我们的播放器
-        if (!armorStand.getName().contains("mcedia") && !armorStand.getName().contains("mcdia")) {
+        if (!armorStand.getName().contains("mcedia")) {
             return;
         }
 

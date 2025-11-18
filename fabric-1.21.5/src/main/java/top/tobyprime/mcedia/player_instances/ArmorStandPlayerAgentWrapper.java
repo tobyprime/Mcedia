@@ -40,7 +40,7 @@ public class ArmorStandPlayerAgentWrapper {
     private float audioRangeMax = 500;
 
     public ArmorStandPlayerAgentWrapper(ArmorStand entity) {
-        LOGGER.info("在 {} 新增了一个 Mcdia Player", entity.position());
+        LOGGER.info("在 {} 新增了一个 Armor Stand Player", entity.position());
         this.entity = entity;
         var level = Minecraft.getInstance().level;
         if (level == null) {

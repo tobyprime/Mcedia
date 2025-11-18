@@ -16,7 +16,7 @@ public class MixinSoundEngine implements ISoundEngineBridge {
 
     @Unique
     @Override
-    public SoundEngineExecutor mcdia$getExecutor() {
+    public SoundEngineExecutor mcedia$getExecutor() {
         return executor;
     }
 }

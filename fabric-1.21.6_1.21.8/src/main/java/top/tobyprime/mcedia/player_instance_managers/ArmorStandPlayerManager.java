@@ -71,9 +71,9 @@ public class ArmorStandPlayerManager {
             return;
         }
 
-        boolean isMcdiaPlayer = entity.getName().toString().contains("mcedia");
+        boolean isMcediaPlayer = entity.getName().toString().contains("mcedia");
 
-        if (!entityToPlayer.containsKey(entity) && isMcdiaPlayer) {
+        if (!entityToPlayer.containsKey(entity) && isMcediaPlayer) {
             addPlayer(entity);
         }
     }
