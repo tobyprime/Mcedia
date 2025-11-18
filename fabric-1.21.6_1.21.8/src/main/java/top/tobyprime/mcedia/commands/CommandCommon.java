@@ -33,6 +33,11 @@ public class CommandCommon {
             McediaClient.SaveConfig();
             return 1;
         }));
+        LiteralArgumentBuilder<FabricClientCommandSource> directLinkNode = literal("direct_link").then(literal("toggle").executes(ctx->{
+            Configs.ALLOW_DIRECT_LINK = !Configs.ALLOW_DIRECT_LINK;
+            McediaClient.SaveConfig();
+            return 1;
+        }));
 
         LiteralArgumentBuilder<FabricClientCommandSource> maxCountNode = literal("max").then(argument("count", IntegerArgumentType.integer(0, 100)).executes(ctx -> {
             Configs.MAX_PLAYER_COUNT = IntegerArgumentType.getInteger(ctx, "count");
@@ -42,5 +47,6 @@ public class CommandCommon {
 
         dispatcher.register(literal("mcedia").then(qualityNode));
         dispatcher.register(literal("mcedia").then(maxCountNode));
+        dispatcher.register(literal("mcedia").then(directLinkNode));
     }
 }
