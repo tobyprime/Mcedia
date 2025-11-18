@@ -1,16 +1,27 @@
 ## 使用
-### 功能
-1. 播放 Bilibili 普通视频 （不包含番剧、纪录片或是其他会员专享内容）
-2. 播放 Bilibili 直播
-3. 播放抖音视频
-
 ### 主要用法
-1. 合成盔甲架命名为 `mcdia_player`
-2. 合成书与笔，在第一页写入需要播放的视频（必须以 "https://live.bilibili.com/" 、"https://www.bilibili.com/" 开头，或是抖音分享文本），开头、中间不得存在空格或换行字符
-3. 使用服务器内置的燧石盔甲架编辑器（见服务器 wiki）将书与笔放置在盔甲架**主手**
+1. 合成盔甲架命名为包含 `mcedia` 的字符
+2. 合成书与笔，在第一页写入支持的视频链接见"支持的平台及链接形式"
+3. 将书与笔放置在盔甲架**主手**
 4. 等待视频播放
 
-### 其他调节项
+### 支持的平台及视频链接形式
+1. Bilibili 普通视频 - 以 `https://www.bilibili.com/` 开头
+2. Bilibili 直播 - 以 `https://live.bilibili.com/` 开头
+3. Bilibili 番剧 - 以 `https://www.bilibili.com/bangumi/play/` 开头
+3. 播放抖音视频 - 抖音分享文本，类似 `4.84 t@e.oQ 01/20 gba:/ # 抖音戏曲文化艺术节 梨园光景与君游，恭迎诸位入此一梦！10月18日，赴江西上饶葛仙村 # 第三届抖音戏曲文化艺术节 共赏好戏！  https://v.douyin.com/s-1dKNIKD58/ 复制此链接，打开Dou音搜索，直接观看视频！`
+4. 经过指令设置后，允许播放任意 ffmpeg 能够解析的链接
+
+### 指令
+目前所有指令皆为客户端指令与服务器无关
+
+1. /mcedia bilibili login: 登录 bilibili
+2. /mcedia danmaku toggle: 开启/关闭 弹幕
+3. /mcedia quality [清晰度]: 选择清晰度
+4. /mcedia max [数量]: 设置最多允许几个播放器同时播放
+5. /mcedia direct_link toggle: 开启/关闭 允许播放本地文件 / 流媒体直链等
+
+### 播放器配置项
 声音由盔甲架**副手 x 轴**旋转调节
 播放由盔甲架**副手 y 轴**旋转调节（**会导致不同步**）
 旋转由盔甲架头部旋转调节，或是主体旋转调节
@@ -31,51 +42,13 @@
     - 第四行：声音最大值 （默认 5）
     - 第五行：声音最大值的范围 （默认 1）
     - 第六行：可听到声音的最大范围（默认 500）
-- 第三页
-    - 只要包含 looping 字符串就会自动重播（**会导致不同步**）
+    - 
+- 第三页：为 tag 页，只要包含特定字符则会开启对应功能
+    - `looping` 或 `循环播放`: 在视频播放结束后会重头播放. 从第二次开始，会导致视频播放不同步
+    - `nodanmaku` 或 `关闭弹幕`: 不显示弹幕
 
-## 服务器同步
-视频同步播放依赖的是主手书与笔的物品名，首次播放会记录下 用户:时间戳，例：
-
-```java
-package top.tobyprime.mcedia_paper;
-
-import net.kyori.adventure.text.Component;
-import org.bukkit.Bukkit;
-import org.bukkit.entity.ArmorStand;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
-import org.bukkit.inventory.EquipmentSlot;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.plugin.java.JavaPlugin;
-
-public class McediaPlugin extends JavaPlugin implements Listener {
-    @Override
-    public void onEnable() {
-        Bukkit.getPluginManager().registerEvents(this, this);
-    }
-
-    @EventHandler
-    public void onArmorStandManipulate(PlayerArmorStandManipulateEvent event) {
-        ArmorStand armorStand = event.getRightClicked();
-        if ((!armorStand.getName().contains("mcedia")) && (!armorStand.getName().contains("mcdia"))) return;
-
-        if (event.getSlot() == EquipmentSlot.HAND) {
-            var newItem = event.getPlayerItem();
-            if (newItem.getType().name().contains("BOOK")) {
-                ItemMeta meta = newItem.getItemMeta();
-                if (meta != null) {
-                    meta.displayName(Component.text(event.getPlayer().getName() + ":"+ System.currentTimeMillis()));
-                    newItem.setItemMeta(meta);
-                }
-            }
-            getLogger().info("播放器主手物品已变更");
-        }
-    }
-}
-```
-或查看 paper-1.21.7 内代码。
+## 服务器同步插件编写
+查看 paperplugin 内代码。
 
 
 
