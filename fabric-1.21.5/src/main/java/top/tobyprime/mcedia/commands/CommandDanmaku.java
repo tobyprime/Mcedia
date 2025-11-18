@@ -28,10 +28,14 @@ public class CommandDanmaku {
                         })).then(literal("opacity").then(argument("opacity", FloatArgumentType.floatArg(0, 1)).executes(ctx -> {
                     Configs.DANMAKU_OPACITY = FloatArgumentType.getFloat(ctx, "opacity");
                     McediaClient.SaveConfig();
+                    Utils.msgToPlayer("已设置弹幕不透明度: " + Configs.DANMAKU_OPACITY);
                     return 1;
                 }))).then(literal("duration").then(argument("duration", FloatArgumentType.floatArg(0, 10)).executes(ctx -> {
                     Configs.DANMAKU_DURATION = FloatArgumentType.getFloat(ctx, "duration");
                     McediaClient.SaveConfig();
+
+                    Utils.msgToPlayer("已设置弹幕滞留时间: " + Configs.DANMAKU_OPACITY);
+
                     return 1;
                 })));
         dispatcher.register(literal("mcedia").then(danmakuNode));

@@ -17,9 +17,10 @@
 
 1. /mcedia bilibili login: 登录 bilibili
 2. /mcedia danmaku toggle: 开启/关闭 弹幕
-3. /mcedia quality [清晰度]: 选择清晰度
-4. /mcedia max [数量]: 设置最多允许几个播放器同时播放
+3. /mcedia quality \[清晰度\]: 选择清晰度
+4. /mcedia max \[数量\]: 设置最多允许几个播放器同时播放
 5. /mcedia direct_link toggle: 开启/关闭 允许播放本地文件 / 流媒体直链等
+6. /mcedia control ...: 本地控制播放器暂停、速度
 
 ### 播放器配置项
 声音由盔甲架**副手 x 轴**旋转调节

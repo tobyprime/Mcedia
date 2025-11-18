@@ -23,7 +23,9 @@ public class CommandBilibili {
                     .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
 
             Utils.msgToPlayer(Component.literal("§b§n[点我打开二维码]").setStyle(style));
-        })).thenAccept(Utils::msgToPlayer).thenRun(McediaClient::SaveConfig);
+        })).thenAccept(Utils::msgToPlayer).thenRun(McediaClient::SaveConfig).thenRun(()->{
+            Utils.msgToPlayer("登录成功: §b" + BilibiliAuthManager.getInstance().getAccountStatus().username);
+        });
 
     }
 
@@ -33,7 +35,7 @@ public class CommandBilibili {
                         .executes(context -> {
                             if (BilibiliAuthManager.getInstance().getAccountStatus().isLoggedIn) {
                                 Utils.msgToPlayer("你已经登录为: §b" + BilibiliAuthManager.getInstance().getAccountStatus().username);
-                                Utils.msgToPlayer("如需更换账号，请使用 §a/mcedia bilibili login force");
+                                Utils.msgToPlayer("如需登出，请使用 §a/mcedia bilibili logout");
                             } else {
                                 login();
                             }
@@ -60,6 +62,8 @@ public class CommandBilibili {
                             if (BilibiliAuthManager.getInstance().getAccountStatus().isLoggedIn) {
                                 BilibiliAuthManager.getInstance().logout();
                                 McediaClient.SaveConfig();
+                                Utils.msgToPlayer("登出成功");
+
                             } else {
                                 Utils.msgToPlayer("无 bilibili 登录记录");
                             }
