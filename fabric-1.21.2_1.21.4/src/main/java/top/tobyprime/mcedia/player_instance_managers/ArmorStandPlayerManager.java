@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static top.tobyprime.mcedia.Configs.MAX_PLAYER_COUNT;
 
 public class ArmorStandPlayerManager {
-    private static Logger LOGGER = LoggerFactory.getLogger(ArmorStandPlayerManager.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ArmorStandPlayerManager.class);
     private static ArmorStandPlayerManager INSTANCE;
     private final ConcurrentHashMap<ArmorStand, ArmorStandPlayerAgentWrapper> entityToPlayer = new ConcurrentHashMap<>();
 
@@ -22,10 +22,6 @@ public class ArmorStandPlayerManager {
         return INSTANCE;
     }
 
-
-    public ConcurrentHashMap<ArmorStand, ArmorStandPlayerAgentWrapper> getEntityToPlayerMap() {
-        return entityToPlayer;
-    }
 
     private void addPlayer(ArmorStand entity) {
         if (McediaPlayerStatus.players.get() >= MAX_PLAYER_COUNT) {
@@ -51,6 +47,7 @@ public class ArmorStandPlayerManager {
             removePlayer(key);
         }
     }
+
     public void onInitialize() {
         INSTANCE = this;
 
@@ -64,13 +61,10 @@ public class ArmorStandPlayerManager {
             }
         });
 
-        ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((mc, level) -> {
-            clearMap();
-        });
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            clearMap();
-        });
+        ClientWorldEvents.AFTER_CLIENT_WORLD_CHANGE.register((mc, level) -> clearMap());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> clearMap());
     }
+
     public void onArmorStandTick(ArmorStand entity) {
         /// 确保只在客户端处理
         if (!entity.level().isClientSide()) {

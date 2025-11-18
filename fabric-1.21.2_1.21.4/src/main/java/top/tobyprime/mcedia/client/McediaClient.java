@@ -10,8 +10,8 @@ import top.tobyprime.mcedia.Mcedia;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliCookie;
 import top.tobyprime.mcedia.commands.CommandBilibili;
-import top.tobyprime.mcedia.commands.CommandDanmaku;
 import top.tobyprime.mcedia.commands.CommandCommon;
+import top.tobyprime.mcedia.commands.CommandDanmaku;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
 import top.tobyprime.mcedia.renderers.MediaPlayerAgentEntityRenderer;
 
@@ -23,7 +23,7 @@ import java.util.Properties;
 public class McediaClient implements ClientModInitializer {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
 
-    private static Path getCookieConfig(){
+    private static Path getCookieConfig() {
         return Path.of(System.getProperty("user.home"), ".mcedia", "cookie.properties");
     }
 
@@ -86,8 +86,6 @@ public class McediaClient implements ClientModInitializer {
 
 
         });
-        ClientLifecycleEvents.CLIENT_STOPPING.register((client) -> {
-            SaveConfig();
-        });
+        ClientLifecycleEvents.CLIENT_STOPPING.register((client) -> SaveConfig());
     }
 }

@@ -26,16 +26,37 @@ public class ArmorStandPlayerAgentWrapper {
     private static final Logger LOGGER = LoggerFactory.getLogger(ArmorStandPlayerAgentWrapper.class);
     private final MediaPlayerAgentEntity playerAgent;
     private final ArmorStand entity;
+    private final MediaPlayer player;
     public String playingUrl;
+    public float speed = 1;
     WritableBookContent preOffHandBookComponent = null;
+    String inputContent = null;
+    MediaPlayerScreen screen;
+    AudioSourceInstance audioSourceInstance;
     private float offsetX = 0, offsetY = 0, offsetZ = 0;
     private float scale = 1;
-
     private float audioMaxVolume = 5f;
-    private final MediaPlayer player;
-
     private float audioRangeMin = 2;
     private float audioRangeMax = 500;
+
+    public ArmorStandPlayerAgentWrapper(ArmorStand entity) {
+        LOGGER.info("在 {} 新增了一个 Mcdia Player", entity.position());
+        this.entity = entity;
+        var level = Minecraft.getInstance().level;
+        if (level == null) {
+            throw new RuntimeException("level 为 null");
+        }
+        playerAgent = new MediaPlayerAgentEntity(MediaPlayerAgentEntity.TYPE, level);
+        level.addEntity(playerAgent);
+        player = playerAgent.getPlayer();
+        player.setDecoderConfiguration(new DecoderConfiguration(new DecoderConfiguration.Builder()));
+        screen = new MediaPlayerScreen();
+        audioSourceInstance = new AudioSourceInstance(new AudioSource(Utils.getAudioExecutor()::schedule), 0, 0, 0, -1);
+
+        playerAgent.addScreen(screen);
+        playerAgent.addAudioSource(audioSourceInstance);
+    }
+
     public static long parseToMicros(String timeStr) {
         if (timeStr == null || timeStr.isEmpty()) {
             throw new IllegalArgumentException("Time string cannot be null or empty");
@@ -44,7 +65,7 @@ public class ArmorStandPlayerAgentWrapper {
         String[] parts = timeStr.split(":");
         int len = parts.length;
 
-        int hours = 0, minutes = 0, seconds = 0;
+        int hours, minutes = 0, seconds = 0;
 
         try {
             if (len == 1) {
@@ -69,7 +90,6 @@ public class ArmorStandPlayerAgentWrapper {
         long totalSeconds = hours * 3600L + minutes * 60L + seconds;
         return totalSeconds * 1_000_000L;
     }
-    String inputContent = null;
 
     public void updateInputUrl(String content) {
         try {
@@ -85,6 +105,8 @@ public class ArmorStandPlayerAgentWrapper {
             }
             open(url);
         } catch (Exception e) {
+            LOGGER.warn("播放失败", e);
+            Utils.msgToPlayer("播放失败");
         }
     }
 
@@ -94,12 +116,12 @@ public class ArmorStandPlayerAgentWrapper {
         this.offsetZ = 0;
         this.scale = 1;
     }
-    public float speed = 1;
 
     public void updateOther(String flags) {
         this.player.setLooping(flags.contains("looping") || flags.contains("循环播放"));
         this.screen.renderDanmaku = !(flags.contains("nodanmaku") || flags.contains("关闭弹幕"));
     }
+
     public void updateOffset(String offset) {
         try {
             var vars = offset.split("\n");
@@ -109,25 +131,6 @@ public class ArmorStandPlayerAgentWrapper {
             scale = Float.parseFloat(vars[3]);
         } catch (Exception ignored) {
         }
-    }
-    MediaPlayerScreen screen;
-    AudioSourceInstance audioSourceInstance;
-    public ArmorStandPlayerAgentWrapper(ArmorStand entity) {
-        LOGGER.info("在 {} 新增了一个 Mcdia Player", entity.position());
-        this.entity = entity;
-        var level = Minecraft.getInstance().level;
-        if (level == null) {
-            throw new RuntimeException("level 为 null");
-        }
-        playerAgent = new MediaPlayerAgentEntity(MediaPlayerAgentEntity.TYPE, level);
-        level.addEntity(playerAgent);
-        player = playerAgent.getPlayer();
-        player.setDecoderConfiguration(new DecoderConfiguration(new DecoderConfiguration.Builder()));
-        screen = new MediaPlayerScreen();
-        audioSourceInstance = new AudioSourceInstance(new AudioSource(Utils.getAudioExecutor()::schedule), 0, 0, 0, -1);
-
-        playerAgent.addScreen(screen);
-        playerAgent.addAudioSource(audioSourceInstance);
     }
 
     public void resetAudioOffset() {
@@ -140,14 +143,14 @@ public class ArmorStandPlayerAgentWrapper {
     }
 
 
-    private long getBaseDuration(){
+    private long getBaseDuration() {
         long duration = 0;
         try {
             var args = inputContent.split("\n");
             if (args.length < 2) return 0;
             duration = parseToMicros(args[1]);
-        }catch (Exception e){
-            LOGGER.info("获取base duration失败",e);
+        } catch (Exception e) {
+            LOGGER.info("获取base duration失败", e);
         }
         return duration;
     }
@@ -165,8 +168,9 @@ public class ArmorStandPlayerAgentWrapper {
             return 0;
         }
     }
-    public long getDuration(){
-        return  getBaseDuration() + getServerDuration();
+
+    public long getDuration() {
+        return getBaseDuration() + getServerDuration();
     }
 
     public void updateAudioOffset(String config) {
@@ -184,7 +188,7 @@ public class ArmorStandPlayerAgentWrapper {
     }
 
     public void update() {
-        try{
+        try {
             playerAgent.setPos(entity.position());
             playerAgent.rotation = new Quaternionf()
                     .rotateXYZ((float) Math.toRadians(-entity.getXRot()), (float) Math.toRadians(-entity.getYRot()), 0)
@@ -224,8 +228,7 @@ public class ArmorStandPlayerAgentWrapper {
                 resetAudioOffset();
             }
 
-        }
-        catch (Exception ignored){
+        } catch (Exception ignored) {
         }
         screen.Height = entity.getScale() * scale;
 
@@ -279,12 +282,12 @@ public class ArmorStandPlayerAgentWrapper {
 
         LOGGER.info("准备播放 {}", mediaUrl);
 
-        var mediaPlay =  player.getMediaPlayAndOpen(mediaUrl, (info) -> {
+        var mediaPlay = player.getMediaPlayAndOpen(mediaUrl, (info) -> {
             player.play();
             player.seek(duration);
             Utils.msgToPlayer(poster + "播放: " + info.title);
         });
-        if (mediaPlay.getStatus() != null){
+        if (mediaPlay.getStatus() != null) {
             Utils.msgToPlayer("播放器状态" + mediaPlay.getStatus());
         }
         mediaPlay.registerOnStatusUpdatedEventAndCallOnce(status -> {
@@ -303,7 +306,7 @@ public class ArmorStandPlayerAgentWrapper {
     /**
      * 销毁播放器
      */
-    public void close(){
+    public void close() {
         stopMedia();
         playerAgent.remove(Entity.RemovalReason.KILLED);
     }

@@ -20,7 +20,7 @@ public class CommandBilibili {
             Utils.msgToPlayer("请在浏览器打开并使用手机端 bilibili 扫码:");
             Style style = Style.EMPTY
                     .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, qrCodeUrl))
-                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
+                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("在浏览器中打开二维码，并使用B站手机App扫描")));
 
             Utils.msgToPlayer(Component.literal("§b§n[点我打开二维码]").setStyle(style));
         })).thenAccept(Utils::msgToPlayer).thenRun(McediaClient::SaveConfig);
@@ -45,12 +45,12 @@ public class CommandBilibili {
                                     return 1;
                                 })
                         )
-                ).then(literal("account").executes(ctx->{
+                ).then(literal("account").executes(ctx -> {
 
                     var status = BilibiliAuthManager.getInstance().getAccountStatus();
                     if (status.isLoggedIn) {
                         Utils.msgToPlayer("你是 " + status.username);
-                    }else {
+                    } else {
                         Utils.msgToPlayer("未登录");
                     }
                     return 1;

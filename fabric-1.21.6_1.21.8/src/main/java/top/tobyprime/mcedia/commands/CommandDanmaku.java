@@ -18,9 +18,9 @@ public class CommandDanmaku {
                 .then(literal("toggle")
                         .executes(context -> {
                             Configs.DANMAKU_VISIBLE = !Configs.DANMAKU_VISIBLE;
-                            if (Configs.DANMAKU_VISIBLE){
+                            if (Configs.DANMAKU_VISIBLE) {
                                 Utils.msgToPlayer("已打开弹幕");
-                            }else {
+                            } else {
                                 Utils.msgToPlayer("已关闭弹幕");
                             }
                             McediaClient.SaveConfig();

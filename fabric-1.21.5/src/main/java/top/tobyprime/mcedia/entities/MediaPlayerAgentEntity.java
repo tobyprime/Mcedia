@@ -16,8 +16,6 @@ import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.VideoTexture;
 import top.tobyprime.mcedia.core.AudioSourceInstance;
 import top.tobyprime.mcedia.core.MediaPlayer;
@@ -27,17 +25,14 @@ import java.util.ArrayList;
 
 public class MediaPlayerAgentEntity extends Entity {
 
-    public static Logger LOGGER = LoggerFactory.getLogger(MediaPlayerAgentEntity.class);
     public static final EntityType<MediaPlayerAgentEntity> TYPE = Registry.register(
             BuiltInRegistries.ENTITY_TYPE,
             ResourceLocation.fromNamespaceAndPath("mcedia", "player_agent"),
             EntityType.Builder.of(MediaPlayerAgentEntity::new, MobCategory.MISC).build(ResourceKey.create(Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath("mcedia", "player_agent")))
     );
-
     public final ArrayList<IMediaPlayerScreenRenderer> screens = new ArrayList<>();
     public final MediaPlayer player = new MediaPlayer();
     public final ArrayList<AudioSourceInstance> audioSources = new ArrayList<>();
-    public @Nullable String playingUrl;
     public VideoTexture texture = new VideoTexture(ResourceLocation.fromNamespaceAndPath("mcedia", "player_agent" + this.stringUUID));
     public Quaternionf rotation = new Quaternionf();
 
@@ -109,7 +104,7 @@ public class MediaPlayerAgentEntity extends Entity {
         this.audioSources.forEach(i -> {
             var audioOffsetRotated = new Vector3f(i.offsetX, i.offsetY, i.offsetZ).rotateX(this.getXRot()).rotateY(this.getYRot());
 
-            i.audioSource.setPos(((float) this.getX() + audioOffsetRotated.x), ((float)this.getY() + audioOffsetRotated.y), ((float) this.getZ()  + audioOffsetRotated.z));
+            i.audioSource.setPos(((float) this.getX() + audioOffsetRotated.x), ((float) this.getY() + audioOffsetRotated.y), ((float) this.getZ() + audioOffsetRotated.z));
         });
 
     }
