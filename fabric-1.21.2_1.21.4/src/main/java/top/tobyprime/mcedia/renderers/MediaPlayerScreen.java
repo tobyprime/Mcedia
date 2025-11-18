@@ -13,9 +13,11 @@ import org.joml.Vector3f;
 import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.VideoTexture;
 import top.tobyprime.mcedia.core.MediaPlayer;
+import top.tobyprime.mcedia.core.PlayerStatus;
 import top.tobyprime.mcedia.interfaces.IMediaPlayerScreenRenderer;
 
 public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
+    private static final long timeBase = System.currentTimeMillis();
     private static final ResourceLocation idleScreen = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     public float Height;
     public Vector3f offset = new Vector3f(0.0f, 0.0f, 0.0f);
@@ -97,6 +99,40 @@ public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
         poseStack.popPose();
     }
 
+    private void renderLoadingBar(PoseStack poseStack, MultiBufferSource bufferSource, int i) {
+        float barHeight = 1f / 50f;
+        float barY = -1f;
+        float barLeft = -halfW;
+        float barRight = halfW;
+        float barBottom = barY - barHeight;
+
+        // 画底色（黑色）
+        VertexConsumer black = bufferSource.getBuffer(RenderType.debugQuads());
+        int blackColor = 0xFF000000;
+        black.addVertex(poseStack.last().pose(), barLeft, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0,0,1);
+        black.addVertex(poseStack.last().pose(), barRight, barBottom, 0).setColor(blackColor).setLight(i).setNormal(0,0,1);
+        black.addVertex(poseStack.last().pose(), barRight, barY, 0).setColor(blackColor).setLight(i).setNormal(0,0,1);
+        black.addVertex(poseStack.last().pose(), barLeft, barY, 0).setColor(blackColor).setLight(i).setNormal(0,0,1);
+
+        // 跑马灯参数
+        float lightWidth = (barRight - barLeft) / 4f; // 白色块宽
+        long time = System.currentTimeMillis() - timeBase;
+        float speed = 25f; // 每秒跑多少单位宽度
+        float offset = ((time / 10_000f) * speed) % ((barRight - barLeft) + lightWidth); // 循环位移
+
+        float leftNoClip = barLeft + offset - lightWidth;
+        float lightLeft = Math.max(leftNoClip, barLeft);
+        float lightRight = Math.min(leftNoClip + lightWidth, barRight);
+
+        int whiteColor = 0xFFFFFFFF;
+        VertexConsumer white = bufferSource.getBuffer(RenderType.debugQuads());
+
+        // 画白色跑马灯
+        white.addVertex(poseStack.last().pose(), lightLeft, barBottom, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0,0,1);
+        white.addVertex(poseStack.last().pose(), lightRight, barBottom, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0,0,1);
+        white.addVertex(poseStack.last().pose(), lightRight, barY, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0,0,1);
+        white.addVertex(poseStack.last().pose(), lightLeft, barY, 1e-3f).setColor(whiteColor).setLight(i).setNormal(0,0,1);
+    }
     private void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i) {
         // 绘制进度条，黑色为底，白色为进度
         // 进度条参数
@@ -138,6 +174,11 @@ public class MediaPlayerScreen implements IMediaPlayerScreenRenderer {
 
         renderScreen(texture, poseStack, bufferSource, i, player);
         renderDanmaku(poseStack, bufferSource, i, player);
+
+        if (player.status == PlayerStatus.LOADING_MEDIA || player.status == PlayerStatus.LOADING_MEDIA_INFO) {
+            renderLoadingBar(poseStack, bufferSource, i);
+        }
+
         renderProgressBar(poseStack, bufferSource, player.getProgress(), i);
 
         poseStack.popPose();
