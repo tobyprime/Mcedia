@@ -15,18 +15,6 @@ public class BilibiliBangumiInfo {
     private int currentEpisodeIndex = -1;
     private MediaInfo mediaInfo;
 
-    public static class Episode {
-        public final String epId;
-        public final String cid;
-        public final String title;
-
-        public Episode(String epId, String cid, String title) {
-            this.epId = epId;
-            this.cid = cid;
-            this.title = title;
-        }
-    }
-
     private BilibiliBangumiInfo(String seasonId, String title) {
         this.seasonId = seasonId;
         this.title = title;
@@ -76,5 +64,17 @@ public class BilibiliBangumiInfo {
 
     public void setMediaInfo(MediaInfo mediaInfo) {
         this.mediaInfo = mediaInfo;
+    }
+
+    public static class Episode {
+        public final String epId;
+        public final String cid;
+        public final String title;
+
+        public Episode(String epId, String cid, String title) {
+            this.epId = epId;
+            this.cid = cid;
+            this.title = title;
+        }
     }
 }

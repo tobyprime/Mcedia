@@ -6,9 +6,9 @@ public class DecoderConfiguration {
     public final @Nullable String userAgent;
     public final boolean enableVideo;
     public final boolean enableAudio;
-    public final int cacheDuration ;
+    public final int cacheDuration;
     public final boolean useHardwareDecoding;
-    public final boolean videoAlpha ;
+    public final boolean videoAlpha;
     public final int audioSampleRate;
 
 
@@ -47,6 +47,7 @@ public class DecoderConfiguration {
         private int timeout = 5000000; // 5s time out
         private int bufferSize = 262144; // 256kb 缓冲区
         private int probesize = 5000000;
+
         public void disableVideo() {
             this.enableVideo = false;
         }
@@ -55,18 +56,22 @@ public class DecoderConfiguration {
             this.enableAudio = false;
             return this;
         }
+
         public Builder disableHardwareDecoding() {
             this.useHardwareDecoding = false;
             return this;
         }
+
         public Builder disableVideoAlpha() {
             this.videoAlpha = false;
             return this;
         }
+
         public Builder userAgent(@Nullable String userAgent) {
             this.userAgent = userAgent;
             return this;
         }
+
         public Builder cacheDuration(int cacheDuration) {
             this.cacheDuration = cacheDuration;
             return this;
@@ -76,14 +81,17 @@ public class DecoderConfiguration {
             this.audioSampleRate = audioSampleRate;
             return this;
         }
+
         public Builder bufferSize(int bufferSize) {
             this.bufferSize = bufferSize;
             return this;
         }
+
         public Builder timeout(int timeout) {
             this.timeout = timeout;
             return this;
         }
+
         public Builder probesize(int probesize) {
             this.probesize = probesize;
             return this;

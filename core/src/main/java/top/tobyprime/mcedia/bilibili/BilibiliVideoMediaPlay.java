@@ -5,8 +5,8 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.BaseMediaPlay;
-import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.core.MediaInfo;
+import top.tobyprime.mcedia.interfaces.IMediaPlay;
 import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 
 import java.net.URI;
@@ -22,10 +22,8 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
 
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliVideoMediaPlay.class);
-
-    private volatile boolean waitForLoginStatusUpdate = false;
-
     private final String videoUrl;
+    private volatile boolean waitForLoginStatusUpdate = false;
 
     public BilibiliVideoMediaPlay(String videoUrl) {
         BilibiliAuthManager.getInstance().AddStatusUpdateHandler(this);

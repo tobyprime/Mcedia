@@ -24,19 +24,19 @@ import java.util.function.Function;
  * 播放器核心，同时只播放单一媒体，管理媒体切换等
  */
 public class MediaPlayer implements Closeable {
-    private static Logger LOGGER = LoggerFactory.getLogger(MediaPlayer.class);
     private static final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MediaPlayer-Async");
         t.setDaemon(true);
         return t;
     });
+    @Nullable
+    public static Function<Danmaku, Float> danmakuWidthPredictor;
+    private static Logger LOGGER = LoggerFactory.getLogger(MediaPlayer.class);
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
     public boolean looping = false;
     float speed = 1;
     private @Nullable ITexture texture;
     private volatile boolean loading;
-    @Nullable
-    public static Function<Danmaku, Float> danmakuWidthPredictor;
     @Nullable
     private Media media;
     private volatile IMediaPlay mediaPlay;
@@ -63,9 +63,9 @@ public class MediaPlayer implements Closeable {
     }
 
 
-    public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus(){
+    public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus() {
         var media = getMedia();
-        if (media != null){
+        if (media != null) {
             return getMedia().updateAndGetDanmakus();
         }
         return null;
@@ -77,7 +77,7 @@ public class MediaPlayer implements Closeable {
         }
     }
 
-    public  void setDanmakuWidthPredictor(@Nullable Function<Danmaku, Float> danmakuWidthPredictor) {
+    public void setDanmakuWidthPredictor(@Nullable Function<Danmaku, Float> danmakuWidthPredictor) {
         MediaPlayer.danmakuWidthPredictor = danmakuWidthPredictor;
         var media = getMedia();
         if (media != null) {

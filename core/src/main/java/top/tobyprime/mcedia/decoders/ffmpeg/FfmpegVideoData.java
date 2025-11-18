@@ -4,7 +4,7 @@ import org.bytedeco.javacv.Frame;
 import top.tobyprime.mcedia.decoders.VideoFrame;
 import top.tobyprime.mcedia.interfaces.IVideoData;
 
-public class FfmpegVideoData  implements IVideoData {
+public class FfmpegVideoData implements IVideoData {
     private final long timestamp;
     public VideoFrame frame;
 
@@ -26,7 +26,7 @@ public class FfmpegVideoData  implements IVideoData {
     }
 
     @Override
-    public void close()  {
+    public void close() {
         frame.close();
     }
 }

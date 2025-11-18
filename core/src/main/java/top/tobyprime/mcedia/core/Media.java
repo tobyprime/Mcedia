@@ -25,6 +25,10 @@ public class Media implements Closeable {
     private final IMediaDecoder decoder;
     private final Thread audioThread;
     private final ArrayList<IAudioSource> audioSources = new ArrayList<>();
+    private final MediaInfo mediaInfo;
+    private final DanmakuScreen danmakuScreen;
+    public long lastDanmakuUpdateDurationUs = -1;
+    public long lastDanmakuDurationUpdateTimeUs = -1;
     private @Nullable ITexture texture;
     private long baseTime;       // 播放开始的系统时间 (ms)
     private long baseDuration;   // 点播时累计播放时长 (us), 直播时不使用
@@ -33,11 +37,8 @@ public class Media implements Closeable {
     private long lastAudioPts = -1; // 最近上传的音频帧时间戳
     private float speed = 1;
     private boolean looping = false;
-    private final MediaInfo mediaInfo;
-    private final DanmakuScreen danmakuScreen;
     // 最近上传的视频帧时间戳
     private @Nullable IVideoData currentVideoFrame;
-
     public Media(MediaInfo info, DecoderConfiguration config) {
         decoder = new FfmpegMediaDecoder(info, config);
 
@@ -53,10 +54,8 @@ public class Media implements Closeable {
 
     }
 
-    public long lastDanmakuUpdateDurationUs = -1;
-    public long lastDanmakuDurationUpdateTimeUs = -1;
     public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus() {
-        var screen  = danmakuScreen;
+        var screen = danmakuScreen;
         if (screen != null) {
             long durationUs = this.getDurationUs();
             long nowUs = System.currentTimeMillis();
@@ -118,7 +117,7 @@ public class Media implements Closeable {
                     IAudioData nextFrame = decoder.getAudioQueue().peek();
                     long intervalUs;
                     if (nextFrame != null) {
-                        intervalUs = (long) ((nextFrame.getTimestamp() - currFrame.getTimestamp())/speed);
+                        intervalUs = (long) ((nextFrame.getTimestamp() - currFrame.getTimestamp()) / speed);
                         if (intervalUs <= 0) intervalUs = 20_000L; // 防止pts异常
                     } else {
                         intervalUs = 20_000L; // 队列空时用默认值
@@ -138,6 +137,7 @@ public class Media implements Closeable {
         }
 
     }
+
     public void setLooping(boolean looping) {
         this.looping = looping;
     }
@@ -188,7 +188,9 @@ public class Media implements Closeable {
 
     public long getLengthUs() {
         return decoder.getDuration();
-    };
+    }
+
+    ;
 
     /**
      * 获取秒数（方便UI）
@@ -196,10 +198,13 @@ public class Media implements Closeable {
     public double getDurationSeconds() {
         return getDurationUs() / 1_000_000.0;
     }
+
     public void setSpeed(float speed) {
-        if (speed == this.speed) {return;}
+        if (speed == this.speed) {
+            return;
+        }
         this.speed = speed;
-        this.audioSources.forEach(s->s.setPitch(speed));
+        this.audioSources.forEach(s -> s.setPitch(speed));
     }
 
     /**
@@ -213,7 +218,7 @@ public class Media implements Closeable {
         LOGGER.info("移动到 {}", targetUs);
         try {
             if (targetUs > getLengthUs()) {
-                targetUs =  getLengthUs();
+                targetUs = getLengthUs();
             }
             if (targetUs < 0) {
                 targetUs = 0;
@@ -230,6 +235,7 @@ public class Media implements Closeable {
     public void bindTexture(ITexture texture) {
         this.texture = texture;
     }
+
     public void unbindTexture() {
         this.texture = null;
     }
@@ -237,6 +243,7 @@ public class Media implements Closeable {
     public void bindAudioSource(IAudioSource audioBuffer) {
         this.audioSources.add(audioBuffer);
     }
+
     public void unbindAudioSource(IAudioSource audioBuffer) {
         this.audioSources.remove(audioBuffer);
     }
@@ -259,7 +266,7 @@ public class Media implements Closeable {
     }
 
     private void uploadBuffer(IAudioData frame) {
-        for (var audioSource: audioSources){
+        for (var audioSource : audioSources) {
             audioSource.upload(frame.getMergedAudioData());
         }
     }
@@ -292,7 +299,7 @@ public class Media implements Closeable {
     @Override
     public void close() {
         audioThread.interrupt();
-        this.audioSources.forEach(s->s.setPitch(1));
+        this.audioSources.forEach(s -> s.setPitch(1));
 
         try {
             audioThread.join();

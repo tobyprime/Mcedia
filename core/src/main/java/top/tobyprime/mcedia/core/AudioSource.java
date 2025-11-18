@@ -21,13 +21,11 @@ public class AudioSource implements IAudioSource {
     private final Consumer<Runnable> alThreadExecutor;
 
     private final Queue<Integer> availableBuffers = new ConcurrentLinkedQueue<>();
-
+    private final Object alLock = new Object();
     public boolean requireInit = true;
     private int[] alBuffers = null;
     private volatile int alSource = -1;
-
     private boolean isClosed = false;
-    private final Object alLock = new Object();
 
     public AudioSource(Consumer<Runnable> alThreadExecutor) {
         this.alThreadExecutor = alThreadExecutor;
@@ -82,7 +80,10 @@ public class AudioSource implements IAudioSource {
         } catch (Exception e) {
             LOGGER.error("OpenAL 音频初始化异常: ", e);
             if (alSource != -1) {
-                try { AL10.alDeleteSources(alSource); } catch (Exception ignored) {}
+                try {
+                    AL10.alDeleteSources(alSource);
+                } catch (Exception ignored) {
+                }
                 alSource = -1;
             }
         }
@@ -160,12 +161,14 @@ public class AudioSource implements IAudioSource {
             }
         }
     }
-    private void alRestartIfNeed(){
+
+    private void alRestartIfNeed() {
         int state = AL10.alGetSourcei(alSource, AL10.AL_SOURCE_STATE);
         if (state == AL10.AL_STOPPED) {
             AL10.alSourcePlay(alSource);
         }
     }
+
     private void alUpload(AudioBufferData bufferData) {
         synchronized (alLock) {
             if (isClosed) return;
@@ -178,11 +181,11 @@ public class AudioSource implements IAudioSource {
             }
 
             switch (bufferData.pcm) {
-                case ByteBuffer bb -> AL10.alBufferData(bufferId,  AL10.AL_FORMAT_MONO16, bb, bufferData.sampleRate);
-                case ShortBuffer sb -> AL10.alBufferData(bufferId,  AL10.AL_FORMAT_MONO16, sb, bufferData.sampleRate);
-                case FloatBuffer fb -> AL10.alBufferData(bufferId,  AL10.AL_FORMAT_MONO16, fb, bufferData.sampleRate);
-                case null, default ->
-                        throw new IllegalArgumentException("Unsupported Buffer type: " + bufferData.pcm.getClass());
+                case ByteBuffer bb -> AL10.alBufferData(bufferId, AL10.AL_FORMAT_MONO16, bb, bufferData.sampleRate);
+                case ShortBuffer sb -> AL10.alBufferData(bufferId, AL10.AL_FORMAT_MONO16, sb, bufferData.sampleRate);
+                case FloatBuffer fb -> AL10.alBufferData(bufferId, AL10.AL_FORMAT_MONO16, fb, bufferData.sampleRate);
+                case null -> throw new NullPointerException("Buffer is null");
+                default -> throw new IllegalArgumentException("Unsupported Buffer type: " + bufferData.pcm.getClass());
             }
             bufferData.close();
             int error = AL10.alGetError();
@@ -264,7 +267,9 @@ public class AudioSource implements IAudioSource {
 
     public void upload(@Nullable AudioBufferData audioFrame) {
         if (isClosed) return;
-        if (audioFrame == null) {return;}
+        if (audioFrame == null) {
+            return;
+        }
 
         try {
             alThreadExecutor.accept(() -> alUpload(audioFrame));
@@ -332,7 +337,7 @@ public class AudioSource implements IAudioSource {
         alThreadExecutor.accept(() -> alSetVolume(volume));
     }
 
-    public void setRange(float min,float max) {
+    public void setRange(float min, float max) {
         alThreadExecutor.accept(() -> {
             alSetMinDistance(min);
             alSetMaxDistance(Math.max(max, min));

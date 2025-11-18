@@ -5,8 +5,8 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.BaseMediaPlay;
-import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 import top.tobyprime.mcedia.core.MediaInfo;
+import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -23,7 +23,6 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
     private static final HttpClient client = HttpClient.newHttpClient();
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliBangumiMediaPlay.class);
 
-    private static Supplier<Boolean> authStatusSupplier = () -> false;
     private final String bangumiUrl;
     private boolean waitForLoginStatusUpdate;
 
@@ -32,13 +31,6 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
         this.bangumiUrl = bangumiUrl;
         CompletableFuture.runAsync(this::load, MediaPlayFactory.EXECUTOR);
     }
-
-    public static void setAuthStatusSupplier(Supplier<Boolean> supplier) {
-        if (supplier != null) {
-            authStatusSupplier = supplier;
-        }
-    }
-    
 
     private static int parsePNumberFromUrl(String url) {
         try {
@@ -154,7 +146,7 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
             var headers = new HashMap<String, String>();
             headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             headers.put("Referer", "https://www.bilibili.com/");
-            headers.put("Origin" , "https://www.bilibili.com");
+            headers.put("Origin", "https://www.bilibili.com");
             mediaInfo.headers = headers;
 
 
@@ -195,7 +187,6 @@ public class BilibiliBangumiMediaPlay extends BaseMediaPlay implements BilibiliA
             throw new RuntimeException("未能从番剧API响应中找到可用的视频流。API Response: " + responseBody);
         } catch (Throwable e) {
             setStatus("加载失败");
-            return;
         } finally {
             loading = false;
         }

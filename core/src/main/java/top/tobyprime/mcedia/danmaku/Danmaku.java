@@ -3,17 +3,10 @@ package top.tobyprime.mcedia.danmaku;
 import java.util.Objects;
 
 public class Danmaku implements Comparable<Danmaku> {
-    public enum DanmakuType {
-        SCROLLING,
-        TOP,
-        BOTTOM
-    }
-
     public final float secs; // 弹幕在视频中出现的时间（秒）
     public final String text;
     public final int color;
     public final DanmakuType type;
-
     public Danmaku(float timestamp, String text, int color, DanmakuType type) {
         this.secs = timestamp;
         this.text = text;
@@ -41,5 +34,11 @@ public class Danmaku implements Comparable<Danmaku> {
     @Override
     public int hashCode() {
         return Objects.hash(secs, text);
+    }
+
+    public enum DanmakuType {
+        SCROLLING,
+        TOP,
+        BOTTOM
     }
 }

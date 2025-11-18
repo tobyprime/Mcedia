@@ -12,7 +12,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,7 +44,7 @@ public class BilibiliDanmakuFetcher {
                 .build();
 
         // 异步请求 + 手动解压
-        return  HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+        return HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
                 .<List<Danmaku>>thenApply(response -> {
                     if (response.statusCode() != 200) {
                         LOGGER.warn("弹幕请求失败，HTTP {}", response.statusCode());

@@ -6,8 +6,8 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.BaseMediaPlay;
-import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 import top.tobyprime.mcedia.core.MediaInfo;
+import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,10 +33,10 @@ public class BilibiliLiveMediaPlay extends BaseMediaPlay {
         CompletableFuture.runAsync(this::load, MediaPlayFactory.EXECUTOR);
     }
 
-    private static QualitySelection findBestQualityNumber(@Nullable JSONArray qualityOptions) {
-        if (qualityOptions == null || qualityOptions.length() == 0) {
+    private static BilibiliLiveQualitySelection findBestQualityNumber(@Nullable JSONArray qualityOptions) {
+        if (qualityOptions == null || qualityOptions.isEmpty()) {
             LOGGER.warn("API未返回清晰度列表，默认使用原画(10000)");
-            return new QualitySelection(10000, "原画");
+            return new BilibiliLiveQualitySelection(10000, "原画");
         }
         Map<String, Integer> qualityMap = new HashMap<>();
         for (int i = 0; i < qualityOptions.length(); i++) {
@@ -45,7 +45,7 @@ public class BilibiliLiveMediaPlay extends BaseMediaPlay {
         }
         JSONObject bestQuality = qualityOptions.getJSONObject(0);
         LOGGER.info("自动选择最高清晰度: {} (qn={})", bestQuality.getString("desc"), bestQuality.getInt("qn"));
-        return new QualitySelection(bestQuality.getInt("qn"), bestQuality.getString("desc"));
+        return new BilibiliLiveQualitySelection(bestQuality.getInt("qn"), bestQuality.getString("desc"));
     }
 
     private static String extractRoomId(String url) {
@@ -132,7 +132,7 @@ public class BilibiliLiveMediaPlay extends BaseMediaPlay {
             }
 
             // 根据期望选择清晰度 qn
-            QualitySelection selection = findBestQualityNumber(qualityOptions);
+            BilibiliLiveQualitySelection selection = findBestQualityNumber(qualityOptions);
 
             // 使用计算出的 targetQn 请求最终的流
             String finalApiUrl = "https://api.live.bilibili.com/xlive/web-room/v1/playUrl/playUrl?cid=" + realRoomId +
@@ -167,21 +167,9 @@ public class BilibiliLiveMediaPlay extends BaseMediaPlay {
         }
     }
 
-    private static class QualitySelection {
-        final int qn;
-        final String description;
-
-        QualitySelection(int qn, String description) {
-            this.qn = qn;
-            this.description = description;
-        }
+    private record BilibiliLiveQualitySelection(int qn, String description) {
     }
 
-    private static class QualityInfo {
-        public final String description;
-
-        public QualityInfo(String description) {
-            this.description = description;
-        }
+    private record QualityInfo(String description) {
     }
 }

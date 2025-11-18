@@ -1,13 +1,11 @@
 package top.tobyprime.mcedia.danmaku;
 
-import java.util.Objects;
-
 public final class DanmakuEntity {
-   public final Danmaku danmaku;
-   public  float position;
-   // 以轨道长度为单位
-   public final float width;
-   public final int trackId;
+    public final Danmaku danmaku;
+    // 以轨道长度为单位
+    public final float width;
+    public final int trackId;
+    public float position;
 
     public DanmakuEntity(Danmaku danmaku, float position, float width, int trackId) {
         this.danmaku = danmaku;

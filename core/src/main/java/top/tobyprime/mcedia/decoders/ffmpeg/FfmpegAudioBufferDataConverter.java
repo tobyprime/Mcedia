@@ -20,7 +20,7 @@ public class FfmpegAudioBufferDataConverter {
     public static AudioBufferData AsAudioData(Frame frame, int channel) {
         if (channel < 0)
             return AsMixedAudioData(frame);
-        if (frame.samples == null  ||  channel >= frame.samples.length) return null;
+        if (frame.samples == null || channel >= frame.samples.length) return null;
         return new AudioBufferData(BufferHelper.cloneBuffer(frame.samples[channel]), frame.sampleRate, 1);
     }
 

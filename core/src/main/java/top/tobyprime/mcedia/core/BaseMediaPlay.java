@@ -7,24 +7,11 @@ import java.util.ArrayList;
 import java.util.function.Consumer;
 
 public abstract class BaseMediaPlay implements IMediaPlay {
-    private MediaInfo mediaInfo;
-    private String status;
-
-
-
     private final ArrayList<Consumer<MediaInfo>> onUpdatedListeners = new ArrayList<>();
     private final ArrayList<Consumer<String>> onMessageListeners = new ArrayList<>();
     protected boolean loading;
-
-    public void setMediaInfo(MediaInfo mediaInfo) {
-        this.mediaInfo = mediaInfo;
-        onUpdatedListeners.forEach(l -> l.accept(mediaInfo));
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-        onMessageListeners.forEach(l -> l.accept(status));
-    }
+    private MediaInfo mediaInfo;
+    private String status;
 
     @Override
     public void registerOnMediaInfoUpdatedEvent(Consumer<@Nullable MediaInfo> onUpdate) {
@@ -41,9 +28,19 @@ public abstract class BaseMediaPlay implements IMediaPlay {
         return mediaInfo;
     }
 
+    public void setMediaInfo(MediaInfo mediaInfo) {
+        this.mediaInfo = mediaInfo;
+        onUpdatedListeners.forEach(l -> l.accept(mediaInfo));
+    }
+
     @Override
     public @Nullable String getStatus() {
         return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+        onMessageListeners.forEach(l -> l.accept(status));
     }
 
     @Override

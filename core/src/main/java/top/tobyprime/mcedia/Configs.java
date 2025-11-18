@@ -24,17 +24,17 @@ public class Configs {
     public static int DECODER_MAX_VIDEO_FRAMES = 30;
 
 
-    public static void fromProperties(Properties props){
+    public static void fromProperties(Properties props) {
         Configs.MAX_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT)));
         Configs.ALLOW_DIRECT_LINK = Boolean.parseBoolean(props.getProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.ALLOW_DIRECT_LINK)));
 
         Configs.DANMAKU_VISIBLE = Boolean.parseBoolean(props.getProperty("DANMAKU_VISIBLE", String.valueOf(Configs.DANMAKU_VISIBLE)));
-        Configs.DANMAKU_DURATION = Float.parseFloat(props.getProperty("DANMAKU_DURATION",String.valueOf(Configs.DANMAKU_DURATION)));
+        Configs.DANMAKU_DURATION = Float.parseFloat(props.getProperty("DANMAKU_DURATION", String.valueOf(Configs.DANMAKU_DURATION)));
         Configs.DANMAKU_TRACKS = Integer.parseInt(props.getProperty("DANMAKU_TRACKS", String.valueOf(Configs.DANMAKU_TRACKS)));
-        Configs.DANMAKU_OPACITY = Float.parseFloat(props.getProperty("DANMAKU_OPACITY",  String.valueOf(Configs.DANMAKU_OPACITY)));
+        Configs.DANMAKU_OPACITY = Float.parseFloat(props.getProperty("DANMAKU_OPACITY", String.valueOf(Configs.DANMAKU_OPACITY)));
     }
 
-    public static void writeToProperties(Properties props){
+    public static void writeToProperties(Properties props) {
         props.setProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT));
         props.setProperty("ALLOW_DIRECT_LINK", String.valueOf(Configs.ALLOW_DIRECT_LINK));
 

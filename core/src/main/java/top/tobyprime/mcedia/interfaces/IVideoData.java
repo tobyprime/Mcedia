@@ -6,7 +6,9 @@ import java.io.Closeable;
 
 public interface IVideoData extends Closeable {
     public long getTimestamp();
+
     VideoFrame toFrame();
+
     @Override
     public void close();
 }

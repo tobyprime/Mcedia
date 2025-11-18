@@ -22,7 +22,7 @@ public class FfmpegAudioData implements IAudioData {
     }
 
     @Override
-    public int getChannels(){
+    public int getChannels() {
         return ffmpegFrame.audioChannels;
     }
 
@@ -32,7 +32,7 @@ public class FfmpegAudioData implements IAudioData {
     }
 
     @Override
-    public void close()  {
+    public void close() {
 
     }
 }

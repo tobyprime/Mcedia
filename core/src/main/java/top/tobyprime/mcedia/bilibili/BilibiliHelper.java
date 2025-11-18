@@ -10,7 +10,8 @@ import top.tobyprime.mcedia.Configs;
 import java.util.*;
 
 public class BilibiliHelper {
-    public static Logger  LOGGER = LoggerFactory.getLogger(BilibiliHelper.class);
+    public static Logger LOGGER = LoggerFactory.getLogger(BilibiliHelper.class);
+
     // 辅助方法，用于根据ID查找流并选择最佳编码
     private static JSONObject findStreamByIdAndCodec(JSONArray streams, int targetId) {
         JSONObject bestStream = null;
@@ -20,7 +21,7 @@ public class BilibiliHelper {
             JSONObject stream = streams.getJSONObject(i);
             if (stream.getInt("id") == targetId) {
                 String codecs = stream.optString("codecs", "");
-                int currentCodecScore = 0;
+                int currentCodecScore;
                 if (codecs.contains("avc1")) currentCodecScore = 3;
                 else if (codecs.contains("hev1")) currentCodecScore = 2;
                 else if (codecs.contains("av01")) currentCodecScore = 1;
@@ -34,6 +35,7 @@ public class BilibiliHelper {
         }
         return bestStream;
     }
+
     public static BilibiliStreamSelection findBestStream(JSONArray streams, @Nullable JSONArray formats) {
         if (streams == null || streams.isEmpty()) {
             return null;
@@ -48,20 +50,20 @@ public class BilibiliHelper {
             JSONObject format = formats.getJSONObject(i);
             availableQualityMap.put(format.getString("new_description"), format.getInt("quality"));
         }
-        if (Configs.QUALITY == 0){
+        if (Configs.QUALITY == 0) {
             String lowestQualityDesc = formats.getJSONObject(formats.length() - 1).getString("new_description");
             var selection = new BilibiliStreamSelection(streams.getJSONObject(streams.length() - 1), lowestQualityDesc);
-            LOGGER.info("清晰度{}: 找到匹配 '{}'",Configs.QUALITY, selection);
+            LOGGER.info("清晰度{}: 找到匹配 '{}'", Configs.QUALITY, selection);
             return selection;
         }
 
 
         List<String> ignoreQualities = new ArrayList<>();
 
-        if (Configs.QUALITY <= 2){
+        if (Configs.QUALITY <= 2) {
             ignoreQualities.add("8K 超高清");
         }
-        if (Configs.QUALITY <= 1){
+        if (Configs.QUALITY <= 1) {
             ignoreQualities.add("4K 超高清");
         }
 
@@ -75,7 +77,7 @@ public class BilibiliHelper {
             if (targetId != null) {
                 JSONObject stream = findStreamByIdAndCodec(streams, targetId);
                 if (stream != null) {
-                    LOGGER.info("清晰度{}: 找到匹配 '{}'",Configs.QUALITY, preferred);
+                    LOGGER.info("清晰度{}: 找到匹配 '{}'", Configs.QUALITY, preferred);
                     return new BilibiliStreamSelection(stream, preferred.getKey());
                 }
             }

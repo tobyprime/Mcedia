@@ -4,8 +4,8 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.BaseMediaPlay;
-import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 import top.tobyprime.mcedia.core.MediaInfo;
+import top.tobyprime.mcedia.media_play_resolvers.MediaPlayFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -27,11 +27,12 @@ public class DouyinVideoMediaPlay extends BaseMediaPlay {
 
     public String sharedLink;
 
-    public DouyinVideoMediaPlay(String sharedLink){
+    public DouyinVideoMediaPlay(String sharedLink) {
         this.sharedLink = sharedLink;
         CompletableFuture.runAsync(this::load, MediaPlayFactory.EXECUTOR);
 
     }
+
     public static String getSharedUrl(String share) {
         if (share == null) {
             return null;
@@ -46,6 +47,33 @@ public class DouyinVideoMediaPlay extends BaseMediaPlay {
         } else {
             return null;
         }
+    }
+
+    private static String extractVideoId(String url) {
+        try {
+            String[] parts = url.split("\\?");
+            String path = parts[0];
+            String[] segments = path.split("/");
+            if (segments.length > 0) {
+                String last = segments[segments.length - 1];
+                if (last.isEmpty() && segments.length > 1) {
+                    return segments[segments.length - 2];
+                }
+                return last;
+            }
+        } catch (Exception e) {
+            logger.warn("提取视频ID异常", e);
+        }
+        return null;
+    }
+
+    private static String extractRouterDataJson(String html) {
+        Pattern pattern = Pattern.compile("window\\._ROUTER_DATA\\s*=\\s*(\\{.*?})</script>", Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(html);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return null;
     }
 
     public void load() {
@@ -138,40 +166,12 @@ public class DouyinVideoMediaPlay extends BaseMediaPlay {
             logger.error("解析异常", e);
             setStatus("解析异常");
             return;
-        }
-        finally {
+        } finally {
             loading = false;
         }
     }
 
-    private static String extractVideoId(String url) {
-        try {
-            String[] parts = url.split("\\?");
-            String path = parts[0];
-            String[] segments = path.split("/");
-            if (segments.length > 0) {
-                String last = segments[segments.length - 1];
-                if (last.isEmpty() && segments.length > 1) {
-                    return segments[segments.length - 2];
-                }
-                return last;
-            }
-        } catch (Exception e) {
-            logger.warn("提取视频ID异常", e);
-        }
-        return null;
-    }
-
-    private static String extractRouterDataJson(String html) {
-        Pattern pattern = Pattern.compile("window\\._ROUTER_DATA\\s*=\\s*(\\{.*?})</script>", Pattern.DOTALL);
-        Matcher matcher = pattern.matcher(html);
-        if (matcher.find()) {
-            return matcher.group(1).trim();
-        }
-        return null;
-    }
-
-    private  MediaInfo getMediaInfo(String jsonStr) {
+    private MediaInfo getMediaInfo(String jsonStr) {
         try {
             JSONObject root = new JSONObject(jsonStr);
             JSONObject loaderData = root.getJSONObject("loaderData");

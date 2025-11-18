@@ -13,15 +13,17 @@ public interface IMediaPlay extends Closeable {
      */
     void registerOnMediaInfoUpdatedEvent(Consumer<@Nullable MediaInfo> onUpdate);
 
-    default void registerOnMediaInfoUpdatedEventAndCallOnce(Consumer<@Nullable MediaInfo> onUpdate){
+    default void registerOnMediaInfoUpdatedEventAndCallOnce(Consumer<@Nullable MediaInfo> onUpdate) {
         registerOnMediaInfoUpdatedEvent(onUpdate);
         onUpdate.accept(getMediaInfo());
     }
+
     /**
      * 注册加载状态消息，或是提示登录等消息
      */
     void registerOnStatusUpdatedEvent(Consumer<String> onMessage);
-    default void registerOnStatusUpdatedEventAndCallOnce(Consumer<String> onMessage){
+
+    default void registerOnStatusUpdatedEventAndCallOnce(Consumer<String> onMessage) {
         registerOnStatusUpdatedEvent(onMessage);
         onMessage.accept(getStatus());
     }
@@ -36,5 +38,5 @@ public interface IMediaPlay extends Closeable {
     boolean isLoading();
 
     @Override
-    void close() ;
+    void close();
 }

@@ -41,6 +41,12 @@ public class BilibiliAuthManager {
         return accountStatus;
     }
 
+    private void setAccountStatus(BilibiliAccountStatus accountStatus) {
+        this.handlers.forEach(y -> y.OnAccountStatusUpdated(accountStatus));
+        this.accountStatus = accountStatus;
+
+    }
+
     public void AddStatusUpdateHandler(BilibiliAccountStatusUpdateEventHandler handler) {
         handlers.add(handler);
     }
@@ -49,12 +55,6 @@ public class BilibiliAuthManager {
         LOGGER.info("正在执行登出操作...");
         this.setAccountStatus(new BilibiliAccountStatus(false, false, "游客"));
         BilibiliCookie.saveCookies("");
-    }
-
-    private void setAccountStatus(BilibiliAccountStatus accountStatus) {
-        this.handlers.forEach(y -> y.OnAccountStatusUpdated(accountStatus));
-        this.accountStatus = accountStatus;
-
     }
 
     public CompletableFuture<String> checkAndUpdateLoginStatusAsync() {

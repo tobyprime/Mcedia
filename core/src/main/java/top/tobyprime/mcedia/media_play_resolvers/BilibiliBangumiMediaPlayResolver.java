@@ -10,11 +10,11 @@ public class BilibiliBangumiMediaPlayResolver implements IMediaPlayResolver {
 
     @Override
     public boolean isSupported(@NotNull String url) {
-        return  url.contains("bilibili.com/bangumi/play/");
+        return url.contains("bilibili.com/bangumi/play/");
     }
 
     @Override
     public @NotNull IMediaPlay resolve(@NotNull String playUrl) {
-        return  new BilibiliBangumiMediaPlay(playUrl);
+        return new BilibiliBangumiMediaPlay(playUrl);
     }
 }
