@@ -1,6 +1,12 @@
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
 def platform = project.findProperty('platformName') ?: 'windows-x86_64'
 
-version = "${project(":").mod_base_version}-${project.mod_sub_version}-${project(":core").version}-${platform}"
+def now = java.time.LocalDateTime.now()  // 注意这里有括号
+def timeId = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+
+version = "${project(":").mod_base_version}+${project.mod_sub_version}.${platform}.build${timeId}"
 group = project.maven_group
 
 base {

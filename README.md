@@ -9,8 +9,9 @@
 1. Bilibili 普通视频 - 以 `https://www.bilibili.com/` 开头
 2. Bilibili 直播 - 以 `https://live.bilibili.com/` 开头
 3. Bilibili 番剧 - 以 `https://www.bilibili.com/bangumi/play/` 开头
-3. 播放抖音视频 - 抖音分享文本，类似 `4.84 t@e.oQ 01/20 gba:/ # 抖音戏曲文化艺术节 梨园光景与君游，恭迎诸位入此一梦！10月18日，赴江西上饶葛仙村 # 第三届抖音戏曲文化艺术节 共赏好戏！  https://v.douyin.com/s-1dKNIKD58/ 复制此链接，打开Dou音搜索，直接观看视频！`
-4. 经过指令设置后，允许播放任意 ffmpeg 能够解析的链接
+4. Bilibili 短链 - 类似 `【♿男よ、来い♿-哔哩哔哩】 https://b23.tv/KCC6YjE` 的分享字符串
+5. 播放抖音视频 - 抖音分享文本，类似 `4.84 t@e.oQ 01/20 gba:/ # 抖音戏曲文化艺术节 梨园光景与君游，恭迎诸位入此一梦！10月18日，赴江西上饶葛仙村 # 第三届抖音戏曲文化艺术节 共赏好戏！  https://v.douyin.com/s-1dKNIKD58/ 复制此链接，打开Dou音搜索，直接观看视频！`
+6. 经过指令设置后，允许播放任意 ffmpeg 能够解析的链接
 
 ### 指令
 目前所有指令皆为客户端指令与服务器无关
