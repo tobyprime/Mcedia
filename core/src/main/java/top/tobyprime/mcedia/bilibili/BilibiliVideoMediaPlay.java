@@ -193,6 +193,7 @@ public class BilibiliVideoMediaPlay extends BaseMediaPlay implements IMediaPlay,
 
             waitForLoginStatusUpdate = true;
         } catch (Exception e) {
+            LOGGER.warn("记载失败", e);
             setStatus("加载失败" + e.getMessage());
         } finally {
             loading = false;
