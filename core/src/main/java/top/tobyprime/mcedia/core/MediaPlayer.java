@@ -1,5 +1,6 @@
 package top.tobyprime.mcedia.core;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,15 +46,12 @@ public class MediaPlayer implements Closeable {
 
     private volatile DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
 
-    /**
-     * 关闭线程池（全局）
-     */
-    public static void shutdownExecutor() {
-        executor.shutdownNow();
-    }
-
     public IMediaPlay getMediaPlay() {
         return mediaPlay;
+    }
+
+    public PlayerStatus getStatus() {
+        return status;
     }
 
     public synchronized void bindTexture(ITexture texture) {
@@ -142,12 +140,12 @@ public class MediaPlayer implements Closeable {
     /**
      * 异步打开（会先关闭当前媒体）
      */
-    private void openMedia(MediaInfo mediaInfo, Consumer<MediaInfo> afterOpened) {
+    private void openMedia(@NotNull MediaInfo mediaInfo, Consumer<Media> afterOpened) {
         CompletableFuture.runAsync(() -> {
             LOGGER.info("读取: {}", mediaInfo.streamUrl);
-            openMediaInternal(mediaInfo);
+            var media = openMediaInternal(mediaInfo);
             if (afterOpened != null)
-                afterOpened.accept(mediaInfo);
+                afterOpened.accept(media);
             this.status = PlayerStatus.PLAYING;
         }, executor).exceptionally(
                 e -> {
@@ -158,7 +156,7 @@ public class MediaPlayer implements Closeable {
         );
     }
 
-    public void open(IMediaPlay mediaPlay, Consumer<MediaInfo> afterOpened) {
+    public void open(IMediaPlay mediaPlay, Consumer<Media> afterOpened) {
         this.mediaPlay = mediaPlay;
         this.status = PlayerStatus.LOADING_MEDIA_INFO;
 
@@ -172,12 +170,6 @@ public class MediaPlayer implements Closeable {
                 openMedia(mediaInfo, afterOpened);
             }
         });
-    }
-
-    public IMediaPlay getMediaPlayAndOpen(String url, Consumer<MediaInfo> afterOpened) {
-        var mediaPlay = MediaPlayFactory.createMediaPlay(url);
-        open(mediaPlay, afterOpened);
-        return mediaPlay;
     }
 
     public synchronized void uploadVideo() {
@@ -210,11 +202,8 @@ public class MediaPlayer implements Closeable {
         }
     }
 
-    private void openMediaInternal(@Nullable MediaInfo inputMedia) {
+    private Media openMediaInternal(@NotNull MediaInfo inputMedia) {
         stopMediaInternal();
-        if (inputMedia == null) {
-            return;
-        }
         var newMedia = new Media(inputMedia, decoderConfiguration);
 
         newMedia.bindTexture(texture);
@@ -227,6 +216,7 @@ public class MediaPlayer implements Closeable {
         media.setSpeed(speed);
         media.setLooping(looping);
         media.setDanmakuWidthPredictor(danmakuWidthPredictor);
+        return newMedia;
     }
 
     public synchronized void setSpeed(float speed) {
@@ -241,17 +231,42 @@ public class MediaPlayer implements Closeable {
         if (media != null) media.setLooping(looping);
     }
 
-    public synchronized float getProgress() {
+    public long getLength() {
         if (media != null) {
-            if (media.getLengthUs() <= 0) {
+            if (media.getLength() <= 0) {
                 return 0;
             }
-            return (float) media.getDurationUs() / media.getLengthUs();
+            return media.getLength();
         }
         return 0;
     }
 
-    @Override
+    public long getDuration() {
+        if (media != null) {
+            if (media.getDuration() <= 0) {
+                return 0;
+            }
+            return media.getDuration();
+        }
+        return 0;
+    }
+
+    public IMediaPlay getMediaPlayAndOpen(String url, Consumer<Media> afterOpened) {
+        var mediaPlay = MediaPlayFactory.createMediaPlay(url);
+        open(mediaPlay, afterOpened);
+        return mediaPlay;
+    }
+
+    public synchronized float getProgress() {
+        if (media != null) {
+            if (media.getLength() <= 0) {
+                return 0;
+            }
+            return (float) media.getDuration() / media.getLength();
+        }
+        return 0;
+    }
+
     public void close() {
         stopMediaInternal();
     }

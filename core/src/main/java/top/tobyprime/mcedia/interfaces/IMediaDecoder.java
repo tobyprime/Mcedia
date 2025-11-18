@@ -10,38 +10,45 @@ public interface IMediaDecoder extends Closeable {
     LinkedBlockingDeque<? extends IVideoData> getVideoQueue();
 
     LinkedBlockingDeque<? extends IAudioData> getAudioQueue();
-
+    /**
+     * 解码结束
+     */
     boolean isEnded();
 
     /**
-     * 解码结束
-     *
-     * @return
+     * 视频长度
      */
-    boolean isDecodeEnded();
+    long getLength();
 
     /**
-     * 视频长度
-     *
-     * @return us
+     * 当前解码时长
      */
     long getDuration();
 
     /**
-     * 当前播放时间点
-     *
-     * @return us
+     * 宽度
      */
-    long getTimestamp();
-
     int getWidth();
 
+    /**
+     * 高度
+     */
     int getHeight();
 
+    /**
+     * 音频采样率
+     */
     int getSampleRate();
 
+    /**
+     * 音频通道
+     */
     int getChannels();
 
+    /**
+     * 设置解码时间到
+     * @param timestamp 单位 us
+     */
     void seek(long timestamp);
 
     @Override

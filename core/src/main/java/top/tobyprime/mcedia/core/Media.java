@@ -57,7 +57,7 @@ public class Media implements Closeable {
     public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus() {
         var screen = danmakuScreen;
         if (screen != null) {
-            long durationUs = this.getDurationUs();
+            long durationUs = this.getDuration();
             long nowUs = System.currentTimeMillis();
             double durationSecs = durationUs / 1_000_000.0;
 
@@ -77,6 +77,12 @@ public class Media implements Closeable {
         return mediaInfo;
     }
 
+    /**
+     * 播放结束
+     */
+    public boolean isEnd(){
+        return !looping && this.getDuration() >= this.getLength();
+    }
 
     public void playLoop() {
         long nextPlayTime = System.nanoTime();
@@ -85,7 +91,7 @@ public class Media implements Closeable {
                 if (!paused) {
                     IAudioData currFrame = decoder.getAudioQueue().poll();
                     if (currFrame == null) {
-                        if (looping && decoder.isEnded() && decoder.getTimestamp() != 0) {
+                        if (looping && this.getDuration() >= this.getLength() && decoder.getDuration() != 0) {
                             // 如果播放结束，且需要循环则设置时间到 0
                             LOGGER.info("looping");
                             this.seek(0);
@@ -176,7 +182,7 @@ public class Media implements Closeable {
     /**
      * 当前播放时长 (微秒)
      */
-    public long getDurationUs() {
+    public long getDuration() {
         if (paused) {
             return isLiveStream ? 0 : baseDuration; // 直播暂停时返回0
         }
@@ -186,8 +192,8 @@ public class Media implements Closeable {
         return baseDuration + (System.currentTimeMillis() - baseTime) * 1000L;
     }
 
-    public long getLengthUs() {
-        return decoder.getDuration();
+    public long getLength() {
+        return decoder.getLength();
     }
 
     ;
@@ -196,7 +202,7 @@ public class Media implements Closeable {
      * 获取秒数（方便UI）
      */
     public double getDurationSeconds() {
-        return getDurationUs() / 1_000_000.0;
+        return getDuration() / 1_000_000.0;
     }
 
     public void setSpeed(float speed) {
@@ -217,8 +223,8 @@ public class Media implements Closeable {
         }
         LOGGER.info("移动到 {}", targetUs);
         try {
-            if (targetUs > getLengthUs()) {
-                targetUs = getLengthUs();
+            if (targetUs > getLength()) {
+                targetUs = getLength();
             }
             if (targetUs < 0) {
                 targetUs = 0;
@@ -249,7 +255,7 @@ public class Media implements Closeable {
     }
 
     private long getCurrentMediaTimeUs() {
-        return getDurationUs();
+        return getDuration();
     }
 
     public synchronized void uploadVideo() {

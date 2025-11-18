@@ -81,7 +81,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     @Override
     public boolean isLiveStream() {
-        return getDuration() <= 0 || Double.isInfinite(getDuration());
+        return getLength() <= 0 || Double.isInfinite(getLength());
     }
 
     @Override
@@ -182,22 +182,18 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         }
     }
 
-    public boolean isDecodeEnded() {
+    public boolean isEnded() {
         return runningDecoders.get() == 0;
     }
 
-    public boolean isEnded() {
-        return this.isDecodeEnded() && (this.getAudioQueue().isEmpty() || this.videoQueue.isEmpty());
-    }
 
-
-    public long getDuration() {
+    public long getLength() {
         return primaryGrabber.getLengthInTime();
     }
 
 
     @Override
-    public long getTimestamp() {
+    public long getDuration() {
         return primaryGrabber.getTimestamp();
     }
 
@@ -220,11 +216,11 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
     public void seek(long timestamp) {
-        if (getDuration() <= 0) return;
+        if (getLength() <= 0) return;
         if (runningDecoders.get() == 0) {
             startDecoder();
         }
-        timestamp = Math.max(0, Math.min(timestamp, getDuration()));
+        timestamp = Math.max(0, Math.min(timestamp, getLength()));
 
         grabberLock.writeLock().lock();
         try {
