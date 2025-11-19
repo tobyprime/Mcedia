@@ -17,11 +17,12 @@
 目前所有指令皆为客户端指令与服务器无关
 
 1. /mcedia bilibili login: 登录 bilibili
-2. /mcedia danmaku toggle: 开启/关闭 弹幕
-3. /mcedia quality \[清晰度\]: 选择清晰度
-4. /mcedia max \[数量\]: 设置最多允许几个播放器同时播放
-5. /mcedia direct_link toggle: 开启/关闭 允许播放本地文件 / 流媒体直链等
-6. /mcedia control ...: 本地控制播放器暂停、速度
+2. /mcedia option danmaku toggle: 开启/关闭 弹幕（默认为 关）
+3. /mcedia option quality \[清晰度\]: 选择清晰度（默认为 common）
+4. /mcedia option max \[数量\]: 设置最多允许几个播放器同时播放（默认为 5）
+5. /mcedia option max_non_low_overhead \[数量\]: 设置最多允许几个播放器同时以最高开销播放（默认为 1）
+6. /mcedia option direct_link toggle: 开启/关闭 允许播放本地文件 / 流媒体直链等（默认为关）
+7. /mcedia control ...: 本地控制播放器暂停、速度
 
 ### 播放器配置项
 声音由盔甲架**副手 x 轴**旋转调节
@@ -51,6 +52,10 @@
 
 ## 服务器同步插件编写
 查看 paperplugin 内代码。
+
+## 致谢
+感谢 [OyatsuSuki](https://github.com/OyatsuSuki) 贡献，bilibili 登录、弹幕渲染等相当多的代码、想法
+
 
 
 
