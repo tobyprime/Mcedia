@@ -11,7 +11,7 @@ import top.tobyprime.mcedia.client.McediaClient;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
-public class CommandDanmaku {
+public class CommandDanmakuOption {
 
     public static void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
         LiteralArgumentBuilder<FabricClientCommandSource> danmakuNode = literal("danmaku")
@@ -38,6 +38,6 @@ public class CommandDanmaku {
 
                     return 1;
                 })));
-        dispatcher.register(literal("mcedia").then(danmakuNode));
+        dispatcher.register(literal("mcedia").then(literal("option").then(danmakuNode)));
     }
 }
