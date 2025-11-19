@@ -1,11 +1,11 @@
 package top.tobyprime.mcedia.core;
 
 import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.interfaces.IMediaPlayerInstance;
 import top.tobyprime.mcedia.interfaces.IPlayerInstanceManager;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class PlayerInstanceManagerRegistry {
     private final static PlayerInstanceManagerRegistry instance = new PlayerInstanceManagerRegistry();
@@ -23,7 +23,7 @@ public class PlayerInstanceManagerRegistry {
         managers.remove(manager);
     }
 
-    public List<IMediaPlayerInstance> getPlayers() {
+    public ArrayList<? extends IMediaPlayerInstance> getPlayers() {
         ArrayList<IMediaPlayerInstance> players = new ArrayList<>();
 
         for (IPlayerInstanceManager manager : managers) {
@@ -42,5 +42,31 @@ public class PlayerInstanceManagerRegistry {
             if (distance < distanceMin) { targetingPlayer = player; }
         }
         return targetingPlayer;
+    }
+
+    public void update() {
+        var players = getPlayers();
+        players.sort(Comparator.comparingDouble(IMediaPlayerInstance::getDistance));
+
+        int playerCount = 0;
+        int nonLowOverhead = 0;
+
+        for (var player : players) {
+            if (player.isRemoved())
+                continue;
+
+            if (playerCount >= Configs.MAX_PLAYER_COUNT){
+                player.remove();
+            }
+
+            playerCount++;
+
+            if (nonLowOverhead < Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT) {
+                player.getPlayer().setLowOverhead(false);
+                nonLowOverhead++;
+                continue;
+            }
+            player.getPlayer().setLowOverhead(true);
+        }
     }
 }

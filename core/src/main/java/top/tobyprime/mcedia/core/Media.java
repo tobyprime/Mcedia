@@ -52,6 +52,10 @@ public class Media implements Closeable {
 
     }
 
+    public void setLowOverhead(boolean lowOverhead) {
+        this.decoder.setLowOverhead(lowOverhead);
+    }
+
     public @Nullable Collection<DanmakuEntity> updateAndGetDanmakus() {
         var screen = danmakuScreen;
         if (screen != null) {

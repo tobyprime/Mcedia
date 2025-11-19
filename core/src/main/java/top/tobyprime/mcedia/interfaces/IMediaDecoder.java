@@ -10,6 +10,13 @@ public interface IMediaDecoder extends Closeable {
     LinkedBlockingDeque<? extends IVideoData> getVideoQueue();
 
     LinkedBlockingDeque<? extends IAudioData> getAudioQueue();
+
+    /**
+     * 进入低开销模式
+     * @param lowOverhead
+     */
+    void setLowOverhead(boolean lowOverhead);
+
     /**
      * 解码结束
      */

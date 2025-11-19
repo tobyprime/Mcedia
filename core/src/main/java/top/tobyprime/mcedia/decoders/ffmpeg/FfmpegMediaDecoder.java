@@ -26,6 +26,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     private static final Logger LOGGER = LoggerFactory.getLogger(FfmpegMediaDecoder.class);
 
+    private boolean lowOverhead = false;
     public final LinkedBlockingDeque<FfmpegVideoData> videoQueue;
     public final LinkedBlockingDeque<FfmpegAudioData> audioQueue;
 
@@ -114,6 +115,11 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         return audioQueue;
     }
 
+    @Override
+    public void setLowOverhead(boolean lowOverhead) {
+        this.lowOverhead = lowOverhead;
+    }
+
     private FFmpegFrameGrabber buildGrabber(String url, @Nullable Map<String, String> customHeaders, @Nullable String cookie, DecoderConfiguration configuration, boolean isVideoGrabber) {
         var grabber = new FFmpegFrameGrabber(url);
         if (url.startsWith("http")) {
@@ -175,10 +181,25 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                         break;
                     }
 
+                    var curTimestamp = frame.timestamp;
+
                     boolean isVideo = frame.image != null && configuration.enableVideo;
 
                     if (isVideo) {
+                        // 如果进入低开销模式，则降低到最低缓存，同时放慢解码频率
+                        while (lowOverhead && videoQueue.size() > Configs.DECODER_LOW_OVERHEAD_VIDEO_FRAMES) {
+                            Thread.sleep(50);
+                        }
                         videoQueue.put(new FfmpegVideoData(frame));
+                        lastFrameTimestamp = frame.timestamp;
+                        while (lowOverhead) {
+                            var skiped = videoGrabber.grabFrame(false, true, true, false);
+                            if (skiped == null) break;
+                            if (skiped.timestamp - curTimestamp >= 200000) {
+                                break;
+                            }
+                            Thread.sleep(10);
+                        }
                     }
 
                 } catch (FFmpegFrameGrabber.Exception e) {

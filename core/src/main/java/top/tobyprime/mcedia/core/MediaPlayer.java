@@ -42,9 +42,17 @@ public class MediaPlayer implements Closeable {
     @Nullable
     private Media media;
     private volatile IMediaPlay mediaPlay;
-
+    private boolean lowOverhead =false;
 
     private volatile DecoderConfiguration decoderConfiguration = new DecoderConfiguration(new DecoderConfiguration.Builder());
+
+    public void setLowOverhead(boolean lowOverhead) {
+        var media = this.media;
+        if (media != null){
+            media.setLowOverhead(lowOverhead);
+        }
+        this.lowOverhead = lowOverhead;
+    }
 
     public IMediaPlay getMediaPlay() {
         return mediaPlay;
@@ -216,6 +224,7 @@ public class MediaPlayer implements Closeable {
         media.setSpeed(speed);
         media.setLooping(looping);
         media.setDanmakuWidthPredictor(danmakuWidthPredictor);
+        media.setLowOverhead(lowOverhead);
         return newMedia;
     }
 
