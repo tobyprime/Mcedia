@@ -3,6 +3,7 @@ package top.tobyprime.mcedia.client;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
@@ -11,9 +12,10 @@ import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
 import top.tobyprime.mcedia.bilibili.BilibiliCookie;
 import top.tobyprime.mcedia.commands.CommandBilibili;
-import top.tobyprime.mcedia.commands.CommandCommon;
+import top.tobyprime.mcedia.commands.CommandOption;
 import top.tobyprime.mcedia.commands.CommandControl;
-import top.tobyprime.mcedia.commands.CommandDanmaku;
+import top.tobyprime.mcedia.commands.CommandDanmakuOption;
+import top.tobyprime.mcedia.core.PlayerInstanceManagerRegistry;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
 import top.tobyprime.mcedia.player_instance_managers.ArmorStandPlayerManager;
 import top.tobyprime.mcedia.renderers.MediaPlayerAgentEntityRenderer;
@@ -58,12 +60,17 @@ public class McediaClient implements ClientModInitializer {
         ArmorStandPlayerManager.getInstance().onInitialize();
 
         EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
+
+        ClientTickEvents.END_CLIENT_TICK.register(client -> PlayerInstanceManagerRegistry.getInstance().update());
+
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             CommandBilibili.register(dispatcher);
-            CommandCommon.register(dispatcher);
-            CommandDanmaku.register(dispatcher);
+            CommandOption.register(dispatcher);
+            CommandDanmakuOption.register(dispatcher);
             CommandControl.register(dispatcher);
         });
+
+
         ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
             var props = new Properties();
             var cookies = new Properties();

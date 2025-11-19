@@ -191,7 +191,6 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                             Thread.sleep(50);
                         }
                         videoQueue.put(new FfmpegVideoData(frame));
-                        lastFrameTimestamp = frame.timestamp;
                         while (lowOverhead) {
                             var skiped = videoGrabber.grabFrame(false, true, true, false);
                             if (skiped == null) break;

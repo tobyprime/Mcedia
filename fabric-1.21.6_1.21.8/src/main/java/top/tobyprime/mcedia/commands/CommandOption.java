@@ -11,7 +11,7 @@ import top.tobyprime.mcedia.client.McediaClient;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
-public class CommandCommon {
+public class CommandOption {
 
     public static void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
         LiteralArgumentBuilder<FabricClientCommandSource> qualityNode = literal("quality").then(literal("8k").executes(context -> {
@@ -60,8 +60,21 @@ public class CommandCommon {
             return 1;
         }));
 
-        dispatcher.register(literal("mcedia").then(qualityNode));
-        dispatcher.register(literal("mcedia").then(maxCountNode));
-        dispatcher.register(literal("mcedia").then(directLinkNode));
+        LiteralArgumentBuilder<FabricClientCommandSource> maxNonLowOverheadCountNode = literal("max_non_low_overhead").then(argument("count", IntegerArgumentType.integer(0, 100)).executes(ctx -> {
+            Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = IntegerArgumentType.getInteger(ctx, "count");
+            McediaClient.SaveConfig();
+            Utils.msgToPlayer("已设置最大高开销播放器数量为:" + Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT);
+
+            return 1;
+        }));
+
+        var optionNode = literal("option");
+
+        optionNode.then(qualityNode);
+        optionNode.then(directLinkNode);
+        optionNode.then(maxCountNode);
+        optionNode.then(maxNonLowOverheadCountNode);
+
+        dispatcher.register(literal("mcedia").then(optionNode));
     }
 }
