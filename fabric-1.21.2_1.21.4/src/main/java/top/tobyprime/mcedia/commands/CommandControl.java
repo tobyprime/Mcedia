@@ -2,6 +2,7 @@ package top.tobyprime.mcedia.commands;// CommandLogin.java
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.FloatArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import top.tobyprime.mcedia.Utils;
@@ -42,6 +43,20 @@ public class CommandControl {
             }
             targetingPlayer.getPlayer().setSpeed(speed);
             Utils.msgToPlayer("已设置速度为: " + speed);
+            return 1;
+        }))).then(literal("looping").then(argument("looping", IntegerArgumentType.integer(0, 1)).executes(ctx -> {
+            var looping = IntegerArgumentType.getInteger(ctx, "looping");
+            var targetingPlayer = PlayerInstanceManagerRegistry.getInstance().getTargetingPlayer();
+            if (targetingPlayer == null) {
+                Utils.msgToPlayer("请先指向一个播放器");
+                return 1;
+            }
+            targetingPlayer.getPlayer().setLooping(looping > 0);
+            if (looping > 0) {
+                Utils.msgToPlayer("已开启循环");
+            }else {
+                Utils.msgToPlayer("已关闭循环");
+            }
             return 1;
         })));
 
