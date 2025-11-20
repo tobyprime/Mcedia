@@ -65,7 +65,7 @@ public class CommandControl {
                 Utils.msgToPlayer("请先指向一个播放器");
                 return 1;
             }
-            targetingPlayer.getPlayer().seek(targetingPlayer.getPlayer().getDuration() * 1_000_000L);
+            targetingPlayer.getPlayer().seek(targetingPlayer.getPlayer().getDuration() + (long)(forwardSecs * 1_000_000F));
             if (forwardSecs > 0) {
                 Utils.msgToPlayer("已前进 " + forwardSecs +" s");
             } else {

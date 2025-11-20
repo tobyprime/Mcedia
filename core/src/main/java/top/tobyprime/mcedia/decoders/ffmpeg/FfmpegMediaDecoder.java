@@ -15,12 +15,9 @@ import top.tobyprime.mcedia.interfaces.IMediaDecoder;
 import top.tobyprime.mcedia.interfaces.IVideoData;
 
 import java.io.Closeable;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
@@ -31,13 +28,16 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     public final LinkedBlockingDeque<FfmpegAudioData> audioQueue;
 
     private final DecoderConfiguration configuration;
-    private final List<Thread> decoderThreads = new ArrayList<>();
+    @Nullable
+    private Thread videoDecodeThread;
+    @Nullable
+    private Thread audioDecodeThread;
+
     private final FFmpegFrameGrabber videoGrabber;
     private final FFmpegFrameGrabber audioGrabber;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReentrantReadWriteLock grabberLock = new ReentrantReadWriteLock();
-    private final AtomicInteger runningDecoders = new AtomicInteger(0);
 
     public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration) {
         this.configuration = configuration;
@@ -77,26 +77,20 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
     public void startDecoder() {
-        if (runningDecoders.get() != 0) {
-            return;
-        }
-
-        if (videoGrabber != null) {
-            runningDecoders.addAndGet(1);
+        if (videoGrabber != null && videoDecodeThread == null) {
             Thread thread = new Thread(this::videoDecodeLoop);
             thread.setName("Mcedia-Decoder-Video");
             thread.setDaemon(true);
             thread.start();
-            decoderThreads.add(thread);
+            videoDecodeThread = thread;
         }
 
-        if (audioGrabber != null) {
-            runningDecoders.addAndGet(1);
+        if (audioGrabber != null && audioDecodeThread == null) {
             Thread thread = new Thread(this::audioDecodeLoop);
             thread.setName("Mcedia-Decoder-Audio");
             thread.setDaemon(true);
             thread.start();
-            decoderThreads.add(thread);
+            audioDecodeThread = thread;
         }
     }
 
@@ -217,7 +211,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                 LOGGER.error("在解码循环中发生未捕获的错误", e);
             }
         } finally {
-            runningDecoders.decrementAndGet();
+            videoDecodeThread = null;
         }
     }
 
@@ -256,12 +250,12 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                 LOGGER.error("在解码循环中发生未捕获的错误", e);
             }
         } finally {
-            runningDecoders.decrementAndGet();
+            audioDecodeThread = null;
         }
     }
 
     public boolean isEnded() {
-        return runningDecoders.get() == 0;
+        return audioDecodeThread == null;
     }
 
     public FFmpegFrameGrabber getPrimaryGrabber(){
@@ -304,21 +298,18 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     public void seek(long timestamp) {
         if (getLength() <= 0) return;
-        if (runningDecoders.get() == 0) {
-            startDecoder();
-        }
         timestamp = Math.max(0, Math.min(timestamp, getLength()));
 
         grabberLock.writeLock().lock();
         try {
-            clearQueue();
             if (audioGrabber != null) {
                 audioGrabber.setTimestamp(timestamp);
             }
             if (videoGrabber != null) {
                 videoGrabber.setTimestamp(timestamp);
             }
-
+            startDecoder();
+            clearQueue();
         } catch (FrameGrabber.Exception e) {
             throw new RuntimeException("Seek failed", e);
         } finally {
@@ -331,8 +322,12 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         if (!isClosed.compareAndSet(false, true)) {
             return;
         }
-
-        decoderThreads.forEach(Thread::interrupt);
+        if (audioDecodeThread != null) {
+            audioDecodeThread.interrupt();
+        }
+        if (videoDecodeThread != null) {
+            videoDecodeThread.interrupt();
+        }
         grabberLock.writeLock().lock();
         try {
             try {
@@ -351,12 +346,12 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             grabberLock.writeLock().unlock();
         }
 
-        for (Thread thread : decoderThreads) {
-            try {
-                thread.join(500);
-            } catch (InterruptedException ignored) {
-            }
-        }
+       if (videoDecodeThread != null) {
+           videoDecodeThread.interrupt();
+       }
+       if (audioDecodeThread != null) {
+           audioDecodeThread.interrupt();
+       }
 
         clearQueue();
     }
