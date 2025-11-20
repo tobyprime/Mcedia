@@ -51,6 +51,17 @@ public class CommandOption {
 
             return 1;
         }));
+        LiteralArgumentBuilder<FabricClientCommandSource> yhdmNode = literal("yhdm").then(literal("toggle").executes(ctx -> {
+            Configs.ALLOW_YHDM = !Configs.ALLOW_YHDM;
+            McediaClient.SaveConfig();
+            if (Configs.ALLOW_YHDM) {
+                Utils.msgToPlayer("已允许播放樱花动漫");
+            } else {
+                Utils.msgToPlayer("已禁止播放樱花动漫");
+            }
+
+            return 1;
+        }));
 
         LiteralArgumentBuilder<FabricClientCommandSource> maxCountNode = literal("max").then(argument("count", IntegerArgumentType.integer(0, 100)).executes(ctx -> {
             Configs.MAX_PLAYER_COUNT = IntegerArgumentType.getInteger(ctx, "count");
@@ -71,9 +82,10 @@ public class CommandOption {
         var optionNode = literal("option");
 
         optionNode.then(qualityNode);
-        optionNode.then(directLinkNode);
         optionNode.then(maxCountNode);
         optionNode.then(maxNonLowOverheadCountNode);
+        optionNode.then(directLinkNode);
+        optionNode.then(yhdmNode);
 
         dispatcher.register(literal("mcedia").then(optionNode));
     }

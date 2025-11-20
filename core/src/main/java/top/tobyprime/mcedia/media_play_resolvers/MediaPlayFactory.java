@@ -24,6 +24,7 @@ public class MediaPlayFactory {
             new BilibiliLiveMediaPlayResolver(),
             new BilibiliShortLinkMediaPlayResolver(),
             new DouyinVideoMediaPlayResolver(),
+            new YhdmMediaPlayResolver(),
             new DirectLinkMediaPlayResolver()
     );
 
