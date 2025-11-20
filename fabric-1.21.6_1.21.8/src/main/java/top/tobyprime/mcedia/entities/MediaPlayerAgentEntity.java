@@ -103,7 +103,7 @@ public class MediaPlayerAgentEntity extends Entity {
     public void tick() {
         super.tick();
         this.audioSources.forEach(i -> {
-            var audioOffsetRotated = new Vector3f(i.offsetX, i.offsetY, i.offsetZ).rotateX(this.getXRot()).rotateY(this.getYRot());
+            var audioOffsetRotated = new Vector3f(i.offsetX, i.offsetY, i.offsetZ).rotate(rotation);
 
             i.audioSource.setPos(((float) this.getX() + audioOffsetRotated.x), ((float) this.getY() + audioOffsetRotated.y), ((float) this.getZ() + audioOffsetRotated.z));
         });

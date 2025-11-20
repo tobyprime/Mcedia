@@ -37,7 +37,8 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     private final FFmpegFrameGrabber audioGrabber;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-    private final ReentrantReadWriteLock grabberLock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock videoGrabberLock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock audioGrabberLock = new ReentrantReadWriteLock();
 
     public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration) {
         this.configuration = configuration;
@@ -164,7 +165,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     private void videoDecodeLoop() {
         try {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
-                grabberLock.readLock().lock();
+                videoGrabberLock.readLock().lock();
                 try {
                     if (isClosed.get()) {
                         break;
@@ -201,7 +202,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                     }
                     break;
                 } finally {
-                    grabberLock.readLock().unlock();
+                    videoGrabberLock.readLock().unlock();
                 }
             }
         } catch (InterruptedException e) {
@@ -218,7 +219,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     private void audioDecodeLoop() {
         try {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
-                grabberLock.readLock().lock();
+                audioGrabberLock.readLock().lock();
                 try {
                     if (isClosed.get()) {
                         break;
@@ -240,7 +241,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                     }
                     break;
                 } finally {
-                    grabberLock.readLock().unlock();
+                    audioGrabberLock.readLock().unlock();
                 }
             }
         } catch (InterruptedException e) {
@@ -300,7 +301,8 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         if (getLength() <= 0) return;
         timestamp = Math.max(0, Math.min(timestamp, getLength()));
 
-        grabberLock.writeLock().lock();
+        videoGrabberLock.writeLock().lock();
+        audioGrabberLock.writeLock().lock();
         try {
             if (audioGrabber != null) {
                 audioGrabber.setTimestamp(timestamp);
@@ -313,7 +315,8 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         } catch (FrameGrabber.Exception e) {
             throw new RuntimeException("Seek failed", e);
         } finally {
-            grabberLock.writeLock().unlock();
+            videoGrabberLock.writeLock().unlock();
+            audioGrabberLock.writeLock().unlock();
         }
     }
 
@@ -328,7 +331,8 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         if (videoDecodeThread != null) {
             videoDecodeThread.interrupt();
         }
-        grabberLock.writeLock().lock();
+        videoGrabberLock.writeLock().lock();
+        audioGrabberLock.writeLock().lock();
         try {
             try {
                 if (videoGrabber != null) {
@@ -343,7 +347,8 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                 LOGGER.warn("停止或释放 grabber 时出错", e);
             }
         } finally {
-            grabberLock.writeLock().unlock();
+            videoGrabberLock.writeLock().unlock();
+            audioGrabberLock.writeLock().unlock();
         }
 
        if (videoDecodeThread != null) {

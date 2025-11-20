@@ -207,8 +207,11 @@ public class ArmorStandPlayerAgentWrapper implements IMediaPlayerInstance {
         try {
             playerAgent.setPos(armorStand.position());
             playerAgent.rotation = new Quaternionf()
-                    .rotateXYZ((float) Math.toRadians(-armorStand.getXRot()), (float) Math.toRadians(-armorStand.getYRot()), 0)
-                    .rotateXYZ((float) Math.toRadians(-armorStand.getHeadPose().x()), (float) Math.toRadians(-armorStand.getHeadPose().y()), (float) Math.toRadians(-armorStand.getHeadPose().z()));
+                    .rotateY((float) Math.toRadians(-armorStand.getYRot()))
+                    .rotateX((float) Math.toRadians(-armorStand.getXRot()))
+                    .rotateY((float) Math.toRadians(-armorStand.getHeadPose().y()))
+                    .rotateZ((float) Math.toRadians(-armorStand.getHeadPose().z()))
+                    .rotateX((float) Math.toRadians(armorStand.getHeadPose().x()));
 
             var mainHandBook = armorStand.getItemInHand(InteractionHand.MAIN_HAND);
 
