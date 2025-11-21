@@ -3,6 +3,7 @@ package top.tobyprime.mcedia;
 import org.jetbrains.annotations.Nullable;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 
+import java.util.List;
 import java.util.Properties;
 import java.util.function.Consumer;
 
@@ -10,7 +11,7 @@ public class Configs {
     public static boolean SHOW_LOAD_INFO = true;
     public static int MAX_PLAYER_COUNT = 5;
     public static int MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = 1;
-
+    public static List<String> ARMOR_STAND_PLAYER_NAME_PATTERNS = List.of("mcedia", "mcdia");
     // 3: 允许 8k
     // 2: 允许 4k
     // 1: 4k 以下最高
@@ -41,6 +42,9 @@ public class Configs {
     public static void fromProperties(Properties props) {
         Configs.MAX_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT)));
         Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_NON_LOW_OVERHEAD_PLAYER_COUNT", String.valueOf(Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT)));
+        Configs.SHOW_LOAD_INFO = Boolean.parseBoolean(props.getProperty("SHOW_LOAD_INFO", String.valueOf(Configs.SHOW_LOAD_INFO)));
+        Configs.VOLUME_FACTOR = Float.parseFloat(props.getProperty("VOLUME_FACTOR", String.valueOf(Configs.VOLUME_FACTOR)));
+        Configs.ARMOR_STAND_PLAYER_NAME_PATTERNS = List.of(props.getProperty("ARMOR_STAND_PLAYER_NAME_PATTERNS", String.join(";", ARMOR_STAND_PLAYER_NAME_PATTERNS)).split(";"));
 
         Configs.DANMAKU_VISIBLE = Boolean.parseBoolean(props.getProperty("DANMAKU_VISIBLE", String.valueOf(Configs.DANMAKU_VISIBLE)));
         Configs.DANMAKU_DURATION = Float.parseFloat(props.getProperty("DANMAKU_DURATION", String.valueOf(Configs.DANMAKU_DURATION)));
@@ -54,6 +58,10 @@ public class Configs {
     public static void writeToProperties(Properties props) {
         props.setProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT));
         props.setProperty("MAX_NON_LOW_OVERHEAD_PLAYER_COUNT", String.valueOf(Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT));
+        props.setProperty("SHOW_LOAD_INFO", String.valueOf(Configs.SHOW_LOAD_INFO));
+        props.setProperty("VOLUME_FACTOR", String.valueOf(Configs.VOLUME_FACTOR));
+        props.setProperty("ARMOR_STAND_PLAYER_NAME_PATTERNS", String.join(";", Configs.ARMOR_STAND_PLAYER_NAME_PATTERNS));
+
 
         props.setProperty("DANMAKU_VISIBLE", String.valueOf(Configs.DANMAKU_VISIBLE));
         props.setProperty("DANMAKU_DURATION", String.valueOf(Configs.DANMAKU_DURATION));

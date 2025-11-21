@@ -18,7 +18,7 @@ public class SoundPhysicsRemasteredCompat {
     public static Method processSoundMethod;
     public static boolean loaded = false;
 
-    public static void SoundPhysicsProcessSource8(IAudioSource audioSource) {
+    public static void SoundPhysicsProcessSourceNew(IAudioSource audioSource) {
         try {
             processSoundMethod.invoke(null, audioSource.getId(), audioSource.getLastX(), audioSource.getLastY(), audioSource.getLastZ(), SoundSource.MASTER, ID_RESOURCE);
         } catch (Exception e) {
@@ -59,15 +59,12 @@ public class SoundPhysicsRemasteredCompat {
             Configs.AUDIO_SOURCE_CONSUMER = SoundPhysicsRemasteredCompat::SoundPhysicsProcessSource;
             LOGGER.info("已启用物理声效兼容");
 
-        } catch (ClassNotFoundException | NoSuchMethodException e) {
-            LOGGER.warn("无法加载物理音效", e);
+        } catch (Exception e) {
+            tryInitNew();
         }
-
-        if (!loaded)
-            tryInit8();
     }
 
-    public static void tryInit8() {
+    public static void tryInitNew() {
         if (!FabricLoader.getInstance().isModLoaded("sound_physics_remastered")) return;
         try {
             // 获取类
@@ -84,7 +81,7 @@ public class SoundPhysicsRemasteredCompat {
                     ResourceLocation.class  // sound.getLocation().toString()
             );
             loaded = true;
-            Configs.AUDIO_SOURCE_CONSUMER = SoundPhysicsRemasteredCompat::SoundPhysicsProcessSource8;
+            Configs.AUDIO_SOURCE_CONSUMER = SoundPhysicsRemasteredCompat::SoundPhysicsProcessSourceNew;
             LOGGER.info("已启用物理声效兼容");
 
         } catch (ClassNotFoundException | NoSuchMethodException e) {
