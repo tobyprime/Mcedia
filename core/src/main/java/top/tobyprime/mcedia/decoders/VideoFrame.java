@@ -10,17 +10,20 @@ public class VideoFrame implements Closeable {
     public final int width;
     public final int height;
     private boolean released;
+    public boolean shouldFree =true;
 
-    public VideoFrame(ByteBuffer buffer, int width, int height, long ptsUs) {
+    public VideoFrame(ByteBuffer buffer, int width, int height, boolean shouldFree   ) {
         this.buffer = buffer;
         this.width = width;
         this.height = height;
         this.released = false;
+        this.shouldFree = shouldFree;
     }
 
     @Override
     public void close() {
         if (!released) {
+            if (shouldFree)
             MemoryUtil.memFree(buffer);
             released = true;
         }
