@@ -259,7 +259,7 @@ public class Media implements Closeable {
     private void uploadBuffer(IAudioData frame) {
         for (var audioSource : audioSources) {
             audioSource.upload(frame.getMergedAudioData());
-            if (Configs.AUDIO_SOURCE_CONSUMER != null){
+            if (Configs.AUDIO_SOURCE_CONSUMER != null && Configs.PHYSICS){
                 Configs.AUDIO_SOURCE_CONSUMER.accept(audioSource);
             }
         }

@@ -8,6 +8,7 @@ import java.util.Properties;
 import java.util.function.Consumer;
 
 public class Configs {
+    public static boolean PHYSICS = true;
     public static boolean SHOW_LOAD_INFO = true;
     public static int MAX_PLAYER_COUNT = 5;
     public static int MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = 1;
@@ -45,6 +46,8 @@ public class Configs {
         Configs.SHOW_LOAD_INFO = Boolean.parseBoolean(props.getProperty("SHOW_LOAD_INFO", String.valueOf(Configs.SHOW_LOAD_INFO)));
         Configs.VOLUME_FACTOR = Float.parseFloat(props.getProperty("VOLUME_FACTOR", String.valueOf(Configs.VOLUME_FACTOR)));
         Configs.ARMOR_STAND_PLAYER_NAME_PATTERNS = List.of(props.getProperty("ARMOR_STAND_PLAYER_NAME_PATTERNS", String.join(";", ARMOR_STAND_PLAYER_NAME_PATTERNS)).split(";"));
+        Configs.QUALITY = Integer.parseInt(props.getProperty("QUALITY", String.valueOf(Configs.QUALITY)));
+        Configs.PHYSICS = Boolean.parseBoolean(props.getProperty("PHYSICS", String.valueOf(Configs.PHYSICS)));
 
         Configs.DANMAKU_VISIBLE = Boolean.parseBoolean(props.getProperty("DANMAKU_VISIBLE", String.valueOf(Configs.DANMAKU_VISIBLE)));
         Configs.DANMAKU_DURATION = Float.parseFloat(props.getProperty("DANMAKU_DURATION", String.valueOf(Configs.DANMAKU_DURATION)));
@@ -61,7 +64,8 @@ public class Configs {
         props.setProperty("SHOW_LOAD_INFO", String.valueOf(Configs.SHOW_LOAD_INFO));
         props.setProperty("VOLUME_FACTOR", String.valueOf(Configs.VOLUME_FACTOR));
         props.setProperty("ARMOR_STAND_PLAYER_NAME_PATTERNS", String.join(";", Configs.ARMOR_STAND_PLAYER_NAME_PATTERNS));
-
+        props.setProperty("QUALITY", String.valueOf(Configs.QUALITY));
+        props.setProperty("PHYSICS", String.valueOf(Configs.PHYSICS));
 
         props.setProperty("DANMAKU_VISIBLE", String.valueOf(Configs.DANMAKU_VISIBLE));
         props.setProperty("DANMAKU_DURATION", String.valueOf(Configs.DANMAKU_DURATION));

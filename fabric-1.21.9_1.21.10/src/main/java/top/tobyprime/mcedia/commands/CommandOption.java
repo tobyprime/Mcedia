@@ -98,6 +98,19 @@ public class CommandOption {
             }
             return 1;
         }));
+
+        LiteralArgumentBuilder<FabricClientCommandSource> pyhsicsNode = literal("pyhsics").then(literal("toggle").executes(ctx -> {
+            Configs.PHYSICS = !Configs.PHYSICS;
+
+            McediaClient.SaveConfig();
+
+            if (Configs.PHYSICS) {
+                Utils.msgToPlayer("启用物理声效 (需安装物理声效mod，且极大的增加开销)");
+            } else {
+                Utils.msgToPlayer("关闭物理声效");
+            }
+            return 1;
+        }));
         var optionNode = literal("option");
 
         optionNode.then(qualityNode);
@@ -107,6 +120,7 @@ public class CommandOption {
         optionNode.then(yhdmNode);
         optionNode.then(volumeNode);
         optionNode.then(loadInfoNode);
+        optionNode.then(pyhsicsNode);
 
         dispatcher.register(literal("mcedia").then(optionNode));
     }
