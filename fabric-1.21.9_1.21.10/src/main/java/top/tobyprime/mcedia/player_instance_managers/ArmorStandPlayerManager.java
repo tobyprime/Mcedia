@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.McediaPlayerStatus;
 import top.tobyprime.mcedia.core.PlayerInstanceManagerRegistry;
 import top.tobyprime.mcedia.interfaces.IMediaPlayerInstance;
@@ -75,8 +76,14 @@ public class ArmorStandPlayerManager implements IPlayerInstanceManager {
             return;
         }
 
-        boolean isMcediaPlayer = entity.getName().toString().contains("mcedia");
-
+        boolean isMcediaPlayer = false;
+        var name = entity.getName().toString();
+        for (var pat : Configs.ARMOR_STAND_PLAYER_NAME_PATTERNS) {
+            if (name.contains(pat)){
+                isMcediaPlayer = true;
+                break;
+            }
+        }
         if (!entityToPlayer.containsKey(entity) && isMcediaPlayer) {
             addPlayer(entity);
         }
