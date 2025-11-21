@@ -29,7 +29,7 @@ public class FfmpegVideoDataConverter {
         if (stride == width * channels) { // 紧凑
 //            ByteBuffer copy = MemoryUtil.memAlloc(src.remaining());
 //            copy.put(src);
-            return new VideoFrame(src.slice(), width, height, false);
+            return new VideoFrame(src.slice(), width, height);
         }
 
         if (src.capacity() < stride * height) {
@@ -49,6 +49,6 @@ public class FfmpegVideoDataConverter {
             dst.put(rowData);
         }
         dst.flip();
-        return new VideoFrame(dst, width, height, true);
+        return new VideoFrame(dst, width, height);
     }
 }

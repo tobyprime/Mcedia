@@ -29,39 +29,39 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     private final DecoderConfiguration configuration;
     @Nullable
-    private Thread videoDecodeThread;
+    private Thread masterDecoderThread;
     @Nullable
     private Thread audioDecodeThread;
 
-    private final FFmpegFrameGrabber videoGrabber;
+    private final FFmpegFrameGrabber masterGrabber;
     private final FFmpegFrameGrabber audioGrabber;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-    private final ReentrantReadWriteLock videoGrabberLock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock masterGrabberLock = new ReentrantReadWriteLock();
     private final ReentrantReadWriteLock audioGrabberLock = new ReentrantReadWriteLock();
 
     public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration) {
         this.configuration = configuration;
 
-        this.videoQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_VIDEO_FRAMES);
+        this.videoQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_AUDIO_FRAMES);
         this.audioQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_AUDIO_FRAMES);
 
         try {
             if (configuration.enableVideo) {
-                videoGrabber = buildGrabber(info.streamUrl, info.headers, info.cookie, configuration, true);
-                videoGrabber.start();
+                masterGrabber = buildGrabber(info.streamUrl, info.headers, info.cookie, configuration, true);
+                masterGrabber.start();
             } else {
-                videoGrabber = null;
+                masterGrabber = null;
             }
 
             if (configuration.enableAudio) {
                 if (info.audioUrl != null && !info.audioUrl.isEmpty()) {
                     audioGrabber = buildGrabber(info.audioUrl, info.headers, info.cookie, configuration, false);
+                    audioGrabber.start();
                 } else {
-                    audioGrabber = buildGrabber(info.streamUrl, info.headers, info.cookie, configuration, false);
+                    audioGrabber = null; // buildGrabber(info.streamUrl, info.headers, info.cookie, configuration, false);
                 }
 
-                audioGrabber.start();
 
             }else {
                 audioGrabber = null;
@@ -71,19 +71,19 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             this.close();
             throw new RuntimeException(e);
         }
-        if (audioGrabber == null && videoGrabber == null) {
+        if (masterGrabber == null) {
             throw new RuntimeException("No available grabber");
         }
         startDecoder();
     }
 
     public void startDecoder() {
-        if (videoGrabber != null && videoDecodeThread == null) {
-            Thread thread = new Thread(this::videoDecodeLoop);
+        if (masterGrabber != null && masterDecoderThread == null) {
+            Thread thread = new Thread(this::masterDecodeLoop);
             thread.setName("Mcedia-Decoder-Video");
             thread.setDaemon(true);
             thread.start();
-            videoDecodeThread = thread;
+            masterDecoderThread = thread;
         }
 
         if (audioGrabber != null && audioDecodeThread == null) {
@@ -146,7 +146,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
         if (configuration.useHardwareDecoding) grabber.setOption("hwaccel", "auto");
         if (isVideoGrabber) {
-            grabber.setOption("an", "1"); // 视频解码禁用音频
+            grabber.setOption("an", configuration.enableAudio ?"0" : "1"); // 视频解码禁用音频
 
             grabber.setOption("vf", "format=rgba");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
@@ -162,47 +162,52 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
 
-    private void videoDecodeLoop() {
+    private void masterDecodeLoop() {
         try {
+            boolean grabVideo = true;
+            long lastVideoPts = 0;
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
-                videoGrabberLock.readLock().lock();
+                masterGrabberLock.readLock().lock();
                 try {
                     if (isClosed.get()) {
                         break;
                     }
-
-                    Frame frame = videoGrabber.grabImage();
+                    if (audioGrabber != null && masterGrabber.getTimestamp() - audioGrabber.getTimestamp() > 100_000){
+                        Thread.sleep(10);
+                        continue;
+                    }
+                    Frame frame = masterGrabber.grabFrame(true, grabVideo, true, false, false);
                     if (frame == null) {
                         break;
                     }
 
-                    var curTimestamp = frame.timestamp;
-
                     boolean isVideo = frame.image != null && configuration.enableVideo;
+                    boolean isAudio = frame.samples != null && configuration.enableAudio;
 
                     if (isVideo) {
-                        // 如果进入低开销模式，则降低到最低缓存，同时放慢解码频率
-                        while (lowOverhead && videoQueue.size() > Configs.DECODER_LOW_OVERHEAD_VIDEO_FRAMES) {
-                            Thread.sleep(50);
-                        }
-                        videoQueue.put(new FfmpegVideoData(frame));
-                        while (lowOverhead) {
-                            var skiped = videoGrabber.grabFrame(false, true, true, false);
-                            if (skiped == null) break;
-                            if (skiped.timestamp - curTimestamp >= 200000) {
-                                break;
-                            }
+                        lastVideoPts = frame.timestamp;
+
+                        var max = lowOverhead ? Configs.DECODER_LOW_OVERHEAD_VIDEO_FRAMES : Configs.DECODER_MAX_VIDEO_FRAMES;
+                        while (videoQueue.size() > max) {
                             Thread.sleep(10);
                         }
+                        videoQueue.put(new FfmpegVideoData(frame));
                     }
-
+                    if (isAudio) {
+                        audioQueue.put(new FfmpegAudioData(frame));
+                    }
+                    if (lowOverhead) {
+                        grabVideo = Math.abs(frame.timestamp - lastVideoPts) > 200_000;
+                    } else {
+                        grabVideo = true;
+                    }
                 } catch (FFmpegFrameGrabber.Exception e) {
                     if (!isClosed.get()) {
                         LOGGER.warn("视频解码发生异常.", e);
                     }
                     break;
                 } finally {
-                    videoGrabberLock.readLock().unlock();
+                    masterGrabberLock.readLock().unlock();
                 }
             }
         } catch (InterruptedException e) {
@@ -212,7 +217,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                 LOGGER.error("在解码循环中发生未捕获的错误", e);
             }
         } finally {
-            videoDecodeThread = null;
+            masterDecoderThread = null;
         }
     }
 
@@ -221,6 +226,11 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
                 audioGrabberLock.readLock().lock();
                 try {
+                    if (masterGrabber != null &&  audioGrabber.getTimestamp() - masterGrabber.getTimestamp() > 100_000){
+                        Thread.sleep(10);
+                        continue;
+                    }
+
                     if (isClosed.get()) {
                         break;
                     }
@@ -260,7 +270,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
     public FFmpegFrameGrabber getPrimaryGrabber(){
-        if (videoGrabber != null) return videoGrabber;
+        if (masterGrabber != null) return masterGrabber;
         if (audioGrabber != null) return audioGrabber;
         throw new RuntimeException("No active grabber found");
     }
@@ -276,24 +286,24 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
     public int getWidth() {
-        if (videoGrabber == null) return -1;
-        return videoGrabber.getImageWidth();
+        if (masterGrabber == null) return -1;
+        return masterGrabber.getImageWidth();
     }
 
     public int getHeight() {
-        if (videoGrabber == null) return -1;
-        return videoGrabber.getImageHeight();
+        if (masterGrabber == null) return -1;
+        return masterGrabber.getImageHeight();
     }
 
     @Override
     public int getSampleRate() {
-        if (audioGrabber == null) return -1;
+        if (audioGrabber == null) return masterGrabber.getSampleRate();
         return audioGrabber.getSampleRate();
     }
 
     @Override
     public int getChannels() {
-        if (audioGrabber == null) return -1;
+        if (audioGrabber == null) return masterGrabber.getAudioChannels();
         return audioGrabber.getAudioChannels();
     }
 
@@ -301,23 +311,32 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         if (getLength() <= 0) return;
         timestamp = Math.max(0, Math.min(timestamp, getLength()));
 
-        videoGrabberLock.writeLock().lock();
+        masterGrabberLock.writeLock().lock();
+        try {
+            if (masterGrabber != null) {
+                masterGrabber.setTimestamp(timestamp);
+            }
+        } catch (FFmpegFrameGrabber.Exception e) {
+            LOGGER.error("seek failed.", e);
+            throw new RuntimeException(e);
+        } finally {
+            masterGrabberLock.writeLock().unlock();
+        }
+
         audioGrabberLock.writeLock().lock();
         try {
             if (audioGrabber != null) {
                 audioGrabber.setTimestamp(timestamp);
             }
-            if (videoGrabber != null) {
-                videoGrabber.setTimestamp(timestamp);
-            }
-            startDecoder();
-            clearQueue();
         } catch (FrameGrabber.Exception e) {
+            LOGGER.error("seek failed.", e);
             throw new RuntimeException("Seek failed", e);
         } finally {
-            videoGrabberLock.writeLock().unlock();
             audioGrabberLock.writeLock().unlock();
         }
+
+        startDecoder();
+        clearQueue();
     }
 
     @Override
@@ -328,16 +347,18 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         if (audioDecodeThread != null) {
             audioDecodeThread.interrupt();
         }
-        if (videoDecodeThread != null) {
-            videoDecodeThread.interrupt();
+        if (masterDecoderThread != null) {
+            masterDecoderThread.interrupt();
         }
-        videoGrabberLock.writeLock().lock();
+        masterGrabberLock.writeLock().lock();
+
+
         audioGrabberLock.writeLock().lock();
         try {
             try {
-                if (videoGrabber != null) {
-                    videoGrabber.stop();
-                    videoGrabber.release();
+                if (masterGrabber != null) {
+                    masterGrabber.stop();
+                    masterGrabber.release();
                 }
                 if (audioGrabber != null) {
                     audioGrabber.stop();
@@ -347,12 +368,12 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                 LOGGER.warn("停止或释放 grabber 时出错", e);
             }
         } finally {
-            videoGrabberLock.writeLock().unlock();
+            masterGrabberLock.writeLock().unlock();
             audioGrabberLock.writeLock().unlock();
         }
 
-       if (videoDecodeThread != null) {
-           videoDecodeThread.interrupt();
+       if (masterDecoderThread != null) {
+           masterDecoderThread.interrupt();
        }
        if (audioDecodeThread != null) {
            audioDecodeThread.interrupt();
