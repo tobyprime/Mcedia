@@ -19,17 +19,17 @@ public class FfmpegVideoDataConverter {
         int height = frame.imageHeight;
         int stride = frame.imageStride;
 
-        return removeStride((ByteBuffer) srcBuffer, height, width, stride, frame.imageChannels, frame.timestamp);
+        return new VideoFrame(removeStride((ByteBuffer) srcBuffer, height, width, stride, frame.imageChannels), width, height);
     }
 
 
-    public static VideoFrame removeStride(ByteBuffer src, int height, int width, int stride, int channels, long timestamp) {
+    public static ByteBuffer removeStride(ByteBuffer src, int height, int width, int stride, int channels) {
         int rowElements = width * channels;
 
         if (stride == width * channels) { // 紧凑
-//            ByteBuffer copy = MemoryUtil.memAlloc(src.remaining());
-//            copy.put(src);
-            return new VideoFrame(src.slice(), width, height);
+            ByteBuffer copy = MemoryUtil.memAlloc(src.remaining());
+            copy.put(src);
+            return copy;
         }
 
         if (src.capacity() < stride * height) {
@@ -49,6 +49,6 @@ public class FfmpegVideoDataConverter {
             dst.put(rowData);
         }
         dst.flip();
-        return new VideoFrame(dst, width, height);
+        return dst;
     }
 }

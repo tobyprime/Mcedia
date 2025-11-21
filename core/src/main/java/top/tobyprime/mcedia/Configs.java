@@ -1,6 +1,9 @@
 package top.tobyprime.mcedia;
 
+import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 
 import java.util.List;
@@ -8,6 +11,7 @@ import java.util.Properties;
 import java.util.function.Consumer;
 
 public class Configs {
+    private static final Logger log = LoggerFactory.getLogger(Configs.class);
     public static boolean PHYSICS = true;
     public static boolean SHOW_LOAD_INFO = true;
     public static int MAX_PLAYER_COUNT = 5;
@@ -35,12 +39,18 @@ public class Configs {
     // 缓冲与解码配置
     public static int DECODER_MAX_AUDIO_FRAMES = 512;
     public static int DECODER_MAX_VIDEO_FRAMES = 120;
-    public static int DECODER_LOW_OVERHEAD_VIDEO_FRAMES = 2;
+    public static int DECODER_LOW_OVERHEAD_VIDEO_FRAMES = 1;
 
     public static boolean ALLOW_DIRECT_LINK = false;
     public static boolean ALLOW_YHDM = false;
 
     public static void fromProperties(Properties props) {
+        try {
+            FFmpegFrameGrabber.tryLoad();
+        } catch (FFmpegFrameGrabber.Exception e) {
+
+        }
+
         Configs.MAX_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_PLAYER_COUNT", String.valueOf(Configs.MAX_PLAYER_COUNT)));
         Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = Integer.parseInt(props.getProperty("MAX_NON_LOW_OVERHEAD_PLAYER_COUNT", String.valueOf(Configs.MAX_NON_LOW_OVERHEAD_PLAYER_COUNT)));
         Configs.SHOW_LOAD_INFO = Boolean.parseBoolean(props.getProperty("SHOW_LOAD_INFO", String.valueOf(Configs.SHOW_LOAD_INFO)));

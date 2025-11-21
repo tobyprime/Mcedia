@@ -1,18 +1,18 @@
 package top.tobyprime.mcedia.decoders.ffmpeg;
 
 import org.bytedeco.javacv.Frame;
-import org.opencv.video.Video;
 import top.tobyprime.mcedia.decoders.VideoFrame;
 import top.tobyprime.mcedia.interfaces.IVideoData;
 
 public class FfmpegVideoData implements IVideoData {
     private final long timestamp;
-    public Frame clonedFfmpegFrame ;
     public VideoFrame frame;
 
     public FfmpegVideoData(Frame ffmpegFrame) {
-        clonedFfmpegFrame = ffmpegFrame.clone();
-        this.frame = FfmpegVideoDataConverter.convertToVideoFrame(clonedFfmpegFrame);
+        // 无论如何一定要先clone，不然会出问题，不知道为什么
+        var clonedFrame = ffmpegFrame.clone();
+        this.frame = FfmpegVideoDataConverter.convertToVideoFrame(clonedFrame);
+        clonedFrame.close();
         this.timestamp = ffmpegFrame.timestamp;
     }
 
@@ -29,6 +29,5 @@ public class FfmpegVideoData implements IVideoData {
     @Override
     public void close() {
         frame.close();
-        clonedFfmpegFrame.close();
     }
 }

@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "top.tobyprime.mcedia.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8.5",
+  "mixins": [
+    "MixinFFmpegFrameGrabber"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

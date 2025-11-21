@@ -13,6 +13,7 @@ import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.interfaces.IAudioData;
 import top.tobyprime.mcedia.interfaces.IMediaDecoder;
 import top.tobyprime.mcedia.interfaces.IVideoData;
+import top.tobyprime.mcedia.mixin_bridge.FFmpegFrameGrabberMixinBridge;
 
 import java.io.Closeable;
 import java.util.Map;
@@ -43,7 +44,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     public FfmpegMediaDecoder(MediaInfo info, DecoderConfiguration configuration) {
         this.configuration = configuration;
 
-        this.videoQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_AUDIO_FRAMES);
+        this.videoQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_VIDEO_FRAMES);
         this.audioQueue = new LinkedBlockingDeque<>(Configs.DECODER_MAX_AUDIO_FRAMES);
 
         try {
@@ -163,9 +164,9 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
 
     private void masterDecodeLoop() {
+        FFmpegFrameGrabberMixinBridge bridgedGrabber = (FFmpegFrameGrabberMixinBridge) masterGrabber;
         try {
-            boolean grabVideo = true;
-            long lastVideoPts = 0;
+            long lastVideoFramePts = -1;
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
                 masterGrabberLock.readLock().lock();
                 try {
@@ -173,34 +174,35 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                         break;
                     }
                     if (audioGrabber != null && masterGrabber.getTimestamp() - audioGrabber.getTimestamp() > 100_000){
-                        Thread.sleep(10);
+                        Thread.sleep(50);
                         continue;
                     }
-                    Frame frame = masterGrabber.grabFrame(true, grabVideo, true, false, false);
+
+                    Frame frame = masterGrabber.grab();
+
                     if (frame == null) {
                         break;
                     }
 
-                    boolean isVideo = frame.image != null && configuration.enableVideo;
                     boolean isAudio = frame.samples != null && configuration.enableAudio;
+                    boolean isVideo = frame.image != null && configuration.enableVideo;
 
-                    if (isVideo) {
-                        lastVideoPts = frame.timestamp;
-
-                        var max = lowOverhead ? Configs.DECODER_LOW_OVERHEAD_VIDEO_FRAMES : Configs.DECODER_MAX_VIDEO_FRAMES;
-                        while (videoQueue.size() > max) {
-                            Thread.sleep(10);
-                        }
-                        videoQueue.put(new FfmpegVideoData(frame));
-                    }
                     if (isAudio) {
                         audioQueue.put(new FfmpegAudioData(frame));
                     }
-                    if (lowOverhead) {
-                        grabVideo = Math.abs(frame.timestamp - lastVideoPts) > 200_000;
-                    } else {
-                        grabVideo = true;
+
+                    if (isVideo && bridgedGrabber.mcedia$getProcessImage()) {
+                        lastVideoFramePts = frame.timestamp;
+                        videoQueue.put(new FfmpegVideoData(frame));
                     }
+
+                    if (lowOverhead) {
+                        bridgedGrabber.mcedia$setProcessImage(Math.abs(frame.timestamp - lastVideoFramePts) > 100_000);
+                    } else {
+                        bridgedGrabber.mcedia$setProcessImage(true);
+                    }
+
+
                 } catch (FFmpegFrameGrabber.Exception e) {
                     if (!isClosed.get()) {
                         LOGGER.warn("视频解码发生异常.", e);
@@ -315,6 +317,12 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         try {
             if (masterGrabber != null) {
                 masterGrabber.setTimestamp(timestamp);
+                videoQueue.forEach(FfmpegVideoData::close);
+                videoQueue.clear();
+                if (audioGrabber == null) {
+                    audioQueue.forEach(FfmpegAudioData::close);
+                    audioQueue.clear();
+                }
             }
         } catch (FFmpegFrameGrabber.Exception e) {
             LOGGER.error("seek failed.", e);
@@ -327,6 +335,8 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         try {
             if (audioGrabber != null) {
                 audioGrabber.setTimestamp(timestamp);
+                audioQueue.forEach(FfmpegAudioData::close);
+                audioQueue.clear();
             }
         } catch (FrameGrabber.Exception e) {
             LOGGER.error("seek failed.", e);
@@ -336,7 +346,6 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         }
 
         startDecoder();
-        clearQueue();
     }
 
     @Override
@@ -344,15 +353,14 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         if (!isClosed.compareAndSet(false, true)) {
             return;
         }
-        if (audioDecodeThread != null) {
-            audioDecodeThread.interrupt();
-        }
         if (masterDecoderThread != null) {
             masterDecoderThread.interrupt();
         }
+        if (audioDecodeThread != null) {
+            audioDecodeThread.interrupt();
+        }
+
         masterGrabberLock.writeLock().lock();
-
-
         audioGrabberLock.writeLock().lock();
         try {
             try {
@@ -364,6 +372,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                     audioGrabber.stop();
                     audioGrabber.release();
                 }
+
             } catch (Exception e) {
                 LOGGER.warn("停止或释放 grabber 时出错", e);
             }
@@ -372,13 +381,20 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             audioGrabberLock.writeLock().unlock();
         }
 
-       if (masterDecoderThread != null) {
-           masterDecoderThread.interrupt();
-       }
-       if (audioDecodeThread != null) {
-           audioDecodeThread.interrupt();
-       }
-
+        if (masterDecoderThread != null) {
+            try {
+                masterDecoderThread.join(500);
+            } catch (InterruptedException e) {
+                LOGGER.warn("join time out", e);
+            }
+        }
+        if (audioDecodeThread != null) {
+            try {
+                audioDecodeThread.join();
+            } catch (InterruptedException e) {
+                LOGGER.warn("join time out", e);
+            }
+        }
         clearQueue();
     }
 

@@ -21,6 +21,7 @@ public class VideoFrame implements Closeable {
     @Override
     public void close() {
         if (!released) {
+            MemoryUtil.memFree(buffer);
             released = true;
         }
     }

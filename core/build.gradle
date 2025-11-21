@@ -6,12 +6,16 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven { url "https://repo.spongepowered.org/maven/"}
 }
 
 def platform = project.findProperty('platformName') ?: 'windows-x86_64'
 
 dependencies {
     implementation "org.jetbrains:annotations:${project.annotations_version}"
+
+    compileOnly "org.spongepowered:mixin:${project.mixin_version}"  // 或更新到 0.15+
+    annotationProcessor "org.spongepowered:mixin:${project.mixin_version}:processor"
 
     implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}"
     implementation "org.lwjgl:lwjgl:${project.lwjgl_version}"

@@ -19,7 +19,8 @@
   },
 
   "mixins": [
-    "mcedia.mixins.json"
+    "mcedia.mixins.json",
+    "mcedia.core.mixins.json"
   ],
 
   "depends": {
