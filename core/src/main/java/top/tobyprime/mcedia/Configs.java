@@ -1,8 +1,13 @@
 package top.tobyprime.mcedia;
 
+import org.jetbrains.annotations.Nullable;
+import top.tobyprime.mcedia.interfaces.IAudioSource;
+
 import java.util.Properties;
+import java.util.function.Consumer;
 
 public class Configs {
+    public static boolean SHOW_LOAD_INFO = true;
     public static int MAX_PLAYER_COUNT = 5;
     public static int MAX_NON_LOW_OVERHEAD_PLAYER_COUNT = 1;
 
@@ -12,13 +17,18 @@ public class Configs {
     // 0: 最低画质
     public static int QUALITY = 2;
 
+    // 音量
+    public static Float VOLUME_FACTOR = 1f;
+
+    // 音频处理器，用于物理声效
+    @Nullable
+    public static Consumer<IAudioSource> AUDIO_SOURCE_CONSUMER = null;
 
     // 弹幕设置
     public static boolean DANMAKU_VISIBLE = false;
     public static Float DANMAKU_DURATION = 4.f;
     public static int DANMAKU_TRACKS = 12;
     public static Float DANMAKU_OPACITY = 0.5f;
-
 
     // 缓冲与解码配置
     public static int DECODER_MAX_AUDIO_FRAMES = 512;

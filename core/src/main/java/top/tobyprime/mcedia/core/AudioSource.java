@@ -4,6 +4,7 @@ import org.jetbrains.annotations.Nullable;
 import org.lwjgl.openal.AL10;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.decoders.AudioBufferData;
 import top.tobyprime.mcedia.interfaces.IAudioSource;
 
@@ -29,6 +30,10 @@ public class AudioSource implements IAudioSource {
 
     public AudioSource(Consumer<Runnable> alThreadExecutor) {
         this.alThreadExecutor = alThreadExecutor;
+    }
+
+    public int getId(){
+        return this.alSource;
     }
 
     private void alInit() {
@@ -179,7 +184,7 @@ public class AudioSource implements IAudioSource {
             if (bufferId == null) {
                 return;
             }
-
+            alSetVolume(volume * Configs.VOLUME_FACTOR);
             switch (bufferData.pcm) {
                 case ByteBuffer bb -> AL10.alBufferData(bufferId, AL10.AL_FORMAT_MONO16, bb, bufferData.sampleRate);
                 case ShortBuffer sb -> AL10.alBufferData(bufferId, AL10.AL_FORMAT_MONO16, sb, bufferData.sampleRate);
@@ -210,10 +215,29 @@ public class AudioSource implements IAudioSource {
             }
         }
     }
+    public volatile float x,y,z;
+
+    @Override
+    public float getLastX(){
+        return x;
+    }
+
+    @Override
+    public float getLastY(){
+        return y;
+    }
+
+    @Override
+    public float getLastZ(){
+        return z;
+    }
 
     private void alSetPos(float x, float y, float z) {
         alInitIfNeed();
         try {
+            this.x = x;
+            this.y = y;
+            this.z = z;
             AL10.alSource3f(alSource, AL10.AL_POSITION, x, y, z);
         } catch (Exception e) {
             LOGGER.error("设置位置异常", e);
@@ -333,8 +357,10 @@ public class AudioSource implements IAudioSource {
         alThreadExecutor.accept(() -> alSetPos(x, y, z));
     }
 
+    float volume = 1f;
     public void setVolume(float volume) {
-        alThreadExecutor.accept(() -> alSetVolume(volume));
+        this.volume = volume;
+//        alThreadExecutor.accept(() -> alSetVolume(volume));
     }
 
     public void setRange(float min, float max) {

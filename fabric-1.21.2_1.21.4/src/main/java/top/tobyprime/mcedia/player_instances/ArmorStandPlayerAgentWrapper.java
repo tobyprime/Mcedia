@@ -11,6 +11,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Quaternionf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.Utils;
 import top.tobyprime.mcedia.core.AudioSource;
 import top.tobyprime.mcedia.core.AudioSourceInstance;
@@ -91,7 +92,8 @@ public class ArmorStandPlayerAgentWrapper implements IMediaPlayerInstance {
             open(url);
         } catch (Exception e) {
             LOGGER.warn("播放失败", e);
-            Utils.msgToPlayer("播放失败");
+            if (Configs.SHOW_LOAD_INFO)
+                Utils.msgToPlayer("播放失败");
         }
     }
 
@@ -300,13 +302,12 @@ public class ArmorStandPlayerAgentWrapper implements IMediaPlayerInstance {
         var mediaPlay = player.getMediaPlayAndOpen(mediaUrl, (media) -> {
             player.play();
             media.seek(duration % media.getLength());
-            Utils.msgToPlayer(poster + "播放: " + media.getMediaInfo().title);
+            if (Configs.SHOW_LOAD_INFO)
+                Utils.msgToPlayer(poster + "播放: " + media.getMediaInfo().title);
         });
-        if (mediaPlay.getStatus() != null) {
-            Utils.msgToPlayer("播放器状态" + mediaPlay.getStatus());
-        }
+
         mediaPlay.registerOnStatusUpdatedEventAndCallOnce(status -> {
-            if (status != null)
+            if (status != null && Configs.SHOW_LOAD_INFO)
                 Utils.msgToPlayer("播放器状态: " + status);
         });
     }

@@ -3,6 +3,7 @@ package top.tobyprime.mcedia.core;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Configs;
 import top.tobyprime.mcedia.danmaku.Danmaku;
 import top.tobyprime.mcedia.danmaku.DanmakuEntity;
 import top.tobyprime.mcedia.danmaku.DanmakuScreen;
@@ -258,6 +259,9 @@ public class Media implements Closeable {
     private void uploadBuffer(IAudioData frame) {
         for (var audioSource : audioSources) {
             audioSource.upload(frame.getMergedAudioData());
+            if (Configs.AUDIO_SOURCE_CONSUMER != null){
+                Configs.AUDIO_SOURCE_CONSUMER.accept(audioSource);
+            }
         }
     }
 

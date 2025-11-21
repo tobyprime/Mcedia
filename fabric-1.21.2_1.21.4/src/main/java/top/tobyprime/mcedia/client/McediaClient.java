@@ -15,6 +15,7 @@ import top.tobyprime.mcedia.commands.CommandBilibili;
 import top.tobyprime.mcedia.commands.CommandOption;
 import top.tobyprime.mcedia.commands.CommandControl;
 import top.tobyprime.mcedia.commands.CommandDanmakuOption;
+import top.tobyprime.mcedia.compat.SoundPhysicsRemasteredCompat;
 import top.tobyprime.mcedia.core.PlayerInstanceManagerRegistry;
 import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
 import top.tobyprime.mcedia.player_instance_managers.ArmorStandPlayerManager;
@@ -57,6 +58,9 @@ public class McediaClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+
+        SoundPhysicsRemasteredCompat.init();
+
         ArmorStandPlayerManager.getInstance().onInitialize();
 
         EntityRendererRegistry.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);

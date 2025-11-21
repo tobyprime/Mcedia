@@ -1,6 +1,7 @@
 package top.tobyprime.mcedia.commands;// CommandLogin.java
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
@@ -78,7 +79,25 @@ public class CommandOption {
 
             return 1;
         }));
+        LiteralArgumentBuilder<FabricClientCommandSource> volumeNode = literal("volume").then(argument("volume", FloatArgumentType.floatArg(0, 10)).executes(ctx -> {
+            Configs.VOLUME_FACTOR = FloatArgumentType.getFloat(ctx, "volume");
+            McediaClient.SaveConfig();
+            Utils.msgToPlayer("已设置音量系数:" + Configs.VOLUME_FACTOR);
 
+            return 1;
+        }));
+        LiteralArgumentBuilder<FabricClientCommandSource> loadInfoNode = literal("load_info").then(literal("toggle").executes(ctx -> {
+            Configs.SHOW_LOAD_INFO = !Configs.SHOW_LOAD_INFO;
+
+            McediaClient.SaveConfig();
+
+            if (Configs.SHOW_LOAD_INFO) {
+                Utils.msgToPlayer("启用加载信息提示");
+            } else {
+                Utils.msgToPlayer("关闭加载信息提示");
+            }
+            return 1;
+        }));
         var optionNode = literal("option");
 
         optionNode.then(qualityNode);
@@ -86,6 +105,8 @@ public class CommandOption {
         optionNode.then(maxNonLowOverheadCountNode);
         optionNode.then(directLinkNode);
         optionNode.then(yhdmNode);
+        optionNode.then(volumeNode);
+        optionNode.then(loadInfoNode);
 
         dispatcher.register(literal("mcedia").then(optionNode));
     }
