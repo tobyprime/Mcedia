@@ -13,7 +13,6 @@ import top.tobyprime.mcedia.decoders.DecoderConfiguration;
 import top.tobyprime.mcedia.interfaces.IAudioData;
 import top.tobyprime.mcedia.interfaces.IMediaDecoder;
 import top.tobyprime.mcedia.interfaces.IVideoData;
-import top.tobyprime.mcedia.mixin_bridge.FFmpegFrameGrabberMixinBridge;
 
 import java.io.Closeable;
 import java.util.Map;
@@ -164,7 +163,6 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
 
     private void masterDecodeLoop() {
-        FFmpegFrameGrabberMixinBridge bridgedGrabber = (FFmpegFrameGrabberMixinBridge) masterGrabber;
         try {
             long lastVideoFramePts = -1;
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
@@ -172,10 +170,6 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                 try {
                     if (isClosed.get()) {
                         break;
-                    }
-                    if (audioGrabber != null && masterGrabber.getTimestamp() - audioGrabber.getTimestamp() > 100_000){
-                        Thread.sleep(50);
-                        continue;
                     }
 
                     Frame frame = masterGrabber.grab();
@@ -191,15 +185,15 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                         audioQueue.put(new FfmpegAudioData(frame));
                     }
 
-                    if (isVideo && bridgedGrabber.mcedia$getProcessImage()) {
+                    if (isVideo && FfmpegProcessImageFlags.isEnableProcessImage(masterGrabber)) {
                         lastVideoFramePts = frame.timestamp;
                         videoQueue.put(new FfmpegVideoData(frame));
                     }
 
                     if (lowOverhead) {
-                        bridgedGrabber.mcedia$setProcessImage(Math.abs(frame.timestamp - lastVideoFramePts) > 100_000);
+                        FfmpegProcessImageFlags.setProcessImage(masterGrabber, Math.abs(frame.timestamp - lastVideoFramePts) > 200_000);
                     } else {
-                        bridgedGrabber.mcedia$setProcessImage(true);
+                        FfmpegProcessImageFlags.setProcessImage(masterGrabber, true);
                     }
 
 
@@ -228,7 +222,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
                 audioGrabberLock.readLock().lock();
                 try {
-                    if (masterGrabber != null &&  audioGrabber.getTimestamp() - masterGrabber.getTimestamp() > 100_000){
+                    if (masterGrabber != null &&  audioGrabber.getTimestamp() - masterGrabber.getTimestamp() > 1_000_000){
                         Thread.sleep(10);
                         continue;
                     }
@@ -268,7 +262,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
     public boolean isEnded() {
-        return audioDecodeThread == null;
+        return masterDecoderThread == null;
     }
 
     public FFmpegFrameGrabber getPrimaryGrabber(){
