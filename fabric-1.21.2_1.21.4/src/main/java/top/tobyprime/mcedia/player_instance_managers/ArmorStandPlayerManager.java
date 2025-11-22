@@ -84,8 +84,6 @@ public class ArmorStandPlayerManager implements IPlayerInstanceManager {
                 break;
             }
         }
-
-
         if (!entityToPlayer.containsKey(entity) && isMcediaPlayer) {
             addPlayer(entity);
         }
