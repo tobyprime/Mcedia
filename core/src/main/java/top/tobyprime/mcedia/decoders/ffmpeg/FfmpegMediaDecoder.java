@@ -314,6 +314,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         timestamp = Math.max(0, Math.min(timestamp, getLength()));
 
         masterGrabberLock.writeLock().lock();
+        audioGrabberLock.writeLock().lock();
         try {
             if (masterGrabber != null) {
                 masterGrabber.setTimestamp(timestamp);
@@ -329,6 +330,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             throw new RuntimeException(e);
         } finally {
             masterGrabberLock.writeLock().unlock();
+            audioGrabberLock.writeLock().unlock();
         }
 
         audioGrabberLock.writeLock().lock();
