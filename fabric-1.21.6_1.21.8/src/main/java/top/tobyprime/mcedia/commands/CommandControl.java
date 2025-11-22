@@ -69,7 +69,21 @@ public class CommandControl {
             }
             targetingPlayer.getPlayer().getMediaPlayAndOpen(url, Media::play);
             return 1;
-        })));
+        }))).then(literal("forward").then(argument("secs", FloatArgumentType.floatArg()).executes(ctx -> {
+            var forwardSecs = FloatArgumentType.getFloat(ctx, "secs");
+            var targetingPlayer = PlayerInstanceManagerRegistry.getInstance().getTargetingPlayer();
+            if (targetingPlayer == null) {
+                Utils.msgToPlayer("请先指向一个播放器");
+                return 1;
+            }
+            targetingPlayer.getPlayer().seek(targetingPlayer.getPlayer().getDuration() + (long)(forwardSecs * 1_000_000F));
+            if (forwardSecs > 0) {
+                Utils.msgToPlayer("已前进 " + forwardSecs +" s");
+            } else {
+                Utils.msgToPlayer("已后退 " + -forwardSecs +" s");
+            }
+            return 1;
+        })));;
 
         dispatcher.register(literal("mcedia").then(controlNode));
     }

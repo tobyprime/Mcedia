@@ -3,7 +3,6 @@ package top.tobyprime.mcedia.decoders.ffmpeg;
 import org.bytedeco.ffmpeg.global.avutil;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
-import org.bytedeco.javacv.FrameGrabber;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 
 public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     private static final Logger LOGGER = LoggerFactory.getLogger(FfmpegMediaDecoder.class);
@@ -100,9 +100,42 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         return getLength() <= 0 || Double.isInfinite(getLength());
     }
 
+
+    private final ReentrantReadWriteLock videoQueueLock = new ReentrantReadWriteLock();
+
     @Override
-    public LinkedBlockingDeque<? extends IVideoData> getVideoQueue() {
-        return videoQueue;
+    public IVideoData peekVideo() {
+        videoQueueLock.readLock().lock();
+        try {
+            return videoQueue.peek();
+        } finally {
+            videoQueueLock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public IVideoData pollVideo() {
+        videoQueueLock.writeLock().lock();
+        try {
+            return videoQueue.poll();
+        } finally {
+            videoQueueLock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public @Nullable IVideoData pollVideoIf(Predicate<IVideoData> condition) {
+        videoQueueLock.writeLock().lock();
+        try {
+            var data = videoQueue.peek();
+            if (data == null) return null;
+            if (condition.test(data)) {
+                return videoQueue.poll();
+            }
+            return null;
+        } finally {
+            videoQueueLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -112,6 +145,9 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     @Override
     public void setLowOverhead(boolean lowOverhead) {
+        if (this.lowOverhead != lowOverhead && !lowOverhead) {
+            clearQueue();
+        }
         this.lowOverhead = lowOverhead;
     }
 
@@ -164,7 +200,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
 
     private void masterDecodeLoop() {
         try {
-            long lastVideoFramePts = -1;
+            long lastVideoFrameTimestamp = System.currentTimeMillis();
             while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
                 masterGrabberLock.readLock().lock();
                 try {
@@ -186,12 +222,15 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
                     }
 
                     if (isVideo && FfmpegProcessImageFlags.isEnableProcessImage(masterGrabber)) {
-                        lastVideoFramePts = frame.timestamp;
+                        while (!isClosed.get() && lowOverhead && this.videoQueue.size() > Configs.DECODER_LOW_OVERHEAD_VIDEO_FRAMES) {
+                            Thread.sleep(10);
+                        }
+                        lastVideoFrameTimestamp = System.currentTimeMillis();
                         videoQueue.put(new FfmpegVideoData(frame));
                     }
 
                     if (lowOverhead) {
-                        FfmpegProcessImageFlags.setProcessImage(masterGrabber, Math.abs(frame.timestamp - lastVideoFramePts) > 200_000);
+                        FfmpegProcessImageFlags.setProcessImage(masterGrabber, (System.currentTimeMillis() - lastVideoFrameTimestamp) > 100);
                     } else {
                         FfmpegProcessImageFlags.setProcessImage(masterGrabber, true);
                     }
@@ -310,15 +349,9 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
         masterGrabberLock.writeLock().lock();
         audioGrabberLock.writeLock().lock();
         try {
-            if (masterGrabber != null) {
-                masterGrabber.setTimestamp(timestamp);
-                videoQueue.forEach(FfmpegVideoData::close);
-                videoQueue.clear();
-                if (audioGrabber == null) {
-                    audioQueue.forEach(FfmpegAudioData::close);
-                    audioQueue.clear();
-                }
-            }
+            masterGrabber.setTimestamp(timestamp);
+            if (audioGrabber != null)
+                audioGrabber.setTimestamp(timestamp);
         } catch (FFmpegFrameGrabber.Exception e) {
             LOGGER.error("seek failed.", e);
             throw new RuntimeException(e);
@@ -326,21 +359,7 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
             masterGrabberLock.writeLock().unlock();
             audioGrabberLock.writeLock().unlock();
         }
-
-        audioGrabberLock.writeLock().lock();
-        try {
-            if (audioGrabber != null) {
-                audioGrabber.setTimestamp(timestamp);
-                audioQueue.forEach(FfmpegAudioData::close);
-                audioQueue.clear();
-            }
-        } catch (FrameGrabber.Exception e) {
-            LOGGER.error("seek failed.", e);
-            throw new RuntimeException("Seek failed", e);
-        } finally {
-            audioGrabberLock.writeLock().unlock();
-        }
-
+        clearQueue();
         startDecoder();
     }
 
@@ -395,9 +414,14 @@ public class FfmpegMediaDecoder implements Closeable, IMediaDecoder {
     }
 
     private void clearQueue() {
-        videoQueue.forEach(FfmpegVideoData::close);
-        audioQueue.forEach(FfmpegAudioData::close);
-        videoQueue.clear();
-        audioQueue.clear();
+        videoQueueLock.writeLock().lock();
+        try {
+            videoQueue.forEach(FfmpegVideoData::close);
+            audioQueue.forEach(FfmpegAudioData::close);
+            videoQueue.clear();
+            audioQueue.clear();
+        } finally {
+            videoQueueLock.writeLock().unlock();
+        }
     }
 }

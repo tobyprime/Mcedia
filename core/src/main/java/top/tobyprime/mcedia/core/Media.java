@@ -105,18 +105,14 @@ public class Media implements Closeable {
                         continue;
                     }
                     // 消费掉过期的视频帧
-                    while (!decoder.getVideoQueue().isEmpty()) {
-                        IVideoData videoFrame = decoder.getVideoQueue().peek();
+                    while (true) {
+                        IVideoData videoFrame = decoder.pollVideoIf((frame) -> frame.getTimestamp() < currFrame.getTimestamp());
                         if (videoFrame == null) break;
                         // 如果视频帧的时间戳小于当前音频帧，则认为过期，消费掉
-                        if (videoFrame.getTimestamp() < currFrame.getTimestamp()) {
-                            synchronized (this) {
-                                if (currentVideoFrame != null)
-                                    currentVideoFrame.close();
-                                currentVideoFrame = decoder.getVideoQueue().poll();
-                            }
-                        } else {
-                            break;
+                        synchronized (this) {
+                            if (currentVideoFrame != null)
+                                currentVideoFrame.close();
+                            currentVideoFrame = videoFrame;
                         }
                     }
 

@@ -1,13 +1,21 @@
 package top.tobyprime.mcedia.interfaces;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.io.Closeable;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.function.Predicate;
 
 public interface IMediaDecoder extends Closeable {
 
     boolean isLiveStream();
 
-    LinkedBlockingDeque<? extends IVideoData> getVideoQueue();
+
+    IVideoData peekVideo();
+
+    IVideoData pollVideo();
+
+    @Nullable IVideoData pollVideoIf(Predicate<IVideoData> condition);
 
     LinkedBlockingDeque<? extends IAudioData> getAudioQueue();
 

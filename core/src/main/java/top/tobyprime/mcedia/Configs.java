@@ -39,7 +39,7 @@ public class Configs {
     // 缓冲与解码配置
     public static int DECODER_MAX_AUDIO_FRAMES = 512;
     public static int DECODER_MAX_VIDEO_FRAMES = 120;
-    public static int DECODER_LOW_OVERHEAD_VIDEO_FRAMES = 1;
+    public static int DECODER_LOW_OVERHEAD_VIDEO_FRAMES = 20;
 
     public static boolean ALLOW_DIRECT_LINK = false;
     public static boolean ALLOW_YHDM = false;
