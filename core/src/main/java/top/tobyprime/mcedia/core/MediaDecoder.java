@@ -164,10 +164,24 @@ public class MediaDecoder implements Closeable {
                             copiedBuffer.limit(tightStride * height);
                             copiedBuffer.rewind();
 
-                            videoQueue.put(new VideoFrame(copiedBuffer, width, height, frame.timestamp, finalPool));
+                            VideoFrame videoFrame = new VideoFrame(copiedBuffer, width, height, frame.timestamp, finalPool);
+                            try {
+                                videoQueue.put(videoFrame);
+                            } catch (InterruptedException e) {
+                                videoFrame.close();
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
                         }
                     } else if (isAudio) {
-                        audioQueue.put(frame.clone());
+                        Frame audioFrame = frame.clone();
+                        try {
+                            audioQueue.put(audioFrame);
+                        } catch (InterruptedException e) {
+                            audioFrame.close();
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
                     }
 
                 } catch (FFmpegFrameGrabber.Exception e) {
@@ -179,8 +193,6 @@ public class MediaDecoder implements Closeable {
                     grabberLock.readLock().unlock();
                 }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
             if (!isClosed.get()) {
                 LOGGER.error("在解码循环中发生未捕获的错误", e);
@@ -272,9 +284,13 @@ public class MediaDecoder implements Closeable {
     }
 
     private void clearQueue() {
-        videoQueue.forEach(VideoFrame::close);
-        audioQueue.forEach(Frame::close);
-        videoQueue.clear();
-        audioQueue.clear();
+        VideoFrame vf;
+        while ((vf = videoQueue.poll()) != null) {
+            vf.close();
+        }
+        Frame f;
+        while ((f = audioQueue.poll()) != null) {
+            f.close();
+        }
     }
 }

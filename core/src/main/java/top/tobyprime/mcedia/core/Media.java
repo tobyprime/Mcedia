@@ -156,32 +156,43 @@ public class Media implements Closeable {
                 continue;
             }
 
-            long pts = currFrame.timestamp;
-            this.lastAudioPts = pts;
-            this.currentPtsUs.set(pts);
+            try {
+                long pts = currFrame.timestamp;
+                this.lastAudioPts = pts;
+                this.currentPtsUs.set(pts);
 
-            while (!decoder.videoQueue.isEmpty() && decoder.videoQueue.peek().ptsUs <= pts) {
-                VideoFrame frameToQueue = decoder.videoQueue.poll();
-                if (frameToQueue != null) {
-                    if (videoFrameQueue.size() >= VIDEO_BUFFER_TARGET) {
-                        VideoFrame oldFrame = videoFrameQueue.poll();
-                        if (oldFrame != null) oldFrame.close();
+                while (!decoder.videoQueue.isEmpty()) {
+                    VideoFrame head = decoder.videoQueue.peek();
+                    if (head == null) break;
+                    if (head.ptsUs <= pts) {
+                        VideoFrame frameToQueue = decoder.videoQueue.poll();
+                        if (frameToQueue != null) {
+                            if (videoFrameQueue.size() >= VIDEO_BUFFER_TARGET) {
+                                VideoFrame oldFrame = videoFrameQueue.poll();
+                                if (oldFrame != null) oldFrame.close();
+                            }
+                            videoFrameQueue.offer(frameToQueue);
+                        }
+                    } else {
+                        break;
                     }
-                    videoFrameQueue.offer(frameToQueue);
                 }
-            }
 
-            uploadBuffer(currFrame);
+                uploadBuffer(currFrame);
 
-            Frame nextFrame = decoder.audioQueue.peek();
-            long intervalUs = (nextFrame != null) ? (long) ((nextFrame.timestamp - pts) / speed) : 20_000L;
-            if (intervalUs <= 0) intervalUs = 20_000L;
-            nextPlayTime += intervalUs * 1000L;
-            long sleepNanos = nextPlayTime - System.nanoTime();
-            if (sleepNanos > 0) {
-                Thread.sleep(sleepNanos / 1_000_000, (int) (sleepNanos % 1_000_000));
+                Frame nextFrame = decoder.audioQueue.peek();
+                long intervalUs = (nextFrame != null) ? (long) ((nextFrame.timestamp - pts) / speed) : 20_000L;
+                if (intervalUs <= 0) intervalUs = 20_000L;
+                nextPlayTime += intervalUs * 1000L;
+                long sleepNanos = nextPlayTime - System.nanoTime();
+                if (sleepNanos > 0) {
+                    long sleepMs = sleepNanos / 1_000_000;
+                    int sleepNs = (int) (sleepNanos % 1_000_000);
+                    Thread.sleep(sleepMs, sleepNs);
+                }
+            } finally {
+                currFrame.close();
             }
-            currFrame.close();
         }
     }
 
@@ -330,11 +341,10 @@ public class Media implements Closeable {
 
             decoder.seek(targetUs);
 
-            decoder.audioQueue.forEach(Frame::close);
-            decoder.audioQueue.clear();
-
-            videoFrameQueue.forEach(VideoFrame::close);
-            videoFrameQueue.clear();
+            VideoFrame vf;
+            while ((vf = videoFrameQueue.poll()) != null) {
+                vf.close();
+            }
 
             currentPtsUs.set(targetUs);
 
@@ -345,6 +355,7 @@ public class Media implements Closeable {
             LOGGER.error("Seek failed", e);
         }
     }
+
 
     public void setLooping(boolean looping) {
         this.looping = looping;
