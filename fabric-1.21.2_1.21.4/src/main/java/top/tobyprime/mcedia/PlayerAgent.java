@@ -420,6 +420,21 @@ public class PlayerAgent {
         return CompletableFuture.runAsync(() -> {
             player.closeSync();
             player.shutdown();
+            if (this.texture != null) {
+                final ResourceLocation loc = this.texture.getResourceLocation();
+                Minecraft mc = Minecraft.getInstance();
+                if (mc != null) {
+                    mc.execute(() -> {
+                        if (mc.getTextureManager() != null) {
+                            mc.getTextureManager().release(loc);
+                        }
+                    });
+                }
+                this.texture = null;
+                this.isTextureInitialized = false;
+                this.isTextureReady.set(false);
+            }
+
         }, Mcedia.getInstance().getBackgroundExecutor());
     }
 

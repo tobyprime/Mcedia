@@ -90,6 +90,15 @@ public class VideoTexture extends AbstractTexture implements ITexture {
 
     @Override
     public void close() {
+        if (!RenderSystem.isOnRenderThread()) {
+            Minecraft.getInstance().execute(this::closeInternal);
+        } else {
+            closeInternal();
+        }
+    }
+
+    private void closeInternal() {
+        RenderSystem.assertOnRenderThread();
         super.close();
         this.isInitialized = false;
         this.width = -1;

@@ -172,9 +172,9 @@ public class PlayerConfigManager {
         String[] lines = pageContent.split("\n");
         for (String lineRaw : lines) {
             String line = lineRaw.trim().toLowerCase();
-            if (line.equals("looping")) {
+            if (line.contains("looping")) {
                 loopingFound = true;
-            } else if (line.equals("autoplay")) {
+            } else if (line.contains("autoplay")) {
                 autoplayFound = true;
             } else if (line.startsWith("light:")) {
                 try {

@@ -43,6 +43,7 @@ public class Media implements Closeable {
     private final ConcurrentLinkedQueue<VideoFrame> videoFrameQueue = new ConcurrentLinkedQueue<>();
     private final AtomicLong currentPtsUs = new AtomicLong(0);
     private final AtomicBoolean needsReconnect = new AtomicBoolean(false);
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
 
     private static final int AUDIO_BUFFER_TARGET = McediaConfig.getBufferingAudioTarget();
     private static final int VIDEO_BUFFER_TARGET = McediaConfig.getBufferingVideoTarget();
@@ -96,6 +97,9 @@ public class Media implements Closeable {
         try {
             if (isLiveStream) {
                 playLoopLive();
+            } else if (!decoder.hasAudio()) {
+                LOGGER.info("未检测到音频流，使用系统时钟驱动视频播放。");
+                playLoopVODNoAudio();
             } else {
                 playLoopVOD();
             }
@@ -106,13 +110,92 @@ public class Media implements Closeable {
     }
 
     /**
+     * 无音频时的 VOD 播放逻辑（基于系统时间）
+     */
+
+    private void playLoopVODNoAudio() throws InterruptedException {
+        long startTimeNs = -1;
+        long startPtsUs = 0;
+
+        // 等待缓冲
+        while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
+            if (paused) {
+                startTimeNs = -1;
+                Thread.sleep(10);
+                continue;
+            }
+
+            // 缓冲逻辑
+            if (isBuffering) {
+                if (decoder.isEof() || decoder.videoQueue.size() > VIDEO_BUFFER_TARGET / 2) {
+                    isBuffering = false;
+                    startTimeNs = System.nanoTime();
+                    startPtsUs = currentPtsUs.get();
+                    LOGGER.info("缓冲完成 (无音频)，开始播放。");
+                } else {
+                    Thread.sleep(20);
+                    continue;
+                }
+            }
+
+            // 检查水位线
+            if (decoder.videoQueue.size() < VIDEO_BUFFER_LOW_WATERMARK && !decoder.isEof()) {
+                isBuffering = true;
+                continue;
+            }
+
+            // 计算目标时间戳
+            if (startTimeNs == -1) {
+                startTimeNs = System.nanoTime();
+                startPtsUs = currentPtsUs.get();
+            }
+
+            long elapsedNs = System.nanoTime() - startTimeNs;
+            long targetPts = startPtsUs + (long)(elapsedNs / 1000.0 * speed);
+
+            if (needsTimeReset) {
+                startTimeNs = System.nanoTime();
+                startPtsUs = currentPtsUs.get();
+                needsTimeReset = false;
+                targetPts = startPtsUs;
+            }
+
+            this.currentPtsUs.set(targetPts);
+
+            // 视频结束检测
+            if (decoder.videoQueue.isEmpty() && decoder.isEof()) {
+                break;
+            }
+
+            // 同步视频帧
+            while (!decoder.videoQueue.isEmpty()) {
+                VideoFrame head = decoder.videoQueue.peek();
+                if (head != null && head.ptsUs <= targetPts) {
+                    VideoFrame frame = decoder.videoQueue.poll();
+                    if (frame != null) {
+                        if (videoFrameQueue.size() >= VIDEO_BUFFER_TARGET) {
+                            VideoFrame old = videoFrameQueue.poll();
+                            if (old != null) old.close();
+                        }
+                        videoFrameQueue.offer(frame);
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            Thread.sleep(5);
+        }
+    }
+
+    /**
      * 用于播放点播视频 (VOD) 的原始逻辑
      * 专门处理VOD。
      */
     private void playLoopVOD() throws InterruptedException {
         long nextPlayTime = System.nanoTime();
         long lastFrameTime = System.currentTimeMillis();
-        while (!Thread.currentThread().isInterrupted()) {
+        while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
             if (paused) {
                 Thread.sleep(10);
                 continue;
@@ -207,7 +290,7 @@ public class Media implements Closeable {
 
         isBuffering = true;
 
-        while (!Thread.currentThread().isInterrupted()) {
+        while (!Thread.currentThread().isInterrupted() && !isClosed.get()) {
             if (paused) {
                 streamStartTimeNs = -1;
                 Thread.sleep(10);
@@ -431,6 +514,9 @@ public class Media implements Closeable {
 
     @Override
     public void close() {
+        if (isClosed.getAndSet(true)) {
+            return;
+        }
         audioThread.interrupt();
         this.audioSources.forEach(s -> s.setPitch(1));
         try {

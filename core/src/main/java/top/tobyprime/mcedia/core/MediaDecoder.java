@@ -32,6 +32,7 @@ public class MediaDecoder implements Closeable {
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private volatile int runningDecoders = 0;
+    private boolean hasAudioStream = false;
 
     @Nullable
     private final VideoFramePool videoFramePool;
@@ -55,6 +56,9 @@ public class MediaDecoder implements Closeable {
         try {
             for (FFmpegFrameGrabber grabber : grabbers) {
                 grabber.start();
+                if (grabber.getAudioChannels() > 0) {
+                    this.hasAudioStream = true;
+                }
                 if (initialSeekUs > 0 && grabber.getLengthInTime() > 0) {
                     grabber.setTimestamp(initialSeekUs, true);
                 }
@@ -62,6 +66,10 @@ public class MediaDecoder implements Closeable {
         } catch (FFmpegFrameGrabber.Exception e) {
             close();
             throw e;
+        }
+
+        if (!configuration.enableAudio) {
+            this.hasAudioStream = false;
         }
 
         for (FFmpegFrameGrabber grabber : grabbers) {
@@ -215,6 +223,10 @@ public class MediaDecoder implements Closeable {
         } finally {
             avutil.av_log_set_level(oldLevel);
         }
+    }
+
+    public boolean hasAudio() {
+        return this.hasAudioStream;
     }
 
     public boolean isEof() {

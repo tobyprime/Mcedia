@@ -79,6 +79,9 @@ public class PlaylistManager {
         if (currentPlayingItem == null) {
             return;
         }
+        if (McediaConfig.isResumeOnReloadEnabled()) {
+            Mcedia.getInstance().savePlayerProgress(agent.getEntity().getUUID(), 0);
+        }
         if (agent.getConfigManager().videoAutoplay) {
             if (currentPlayingItem.mode == PlayerAgent.BiliPlaybackMode.BANGUMI_SERIES) {
                 if (playNextBangumiEpisode()) {
@@ -224,7 +227,7 @@ public class PlaylistManager {
             } else {
                 if (McediaConfig.isResumeOnReloadEnabled()) {
                     long resumeTime = Mcedia.getInstance().loadPlayerProgress(agent.getEntity().getUUID());
-                    if (resumeTime > 0) {
+                    if (resumeTime > 5_000_000) {
                         finalSeekTimestampUs += resumeTime;
                         LOGGER.info("读取到断点续播时间: {}us", resumeTime);
                     }
@@ -272,10 +275,14 @@ public class PlaylistManager {
                             currentPlayingItem.pNumber = nextP;
                         }
 
+                        if (McediaConfig.isResumeOnReloadEnabled()) {
+                            Mcedia.getInstance().savePlayerProgress(agent.getEntity().getUUID(), 0);
+                        }
+
                         Minecraft.getInstance().execute(() -> {
                             agent.startPlayback(nextUrl, false, 0, agent.getConfigManager().desiredQuality);
                         });
-                        return false;
+                        return true;
                     }
                 }
             } catch (Exception e) {
@@ -298,6 +305,9 @@ public class PlaylistManager {
         if (nextEpisode != null) {
             LOGGER.info("番剧连播: 找到下一集 '{}', 正在加载...", nextEpisode.title);
             String nextUrl = "https://www.bilibili.com/bangumi/play/ep" + nextEpisode.epId;
+            if (McediaConfig.isResumeOnReloadEnabled()) {
+                Mcedia.getInstance().savePlayerProgress(agent.getEntity().getUUID(), 0);
+            }
             Minecraft.getInstance().execute(() -> {
                 agent.startPlayback(nextUrl, false, 0, agent.getConfigManager().desiredQuality);
             });

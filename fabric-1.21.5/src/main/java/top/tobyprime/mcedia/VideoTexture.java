@@ -4,7 +4,6 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.GpuDevice;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
@@ -80,9 +79,11 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         }
         GpuDevice gpuDevice = RenderSystem.getDevice();
         frame.buffer.rewind();
-        NativeImage tempImage = new NativeImage(NativeImage.Format.RGBA, frame.width, frame.height, false, MemoryUtil.memAddress(frame.buffer));
-        CommandEncoder commandEncoder = gpuDevice.createCommandEncoder();
-        commandEncoder.writeToTexture(this.texture, tempImage);
+
+        try (NativeImage tempImage = new NativeImage(NativeImage.Format.RGBA, frame.width, frame.height, false, MemoryUtil.memAddress(frame.buffer))) {
+            CommandEncoder commandEncoder = gpuDevice.createCommandEncoder();
+            commandEncoder.writeToTexture(this.texture, tempImage);
+        }
     }
 
     @Override
@@ -97,6 +98,11 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private void closeInternal() {
         RenderSystem.assertOnRenderThread();
         super.close();
+        if (this.texture != null) {
+            this.texture.close();
+            this.texture = null;
+        }
+
         this.isInitialized = false;
         this.width = -1;
         this.height = -1;
