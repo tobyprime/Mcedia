@@ -7,6 +7,8 @@ import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL21;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.VideoFrame;
@@ -20,6 +22,10 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private volatile boolean isInitialized = false;
     private int width = -1;
     private int height = -1;
+
+    // PBO 相关
+    private int pboId = -1;
+    private int pboSize = -1;
 
     public VideoTexture(ResourceLocation id) {
         super();
@@ -35,24 +41,34 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         return this.isInitialized;
     }
 
-    public void prepareAndPrewarm(int width, int height, Runnable onReadyCallback) {
-        if (width <= 0 || height <= 0) {
-            logger.warn("尝试使用无效的尺寸 {}x{} 准备纹理", width, height);
-            return;
+    private void ensurePbo(int size) {
+        if (pboId == -1 || pboSize < size) {
+            if (pboId != -1) {
+                GL15.glDeleteBuffers(pboId);
+            }
+            pboId = GL15.glGenBuffers();
+            GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER, pboId);
+            GL15.glBufferData(GL21.GL_PIXEL_UNPACK_BUFFER, size, GL15.GL_STREAM_DRAW);
+            GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER, 0);
+            pboSize = size;
+            logger.info("分配 PBO 缓冲区: ID={}, Size={} bytes", pboId, size);
         }
+    }
+
+    public void prepareAndPrewarm(int width, int height, Runnable onReadyCallback) {
+        if (width <= 0 || height <= 0) return;
 
         RenderSystem.assertOnRenderThread();
         if (this.getId() == -1 || this.width != width || this.height != height) {
             this.width = width;
             this.height = height;
-
             TextureUtil.prepareImage(this.getId(), 0, width, height);
-
             this.bind();
             RenderSystem.texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
             RenderSystem.texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
             RenderSystem.texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
             RenderSystem.texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            ensurePbo(width * height * 4);
         }
 
         try (var blackFrame = VideoFrame.createBlack(width, height)) {
@@ -72,9 +88,16 @@ public class VideoTexture extends AbstractTexture implements ITexture {
             return;
         }
 
-        this.bind();
+        int dataSize = frame.width * frame.height * 4;
+        ensurePbo(dataSize);
+        GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER, pboId);
         frame.buffer.rewind();
-
+        GL15.glBufferSubData(GL21.GL_PIXEL_UNPACK_BUFFER, 0, frame.buffer);
+        this.bind();
+        GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 1);
         GL11.glTexSubImage2D(
                 GL11.GL_TEXTURE_2D,
                 0,
@@ -84,8 +107,9 @@ public class VideoTexture extends AbstractTexture implements ITexture {
                 frame.height,
                 GL11.GL_RGBA,
                 GL11.GL_UNSIGNED_BYTE,
-                frame.buffer
+                0
         );
+        GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER, 0);
     }
 
     @Override
@@ -100,6 +124,10 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private void closeInternal() {
         RenderSystem.assertOnRenderThread();
         super.close();
+        if (pboId != -1) {
+            GL15.glDeleteBuffers(pboId);
+            pboId = -1;
+        }
         this.isInitialized = false;
         this.width = -1;
         this.height = -1;

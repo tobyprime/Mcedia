@@ -8,11 +8,16 @@ import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL21;
 import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.VideoFrame;
 import top.tobyprime.mcedia.interfaces.ITexture;
+
+import java.lang.reflect.Field;
 
 public class VideoTexture extends AbstractTexture implements ITexture {
     private final Logger logger = LoggerFactory.getLogger(VideoTexture.class);
@@ -20,6 +25,28 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private volatile boolean isInitialized = false;
     private int width = -1;
     private int height = -1;
+
+    private int pboId = -1;
+    private int pboSize = -1;
+
+    // 反射字段缓存
+    private static final Field NATIVE_IMAGE_PIXELS_FIELD;
+
+    static {
+        Field f = null;
+        try {
+            f = NativeImage.class.getDeclaredField("pixels");
+            f.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            try {
+                f = NativeImage.class.getDeclaredField("field_4976");
+                f.setAccessible(true);
+            } catch (Exception ignored) {}
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        NATIVE_IMAGE_PIXELS_FIELD = f;
+    }
 
     public VideoTexture(ResourceLocation id) {
         super();
@@ -29,6 +56,17 @@ public class VideoTexture extends AbstractTexture implements ITexture {
 
     public boolean isInitialized() {
         return this.isInitialized;
+    }
+
+    private void ensurePbo(int size) {
+        if (pboId == -1 || pboSize < size) {
+            if (pboId != -1) GL15.glDeleteBuffers(pboId);
+            pboId = GL15.glGenBuffers();
+            GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER, pboId);
+            GL15.glBufferData(GL21.GL_PIXEL_UNPACK_BUFFER, size, GL15.GL_STREAM_DRAW);
+            GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER, 0);
+            pboSize = size;
+        }
     }
 
     public void prepareAndPrewarm(int width, int height, Runnable onReadyCallback) {
@@ -43,6 +81,8 @@ public class VideoTexture extends AbstractTexture implements ITexture {
                 if (this.texture == null || this.width != width || this.height != height) {
                     resize(width, height);
                 }
+
+                ensurePbo(width * height * 4);
 
                 try (var blackFrame = VideoFrame.createBlack(width, height)) {
                     upload(blackFrame);
@@ -79,10 +119,24 @@ public class VideoTexture extends AbstractTexture implements ITexture {
         }
         GpuDevice gpuDevice = RenderSystem.getDevice();
         frame.buffer.rewind();
+        GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 1);
+        NativeImage tempImage = new NativeImage(NativeImage.Format.RGBA, frame.width, frame.height, false, MemoryUtil.memAddress(frame.buffer));
 
-        try (NativeImage tempImage = new NativeImage(NativeImage.Format.RGBA, frame.width, frame.height, false, MemoryUtil.memAddress(frame.buffer))) {
+        try {
             CommandEncoder commandEncoder = gpuDevice.createCommandEncoder();
             commandEncoder.writeToTexture(this.texture, tempImage);
+        } finally {
+            if (NATIVE_IMAGE_PIXELS_FIELD != null) {
+                try {
+                    NATIVE_IMAGE_PIXELS_FIELD.setLong(tempImage, 0L);
+                } catch (IllegalAccessException e) {
+                    logger.error("无法分离 NativeImage 内存指针", e);
+                }
+            }
+            tempImage.close();
         }
     }
 

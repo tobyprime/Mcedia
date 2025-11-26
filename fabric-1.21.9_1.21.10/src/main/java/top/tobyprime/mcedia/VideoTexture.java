@@ -5,12 +5,11 @@ import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.GpuDevice;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
-import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
-import org.jetbrains.annotations.Nullable;
+import org.lwjgl.opengl.GL11;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.core.VideoFrame;
@@ -22,9 +21,6 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private volatile boolean isInitialized = false;
     private int width = -1;
     private int height = -1;
-    @Nullable
-    private GpuTexture gpuTexture;
-    @Nullable private GpuTextureView gpuTextureView;
 
     public VideoTexture(ResourceLocation id) {
         super();
@@ -72,9 +68,17 @@ public class VideoTexture extends AbstractTexture implements ITexture {
 
         GpuDevice gpuDevice = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST;
-
-        this.texture = gpuDevice.createTexture(this.resourceLocation.toString(), usage, TextureFormat.RGBA8, width, height, 1, 1);
+        this.texture = gpuDevice.createTexture(
+                this.resourceLocation.toString(),
+                usage,
+                TextureFormat.RGBA8,
+                width,
+                height,
+                1, // depth
+                1  // mip levels
+        );
         this.textureView = gpuDevice.createTextureView(this.texture);
+
         this.width = width;
         this.height = height;
 
@@ -91,16 +95,20 @@ public class VideoTexture extends AbstractTexture implements ITexture {
 
         GpuDevice gpuDevice = RenderSystem.getDevice();
         frame.buffer.rewind();
+        GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 1);
 
         CommandEncoder commandEncoder = gpuDevice.createCommandEncoder();
         commandEncoder.writeToTexture(
                 this.texture,
                 frame.buffer,
                 NativeImage.Format.RGBA,
-                0,
-                0,
-                0,
-                0,
+                0, // x
+                0, // y
+                0, // z
+                0, // mip
                 frame.width,
                 frame.height
         );
@@ -118,13 +126,14 @@ public class VideoTexture extends AbstractTexture implements ITexture {
     private void closeInternal() {
         RenderSystem.assertOnRenderThread();
         super.close();
-        if (this.gpuTextureView != null) {
-            this.gpuTextureView.close();
-            this.gpuTextureView = null;
+
+        if (this.textureView != null) {
+            this.textureView.close();
+            this.textureView = null;
         }
-        if (this.gpuTexture != null) {
-            this.gpuTexture.close();
-            this.gpuTexture = null;
+        if (this.texture != null) {
+            this.texture.close();
+            this.texture = null;
         }
 
         this.isInitialized = false;

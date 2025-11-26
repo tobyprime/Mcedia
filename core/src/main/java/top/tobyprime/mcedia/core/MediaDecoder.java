@@ -269,18 +269,14 @@ public class MediaDecoder implements Closeable {
         }
 
         decoderThreads.forEach(Thread::interrupt);
-        grabberLock.writeLock().lock();
-        try {
-            for (FFmpegFrameGrabber grabber : grabbers) {
-                try {
-                    grabber.stop();
-                    grabber.release();
-                } catch (Exception e) {
-                    LOGGER.warn("停止或释放 grabber 时出错", e);
-                }
+
+        for (FFmpegFrameGrabber grabber : grabbers) {
+            try {
+                grabber.stop();
+                grabber.release();
+            } catch (Exception e) {
+                LOGGER.warn("停止或释放 grabber 时出错", e);
             }
-        } finally {
-            grabberLock.writeLock().unlock();
         }
 
         for (Thread thread : decoderThreads) {

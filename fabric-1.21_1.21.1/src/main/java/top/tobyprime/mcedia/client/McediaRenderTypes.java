@@ -19,12 +19,13 @@ public final class McediaRenderTypes extends RenderStateShard {
             false,
             true,
             RenderType.CompositeState.builder()
-                    .setShaderState(RENDERTYPE_ENTITY_TRANSLUCENT_SHADER)
+                    .setShaderState(RENDERTYPE_TEXT_BACKGROUND_SHADER)
                     .setTextureState(NO_TEXTURE)
                     .setTransparencyState(TRANSLUCENT_TRANSPARENCY)
                     .setCullState(NO_CULL)
                     .setLightmapState(LIGHTMAP)
                     .setOverlayState(NO_OVERLAY)
-                    .createCompositeState(true)
+                    .setDepthTestState(LEQUAL_DEPTH_TEST)
+                    .createCompositeState(false)
     );
 }
