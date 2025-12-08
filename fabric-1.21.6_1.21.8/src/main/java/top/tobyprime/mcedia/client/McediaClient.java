@@ -34,7 +34,6 @@ public class McediaClient implements ClientModInitializer {
             CommandConfig.register(dispatcher);
             CommandPreset.register(dispatcher);
             CommandPlaylist.register(dispatcher);
-            CommandDebug.register(dispatcher);
         });
     }
 
