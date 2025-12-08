@@ -10,6 +10,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.item.ItemStack;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.agent.PlayerConfigManager;
 import top.tobyprime.mcedia.agent.PlayerRenderer;
 import top.tobyprime.mcedia.agent.PlaylistManager;
+import top.tobyprime.mcedia.util.ScreenInteractionHelper;
 import top.tobyprime.mcedia.core.AudioSource;
 import top.tobyprime.mcedia.core.Media;
 import top.tobyprime.mcedia.core.MediaPlayer;
@@ -75,6 +77,11 @@ public class PlayerAgent {
     private boolean hasPerformedInitialCheck = false;
     private int saveProgressTicker = 0;
 
+    private boolean isDraggingProgress = false;
+    private float dragProgressValue = 0.0f;
+    private boolean wasRightClickDown = false;
+    private long lastSyncedStartTime = 0;
+
     // --- 内部数据结构 ---
     public enum PlaybackSource {BOOK, COMMAND}
 
@@ -91,6 +98,8 @@ public class PlayerAgent {
         public String desiredQuality = null;
         @Nullable
         public String seasonId = null;
+
+        public final java.util.Map<String, String> configOverrides = new java.util.HashMap<>();
 
         public PlaybackItem(String url) {
             this.originalUrl = url;
@@ -131,6 +140,9 @@ public class PlayerAgent {
                 playlistManager.startPlaylist();
             }
         }
+        if (entity.level().isClientSide && player.getMedia() != null && !player.getMedia().isLiveStream()) {
+            handleInput();
+        }
         try {
             update();
             Media currentMedia = player.getMedia();
@@ -156,6 +168,69 @@ public class PlayerAgent {
         }
     }
 
+    private void handleInput() {
+        Minecraft mc = Minecraft.getInstance();
+        boolean isRightClickDown = mc.mouseHandler.isRightPressed();
+
+        float aspectRatio = player.getMedia() != null ? player.getMedia().getAspectRatio() : 1.777f;
+        float aimedProgress = ScreenInteractionHelper.getHitProgress(entity, configManager, aspectRatio);
+
+        if (isDraggingProgress) {
+            if (isRightClickDown) {
+                // 保持拖拽：更新进度值
+                // 如果鼠标移出了区域，我们可以选择保持最后的进度，或者允许在屏幕外继续拖动(只要不松手)
+                // 这里我们做一个优化：如果还在射线范围内，更新值；如果移出太远，也可以限制一下，但简单起见，只要按住就算
+
+                // 只有当射线还能检测到屏幕平面附近时才更新，防止视角转到背后还生效
+                // 为了体验好，这里我们稍微放宽要求：只要按住且最初是在进度条上按下的，就根据射线更新
+                if (aimedProgress != -1) {
+                    this.dragProgressValue = aimedProgress;
+                }
+                // 这里的逻辑可以优化：如果 aimedProgress == -1 (看别处了)，我们是否要根据鼠标偏移量计算？
+                // 简单的做法：只在视线落在进度条范围内时更新。
+
+            } else {
+                LOGGER.info("拖拽结束，跳转进度到: {}%", String.format("%.2f", dragProgressValue * 100));
+                long targetUs = (long) (dragProgressValue * player.getMedia().getLengthUs());
+                commandSeek(targetUs);
+
+                isDraggingProgress = false;
+            }
+        } else {
+            if (isRightClickDown && !wasRightClickDown) {
+                if (aimedProgress != -1) {
+                    isDraggingProgress = true;
+                    dragProgressValue = aimedProgress;
+                    mc.options.keyUse.setDown(false);
+                }
+            }
+        }
+
+        this.wasRightClickDown = isRightClickDown;
+    }
+
+    /**
+     * 发送隐形数据包给服务端插件
+     */
+    public void updateHandItemState(long targetPosUs) {
+        if (Minecraft.getInstance().player == null) return;
+
+        long now = System.currentTimeMillis();
+        long newStartTime = now - (targetPosUs / 1000);
+
+        lastSyncedStartTime = newStartTime;
+
+        // 检查服务端是否注册了这个通道 (即是否安装了 McediaPlugin)
+        if (ClientPlayNetworking.canSend(McediaSyncPayload.ID)) {
+            // 发送二进制包
+            ClientPlayNetworking.send(new McediaSyncPayload(entity.getUUID(), newStartTime));
+            LOGGER.info("发送同步数据包 (Packet): timestamp={}", newStartTime);
+        } else {
+            // 如果服务端没装插件，静默失败，不报错，也不发指令骚扰玩家
+            LOGGER.debug("服务端未安装 Mcedia 同步插件，跳过同步。");
+        }
+    }
+
     public void update() {
         ItemStack offHandItem = entity.getItemInHand(InteractionHand.OFF_HAND);
         if (!ItemStack.matches(offHandItem, preOffHandItemStack)) {
@@ -163,7 +238,7 @@ public class PlayerAgent {
             PlayerConfigManager.ConfigChangeType changeType = configManager.updateConfigFrom(offHandItem);
             this.preOffHandItemStack = offHandItem.copy();
             Media currentMedia = player.getMedia();
-            if (currentMedia == null || playingUrl == null) return; // 如果没在播放，任何变更都不需要立即动作
+            if (currentMedia == null || playingUrl == null) return;
 
             switch (changeType) {
                 case RELOAD_MEDIA:
@@ -174,12 +249,10 @@ public class PlayerAgent {
 
                 case HOT_UPDATE:
                     LOGGER.info("检测到可热更新的配置变更 (例如字幕)...");
-                    // 调用一个新的方法来处理热更新
                     handleHotUpdate(currentMedia.getMediaInfo());
                     break;
 
                 case NONE:
-                    // 无需操作
                     break;
             }
         }
@@ -471,6 +544,7 @@ public class PlayerAgent {
 
     public void commandStop() {
         playlistManager.commandPlaylistClear();
+        getConfigManager().restoreBaseConfig();
     }
 
     public void commandSkip() {
@@ -744,12 +818,36 @@ public class PlayerAgent {
     }
 
     public long getServerDuration() {
+        ItemStack stack = entity.getMainHandItem();
+        if (stack.isEmpty()) return 0;
+
+        String name = stack.getHoverName().getString();
+
+        // 优化逻辑：查找 字符串末尾的 ":数字" 结构
+        // 正则解释：
+        // :        匹配冒号
+        // (\d+)    匹配并捕获一组数字
+        // $        匹配字符串结尾 (确保冒号后面全是数字，没有其他废话)
         try {
-            var args = entity.getMainHandItem().getDisplayName().getString().split(":");
-            return (System.currentTimeMillis() - Long.parseLong(args[1].substring(0, args[1].length() - 1))) * 1000;
-        } catch (Exception e) {
-            return 0;
+            Matcher m = Pattern.compile(":(\\d+)$").matcher(name);
+            if (m.find()) {
+                String numStr = m.group(1);
+
+                // 简单的健壮性检查：系统毫秒时间戳通常是 13 位
+                // 如果书名叫 "Part:1"，我们要忽略它，不要把它当成时间戳
+                // 只有当数字长度 > 8 (至少是几十年前的时间戳) 才认为是有效的同步数据
+                if (numStr.length() > 8) {
+                    long startTimeMs = Long.parseLong(numStr);
+                    long now = System.currentTimeMillis();
+
+                    // 返回计算出的应播放进度 (微秒)
+                    return (now - startTimeMs) * 1000L;
+                }
+            }
+        } catch (Exception ignored) {
+            // 解析失败视为无同步信息
         }
+        return 0;
     }
 
     public long parseTimestampToMicros(String ts) {
@@ -773,7 +871,7 @@ public class PlayerAgent {
         return (h * 3600L + m * 60L + s) * 1000000L;
     }
 
-    private long parseTimestampFromUrl(String url) {
+    public long parseTimestampFromUrl(String url) {
         if (url == null) return 0;
         try {
             Matcher m = Pattern.compile("[?&]t=([^&]+)").matcher(url);
@@ -808,6 +906,14 @@ public class PlayerAgent {
         this.currentSource = PlaybackSource.COMMAND;
         if (Minecraft.getInstance().player != null)
             Mcedia.msgToPlayer("§e[Mcedia] §f播放列表已切换为指令模式。书本内容将被忽略，直到放入新书。");
+    }
+
+    public boolean isDraggingProgress() {
+        return isDraggingProgress;
+    }
+
+    public float getDragProgressValue() {
+        return dragProgressValue;
     }
 
     public void switchToBookSource() {

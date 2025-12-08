@@ -109,7 +109,13 @@ public class PlayerRenderer {
                 if(config.danmakuEnable) {
                     renderDanmakuWithClipping(poseStack, bufferSource, finalLightValue, agent);
                 }
-                renderProgressBar(poseStack, bufferSource, player.getProgress(), finalLightValue);
+                float displayProgress;
+                if (agent.isDraggingProgress()) {
+                    displayProgress = agent.getDragProgressValue();
+                } else {
+                    displayProgress = player.getProgress();
+                }
+                renderProgressBar(poseStack, bufferSource, displayProgress, finalLightValue, agent.isDraggingProgress());
             }
         } finally {
             poseStack.popPose();
@@ -153,8 +159,11 @@ public class PlayerRenderer {
         consumer.addVertex(matrix, -halfW, 1, 0).setUv(0, 0).setColor(-1).setOverlay(OverlayTexture.NO_OVERLAY).setNormal(0, 0, 1).setLight(i);
     }
 
-    private void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i) {
+    private void renderProgressBar(PoseStack poseStack, MultiBufferSource bufferSource, float progress, int i, boolean isDragging) {
         float barHeight = 1f / 50f;
+        if (isDragging) {
+            barHeight *= 2.0f;
+        }
         float barY = -1f;
         float barLeft = -halfW;
         float barRight = halfW;
@@ -170,6 +179,10 @@ public class PlayerRenderer {
 
         if (progress > 0) {
             float progressRight = barLeft + (barRight - barLeft) * Math.max(0, Math.min(progress, 1));
+            float r = 1.0f, g = 1.0f, b = 1.0f;
+            if (isDragging) {
+                g = 0.8f; b = 0.2f;
+            }
             consumer.addVertex(poseStack.last().pose(), barLeft, barY - barHeight, zOffsetFg).setColor(1.0f, 1.0f, 1.0f, 1.0f).setLight(i);
             consumer.addVertex(poseStack.last().pose(), progressRight, barY - barHeight, zOffsetFg).setColor(1.0f, 1.0f, 1.0f, 1.0f).setLight(i);
             consumer.addVertex(poseStack.last().pose(), progressRight, barY, zOffsetFg).setColor(1.0f, 1.0f, 1.0f, 1.0f).setLight(i);

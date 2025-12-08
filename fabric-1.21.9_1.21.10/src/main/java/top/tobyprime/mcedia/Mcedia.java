@@ -3,6 +3,7 @@ package top.tobyprime.mcedia;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.SoundEngineExecutor;
 import net.minecraft.network.chat.Component;
@@ -107,6 +108,7 @@ public class Mcedia implements ModInitializer {
         BiliBiliVideoFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         BilibiliBangumiFetcher.setAuthStatusSupplier(BilibiliAuthManager.getInstance()::isLoggedIn);
         initializeProviders();
+        PayloadTypeRegistry.playC2S().register(McediaSyncPayload.ID, McediaSyncPayload.CODEC);
         registerEvents();
         PresetManager.getInstance();
     }
@@ -194,8 +196,13 @@ public class Mcedia implements ModInitializer {
     }
 
     public void HandleMcdiaPlayerEntity(ArmorStand entity) {
-        boolean isMcdiaPlayer = entity.getCustomName() != null && (entity.getCustomName().getString().contains("mcdia") || entity.getCustomName().getString().contains("mcedia"));
+        if (!entity.level().isClientSide()) {
+            return;
+        }
+        boolean isMcdiaPlayer = entity.getCustomName() != null &&
+                (entity.getCustomName().getString().contains("mcdia") || entity.getCustomName().getString().contains("mcedia"));
         if (isMcdiaPlayer && !entityToPlayer.containsKey(entity) && !pendingAgents.contains(entity)) {
+            LOGGER.info("注册客户端播放器: UUID={}, World={}", entity.getUUID(), entity.level().isClientSide() ? "Client" : "Server");
             pendingAgents.add(entity);
         }
     }

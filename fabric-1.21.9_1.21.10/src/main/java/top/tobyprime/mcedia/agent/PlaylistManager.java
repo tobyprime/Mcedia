@@ -40,6 +40,7 @@ public class PlaylistManager {
     private static final String BAD_APPLE_URL = "https://www.bilibili.com/video/BV1xx411c79H";
     private static final Pattern TIMESTAMP_PATTERN = Pattern.compile("^(\\d{1,2}:)?(\\d{1,2}):(\\d{1,2})$");
     private static final Pattern P_NUMBER_PATTERN = Pattern.compile("^[pP]?(\\d+)$");
+    private static final Pattern CONFIG_LINE_PATTERN = Pattern.compile("^([\\w]+)\\s*:\\s*(.+)$");
     private static final int ITEMS_PER_PAGE_PLAYLIST = 7;
 
     // --- 核心字段 ---
@@ -79,6 +80,7 @@ public class PlaylistManager {
         if (currentPlayingItem == null) {
             return;
         }
+        agent.getConfigManager().restoreBaseConfig();
         if (McediaConfig.isResumeOnReloadEnabled()) {
             Mcedia.getInstance().savePlayerProgress(agent.getEntity().getUUID(), 0);
         }
@@ -162,41 +164,63 @@ public class PlaylistManager {
 
             int nextLineIndex = i + 1;
             while (nextLineIndex < lines.size()) {
-                String parameterLine = lines.get(nextLineIndex).trim();
-                if (parameterLine.isEmpty() || URL_PATTERN.matcher(parameterLine).find() || parameterLine.equalsIgnoreCase("rickroll") || parameterLine.equalsIgnoreCase("badapple")) {
+                String paramLine = lines.get(nextLineIndex).trim();
+
+                if (paramLine.isEmpty()) {
+                    nextLineIndex++;
+                    continue;
+                }
+
+                if (URL_PATTERN.matcher(paramLine).find() ||
+                        paramLine.equalsIgnoreCase("rickroll") ||
+                        paramLine.equalsIgnoreCase("badapple")) {
                     break;
                 }
 
-                String[] parts = parameterLine.split("\\s+");
-                List<String> remainingParts = new ArrayList<>(Arrays.asList(parts));
+                Matcher configMatcher = CONFIG_LINE_PATTERN.matcher(paramLine);
+                if (configMatcher.matches()) {
+                    String key = configMatcher.group(1).toLowerCase();
+                    String value = configMatcher.group(2).trim();
 
-                Iterator<String> iterator = remainingParts.iterator();
-                while (iterator.hasNext()) {
-                    String part = iterator.next();
-                    Matcher timeMatcher = TIMESTAMP_PATTERN.matcher(part);
-                    Matcher pNumMatcher = P_NUMBER_PATTERN.matcher(part);
-                    if (timeMatcher.matches() || part.matches("^\\d+$")) {
-                        item.timestampUs = agent.parseTimestampToMicros(part);
-                        iterator.remove();
-                    } else if (pNumMatcher.matches()) {
-                        if (isBiliVideo && item.mode == PlayerAgent.BiliPlaybackMode.VIDEO_PLAYLIST || isBiliBangumi) {
-                            item.pNumber = Integer.parseInt(pNumMatcher.group(1));
-                        }
-                        iterator.remove();
+                    switch (key) {
+                        case "time":
+                        case "t":
+                        case "start":
+                            item.timestampUs = agent.parseTimestampToMicros(value);
+                            break;
+
+                        case "p":
+                        case "page":
+                        case "part":
+                            try {
+                                item.pNumber = Integer.parseInt(value);
+                            } catch (NumberFormatException ignored) {}
+                            break;
+
+                        case "quality":
+                        case "q":
+                            item.desiredQuality = value;
+                            break;
+
+                        case "offset":
+                        case "scale":
+                        case "volume":
+                        case "vol":
+                            break;
+
+                        default:
+                            item.configOverrides.put(key, value);
+                            break;
                     }
                 }
-                if (!remainingParts.isEmpty()) {
-                    item.desiredQuality = String.join(" ", remainingParts);
-                }
-
                 nextLineIndex++;
             }
             playlist.offer(item);
             playlistOriginalSize++;
-            LOGGER.info("添加项目: URL='{}', Mode={}, P={}, Timestamp={}us, Quality='{}'", item.originalUrl, item.mode, item.pNumber, item.timestampUs, item.desiredQuality);
+            LOGGER.info("添加播放项: {}", item.originalUrl);
             i = nextLineIndex - 1;
         }
-        LOGGER.info("播放列表更新完成，共找到 {} 个媒体项目。", playlistOriginalSize);
+        LOGGER.info("播放列表更新完成，共 {} 项。", playlistOriginalSize);
     }
 
     private void playNextInQueue() {
@@ -206,6 +230,8 @@ public class PlaylistManager {
         PlayerAgent.PlaybackItem nextItem = playlist.poll();
         if (nextItem != null) {
             this.currentPlayingItem = nextItem;
+            agent.getConfigManager().restoreBaseConfig();
+            agent.getConfigManager().applyTemporaryOverrides(nextItem.configOverrides);
             String urlToPlay = nextItem.originalUrl;
             if (nextItem.mode == PlayerAgent.BiliPlaybackMode.VIDEO_PLAYLIST) {
                 if (!urlToPlay.contains("?p=") && !urlToPlay.contains("&p=")) {
@@ -223,16 +249,23 @@ public class PlaylistManager {
                 if (McediaConfig.isResumeOnReloadEnabled()) {
                     Mcedia.getInstance().savePlayerProgress(agent.getEntity().getUUID(), 0);
                 }
+            } else if (nextItem.timestampUs > 0) {
+                finalSeekTimestampUs = nextItem.timestampUs;
+                LOGGER.info("应用书本指定时间: {}us", finalSeekTimestampUs);
             } else {
-                if (McediaConfig.isResumeOnReloadEnabled()) {
-                    long resumeTime = Mcedia.getInstance().loadPlayerProgress(agent.getEntity().getUUID());
-                    if (resumeTime > 5_000_000) {
-                        finalSeekTimestampUs += resumeTime;
-                        LOGGER.info("读取到断点续播时间: {}us", resumeTime);
+                long urlTime = agent.parseTimestampFromUrl(nextItem.originalUrl);
+                if (urlTime > 0) {
+                    finalSeekTimestampUs = urlTime;
+                    LOGGER.info("应用URL参数时间: {}us", finalSeekTimestampUs);
+                } else {
+                    if (McediaConfig.isResumeOnReloadEnabled()) {
+                        long resumeTime = Mcedia.getInstance().loadPlayerProgress(agent.getEntity().getUUID());
+                        if (resumeTime > 5_000_000) {
+                            finalSeekTimestampUs = resumeTime;
+                            LOGGER.info("应用断点续播时间: {}us", resumeTime);
+                        }
                     }
                 }
-                finalSeekTimestampUs += nextItem.timestampUs;
-                finalSeekTimestampUs += agent.parseBiliTimestampToUs(nextItem.originalUrl);
             }
 
             String qualityForNextPlayback = (nextItem.desiredQuality != null && !nextItem.desiredQuality.isBlank())
@@ -245,6 +278,7 @@ public class PlaylistManager {
         } else {
             this.currentPlayingItem = null;
             LOGGER.info("播放列表已为空，播放结束。");
+            agent.getConfigManager().restoreBaseConfig();
             agent.stopPlayback();
         }
     }
@@ -385,6 +419,7 @@ public class PlaylistManager {
         playlist.clear();
         playlistOriginalSize = 0;
         agent.commandStop();
+        agent.getConfigManager().restoreBaseConfig();
         Mcedia.msgToPlayer("§e[Mcedia] §f播放列表已清空。");
     }
 

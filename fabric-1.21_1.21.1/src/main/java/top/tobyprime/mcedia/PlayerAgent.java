@@ -24,6 +24,7 @@ import top.tobyprime.mcedia.interfaces.IMediaProvider;
 import top.tobyprime.mcedia.manager.BilibiliAuthManager;
 import top.tobyprime.mcedia.manager.DanmakuManager;
 import top.tobyprime.mcedia.provider.*;
+import top.tobyprime.mcedia.util.ScreenInteractionHelper;
 import top.tobyprime.mcedia.video_fetcher.BilibiliBangumiFetcher;
 import top.tobyprime.mcedia.video_fetcher.DanmakuFetcher;
 import top.tobyprime.mcedia.video_fetcher.UrlExpander;
@@ -74,6 +75,10 @@ public class PlayerAgent {
     private boolean hasPerformedInitialCheck = false;
     private int saveProgressTicker = 0;
 
+    private boolean isDraggingProgress = false;
+    private float dragProgressValue = 0.0f;
+    private boolean wasRightClickDown = false;
+
     // --- 内部数据结构 ---
     public enum PlaybackSource {BOOK, COMMAND}
 
@@ -90,6 +95,8 @@ public class PlayerAgent {
         public String desiredQuality = null;
         @Nullable
         public String seasonId = null;
+
+        public final java.util.Map<String, String> configOverrides = new java.util.HashMap<>();
 
         public PlaybackItem(String url) {
             this.originalUrl = url;
@@ -130,6 +137,9 @@ public class PlayerAgent {
                 playlistManager.startPlaylist();
             }
         }
+        if (entity.level().isClientSide && player.getMedia() != null && !player.getMedia().isLiveStream()) {
+            handleInput();
+        }
         try {
             update();
             Media currentMedia = player.getMedia();
@@ -153,6 +163,39 @@ public class PlayerAgent {
         } catch (Exception e) {
             LOGGER.error("在 PlayerAgent.tick() 中发生未捕获的异常", e);
         }
+    }
+
+    private void handleInput() {
+        Minecraft mc = Minecraft.getInstance();
+        boolean isRightClickDown = mc.mouseHandler.isRightPressed();
+
+        float aspectRatio = player.getMedia() != null ? player.getMedia().getAspectRatio() : 1.777f;
+        float aimedProgress = ScreenInteractionHelper.getHitProgress(entity, configManager, aspectRatio);
+
+        if (isDraggingProgress) {
+            if (isRightClickDown) {
+                if (aimedProgress != -1) {
+                    this.dragProgressValue = aimedProgress;
+                }
+
+            } else {
+                LOGGER.info("拖拽结束，跳转进度到: {}%", String.format("%.2f", dragProgressValue * 100));
+                long targetUs = (long) (dragProgressValue * player.getMedia().getLengthUs());
+                commandSeek(targetUs);
+
+                isDraggingProgress = false;
+            }
+        } else {
+            if (isRightClickDown && !wasRightClickDown) {
+                if (aimedProgress != -1) {
+                    isDraggingProgress = true;
+                    dragProgressValue = aimedProgress;
+                    mc.options.keyUse.setDown(false);
+                }
+            }
+        }
+
+        this.wasRightClickDown = isRightClickDown;
     }
 
     public void update() {
@@ -470,6 +513,7 @@ public class PlayerAgent {
 
     public void commandStop() {
         playlistManager.commandPlaylistClear();
+        getConfigManager().restoreBaseConfig();
     }
 
     public void commandSkip() {
@@ -772,7 +816,7 @@ public class PlayerAgent {
         return (h * 3600L + m * 60L + s) * 1000000L;
     }
 
-    private long parseTimestampFromUrl(String url) {
+    public long parseTimestampFromUrl(String url) {
         if (url == null) return 0;
         try {
             Matcher m = Pattern.compile("[?&]t=([^&]+)").matcher(url);
@@ -807,6 +851,14 @@ public class PlayerAgent {
         this.currentSource = PlaybackSource.COMMAND;
         if (Minecraft.getInstance().player != null)
             Mcedia.msgToPlayer("§e[Mcedia] §f播放列表已切换为指令模式。书本内容将被忽略，直到放入新书。");
+    }
+
+    public boolean isDraggingProgress() {
+        return isDraggingProgress;
+    }
+
+    public float getDragProgressValue() {
+        return dragProgressValue;
     }
 
     public void switchToBookSource() {

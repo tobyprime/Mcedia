@@ -68,6 +68,7 @@ public class Media implements Closeable {
 
             if (initialSeekUs > 0 && !isLiveStream) {
                 this.baseDuration = initialSeekUs;
+                this.baseTime = initialSeekUs;
                 this.lastAudioPts = initialSeekUs;
                 this.currentPtsUs.set(initialSeekUs);
             }
@@ -429,10 +430,15 @@ public class Media implements Closeable {
                 vf.close();
             }
 
-            currentPtsUs.set(targetUs);
+            audioSources.forEach(IAudioSource::clearBuffer);
+
+            this.baseTime = targetUs;
+            this.currentPtsUs.set(targetUs);
+            this.lastAudioPts = targetUs;
+            this.needsTimeReset = true;
 
             isBuffering = true;
-            LOGGER.debug("Seek 完成，队列已清空，等待数据流恢复...");
+            LOGGER.debug("Seek 完成，队列已清空，基准时间已重置为 {}", targetUs);
 
         } catch (Exception e) {
             LOGGER.error("Seek failed", e);
@@ -532,6 +538,9 @@ public class Media implements Closeable {
             }
         }
         decoder.close();
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException ignored) {}
         if (videoFramePool != null) {
             videoFramePool.close();
         }

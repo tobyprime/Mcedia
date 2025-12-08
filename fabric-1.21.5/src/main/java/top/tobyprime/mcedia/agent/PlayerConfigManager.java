@@ -16,6 +16,7 @@ import top.tobyprime.mcedia.PlayerAgent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -47,6 +48,7 @@ public class PlayerConfigManager {
     public int customLightLevel = -1;
     public String desiredQuality = "自动";
     public boolean shouldCacheForLoop = false;
+    private boolean isUsingTemporaryConfig = false;
 
     public enum ConfigChangeType {
         NONE,           // 无变化
@@ -93,6 +95,10 @@ public class PlayerConfigManager {
     // --- 内部实现方法 ---
 
     public void updateOffset(String offset) {
+        if (offset == null || offset.isBlank()) {
+            resetOffset();
+            return;
+        }
         try {
             var vars = offset.split("\n");
             offsetX = Float.parseFloat(vars[0]);
@@ -111,7 +117,10 @@ public class PlayerConfigManager {
     }
 
     public void updateAudioOffset(String config) {
-        if (config == null) return;
+        if (config == null || config.isBlank()) {
+            resetAudioOffset();
+            return;
+        }
         String[] blocks = config.split("\\n\\s*\\n");
 
         try {
@@ -156,10 +165,11 @@ public class PlayerConfigManager {
         this.audioMaxVolume = 5;
         this.audioRangeMin = 2;
         this.audioRangeMax = 500;
+        isSecondarySourceActive = false;
     }
 
     public void updateOther(String pageContent) {
-        if (pageContent == null) {
+        if (pageContent == null || pageContent.isBlank()) {
             agent.getPlayer().setLooping(false);
             this.shouldCacheForLoop = false;
             this.videoAutoplay = false;
@@ -292,6 +302,59 @@ public class PlayerConfigManager {
             return Float.parseFloat(numericPart);
         } catch (NumberFormatException e) {
             return defaultValue;
+        }
+    }
+
+    public void applyTemporaryOverrides(Map<String, String> overrides) {
+        // 先恢复到底层配置（副手书本）
+        updateConfigFrom(agent.getEntity().getItemInHand(net.minecraft.world.InteractionHand.OFF_HAND));
+        this.isUsingTemporaryConfig = true;
+
+        if (overrides == null || overrides.isEmpty()) return;
+
+        LOGGER.info("应用单个视频的临时配置: {}", overrides);
+
+        try {
+            // 循环
+            if (overrides.containsKey("looping")) {
+                boolean loop = Boolean.parseBoolean(overrides.get("looping"));
+                agent.getPlayer().setLooping(loop);
+                this.shouldCacheForLoop = loop && McediaConfig.isCachingEnabled();
+            }
+            // 自动播放
+            if (overrides.containsKey("autoplay")) {
+                this.videoAutoplay = Boolean.parseBoolean(overrides.get("autoplay"));
+            }
+            // 光照
+            if (overrides.containsKey("light")) {
+                this.customLightLevel = Integer.parseInt(overrides.get("light"));
+            }
+            // 弹幕
+            if (overrides.containsKey("danmaku")) {
+                this.danmakuEnable = Boolean.parseBoolean(overrides.get("danmaku"));
+            }
+            if (overrides.containsKey("danmaku_alpha")) {
+                this.danmakuOpacity = Float.parseFloat(overrides.get("danmaku_alpha"));
+            }
+            if (overrides.containsKey("danmaku_area")) {
+                this.danmakuDisplayArea = Float.parseFloat(overrides.get("danmaku_area"));
+            }
+            if (overrides.containsKey("danmaku_scale")) {
+                this.danmakuFontScale = Float.parseFloat(overrides.get("danmaku_scale"));
+            }
+            if (overrides.containsKey("danmaku_speed")) {
+                this.danmakuSpeedScale = Float.parseFloat(overrides.get("danmaku_speed"));
+            }
+        } catch (Exception e) {
+            LOGGER.warn("应用单视频配置失败", e);
+        }
+    }
+
+    public void restoreBaseConfig() {
+        if (isUsingTemporaryConfig) {
+            updateConfigFrom(agent.getEntity().getItemInHand(net.minecraft.world.InteractionHand.OFF_HAND));
+            this.isUsingTemporaryConfig = false;
+            LOGGER.info("已恢复全局配置。");
         }
     }
 }
