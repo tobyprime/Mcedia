@@ -11,36 +11,28 @@ import top.tobyprime.mcedia.agent.PlayerConfigManager;
 
 public class ScreenInteractionHelper {
 
-    /**
-     * 检测玩家视线是否落在屏幕的进度条区域 (适配 1.21.6 - 1.21.8)
-     * @param entity 实体
-     * @param config 配置管理器
-     * @param aspectRatio 屏幕宽高比 (halfW * 2 / 2.0f) -> width / height
-     * @return 如果击中，返回 0.0~1.0 的进度值；未击中返回 -1。
-     */
     public static float getHitProgress(ArmorStand entity, PlayerConfigManager config, float aspectRatio) {
         Minecraft mc = Minecraft.getInstance();
         Entity player = mc.getCameraEntity();
         if (player == null) return -1;
 
-        // 【修复 1】获取插值时间 (Partial Tick)
-        // 1.21.6+ 使用 DeltaTracker
+        // 获取插值时间
         float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 
-        // 1. 构建屏幕的模型变换矩阵 (Model Matrix)
+        // 构建屏幕的模型变换矩阵
         Matrix4f modelMatrix = new Matrix4f();
 
-        // 基础位移 (Entity Position)
+        // 基础位移
         Vec3 entityPos = entity.getPosition(partialTick);
         modelMatrix.translate((float) entityPos.x, (float) entityPos.y, (float) entityPos.z);
 
-        // 旋转 (YRot)
+        // 旋转
         modelMatrix.rotateY((float) Math.toRadians(-entity.getYRot()));
 
         // 获取头部姿态
         Rotations headPose = entity.getHeadPose();
 
-        // 【修复 2】Record 类型访问器没有 get 前缀
+        // Record 类型访问器没有 get 前缀
         float headX = headPose.x();
         float headY = headPose.y();
         float headZ = headPose.z();
@@ -49,39 +41,39 @@ public class ScreenInteractionHelper {
         modelMatrix.rotateX((float) Math.toRadians(-headX));
         modelMatrix.rotateZ((float) Math.toRadians(-headZ));
 
-        // 屏幕偏移配置 (Offset)
+        // 屏幕偏移
         modelMatrix.translate(config.offsetX, config.offsetY + 1.02f * entity.getScale(), config.offsetZ + 0.6f * entity.getScale());
 
         // 应用缩放
         float size = entity.getScale() * config.scale;
         modelMatrix.scale(size, size, size);
 
-        // 2. 构建逆矩阵 (World -> Local)
+        // 构建逆矩阵 (World -> Local)
         Matrix4f invertModelMatrix = new Matrix4f(modelMatrix).invert();
 
-        // 3. 获取玩家视线 (Ray)
+        // 获取玩家视线
         Vec3 eyePos = player.getEyePosition(partialTick);
         Vec3 viewVec = player.getViewVector(partialTick);
 
-        // 射线起点 (Local Space)
+        // 射线起点
         Vector4f localOrigin = new Vector4f((float) eyePos.x, (float) eyePos.y, (float) eyePos.z, 1.0f);
         localOrigin.mul(invertModelMatrix);
 
-        // 射线方向 (Local Space)
+        // 射线方向
         Vector4f localDir = new Vector4f((float) viewVec.x, (float) viewVec.y, (float) viewVec.z, 0.0f);
         localDir.mul(invertModelMatrix);
 
-        // 4. 计算射线与 Z=0 平面的交点
+        // 计算射线与 Z=0 平面的交点
         if (Math.abs(localDir.z) < 1e-6) return -1; // 平行，无交点
 
         float t = -localOrigin.z / localDir.z;
         if (t < 0 || t > 100) return -1;
 
-        // 交点坐标 (Local Space)
+        // 交点坐标
         float localX = localOrigin.x + t * localDir.x;
         float localY = localOrigin.y + t * localDir.y;
 
-        // 5. 判定是否在进度条区域内
+        // 判定是否在进度条区域内
         float halfW = aspectRatio;
         float barTop = -1.0f;
         float barBottom = -1.15f;
