@@ -14,5 +14,6 @@ include 'fabric-1.21.2_1.21.4'
 include 'fabric-1.21.5'
 include 'fabric-1.21.6_1.21.8'
 include 'fabric-1.21.9_1.21.10'
+include 'fabric-1.21.11'
 
 include 'paperplugin'

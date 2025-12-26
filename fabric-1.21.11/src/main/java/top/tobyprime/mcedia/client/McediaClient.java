@@ -1,0 +1,108 @@
+package top.tobyprime.mcedia.client;
+
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.minecraft.client.renderer.entity.EntityRenderers;
+import net.fabricmc.loader.api.FabricLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import top.tobyprime.mcedia.Configs;
+import top.tobyprime.mcedia.bilibili.BilibiliAuthManager;
+import top.tobyprime.mcedia.bilibili.BilibiliCookie;
+import top.tobyprime.mcedia.commands.CommandBilibili;
+import top.tobyprime.mcedia.commands.CommandOption;
+import top.tobyprime.mcedia.commands.CommandControl;
+import top.tobyprime.mcedia.commands.CommandDanmakuOption;
+import top.tobyprime.mcedia.compat.SoundPhysicsRemasteredCompat;
+import top.tobyprime.mcedia.core.PlayerInstanceManagerRegistry;
+import top.tobyprime.mcedia.entities.MediaPlayerAgentEntity;
+import top.tobyprime.mcedia.player_instance_managers.ArmorStandPlayerManager;
+import top.tobyprime.mcedia.renderers.MediaPlayerAgentEntityRenderer;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Properties;
+
+public class McediaClient implements ClientModInitializer {
+    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("mcedia.properties");
+    private static final Logger LOGGER = LoggerFactory.getLogger(McediaClient.class);
+
+    private static Path getCookieConfig() {
+        return Path.of(System.getProperty("user.home"), ".mcedia", "cookie.properties");
+    }
+
+    public static void SaveConfig() {
+        var props = new Properties();
+        var cookies = new Properties();
+
+        try {
+            if (!Files.exists(CONFIG_PATH)) {
+                Files.createFile(CONFIG_PATH);
+            }
+            if (!Files.exists(getCookieConfig())) {
+                Files.createDirectories(getCookieConfig().getParent());
+                Files.createFile(getCookieConfig());
+            }
+            Configs.writeToProperties(props);
+            BilibiliCookie.writeToProperties(cookies);
+
+            props.store(Files.newOutputStream(CONFIG_PATH), "Mcedia props");
+            cookies.store(Files.newOutputStream(getCookieConfig()), "Mcedia cookies");
+        } catch (IOException e) {
+            LOGGER.error("保存配置失败", e);
+        }
+    }
+
+    @Override
+    public void onInitializeClient() {
+
+        SoundPhysicsRemasteredCompat.init();
+
+        ArmorStandPlayerManager.getInstance().onInitialize();
+
+        EntityRenderers.register(MediaPlayerAgentEntity.TYPE, MediaPlayerAgentEntityRenderer::new);
+
+        ClientTickEvents.END_CLIENT_TICK.register(client -> PlayerInstanceManagerRegistry.getInstance().update());
+
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            CommandBilibili.register(dispatcher);
+            CommandOption.register(dispatcher);
+            CommandDanmakuOption.register(dispatcher);
+            CommandControl.register(dispatcher);
+        });
+
+
+        ClientLifecycleEvents.CLIENT_STARTED.register((client) -> {
+            var props = new Properties();
+            var cookies = new Properties();
+            if (Files.exists(CONFIG_PATH)) {
+                try {
+                    props.load(Files.newInputStream(CONFIG_PATH));
+
+                    Configs.fromProperties(props);
+
+                    BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
+                } catch (IOException e) {
+                    LOGGER.error("读取配置失败", e);
+                }
+            }
+            if (Files.exists(getCookieConfig())) {
+                try {
+                    cookies.load(Files.newInputStream(getCookieConfig()));
+
+                    BilibiliCookie.fromProperties(cookies);
+
+                    BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
+                } catch (IOException e) {
+                    LOGGER.error("读取Cookie失败", e);
+                }
+            }
+
+
+        });
+        ClientLifecycleEvents.CLIENT_STOPPING.register((client) -> SaveConfig());
+    }
+}

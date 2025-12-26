@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "mcedia",
+  "version": "${version}",
+  "name": "Mcedia",
+  "description": "Play media in Minecraft!",
+  "authors": ["UrealToby"],
+  "contributors": ["Oyatsu"],
+  "contact": {
+    "homepage": "https://modrinth.com/mod/mcedia/",
+    "sources": "https://github.com/tobyprime/Mcedia/"
+  },
+  "icon": "assets/mcedia/icon.png",
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["top.tobyprime.mcedia.client.McediaClient"],
+    "main": ["top.tobyprime.mcedia.Mcedia"]
+  },
+
+  "mixins": [
+    "mcedia.mixins.json",
+    "mcedia.core.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version_range}"
+  }
+}
