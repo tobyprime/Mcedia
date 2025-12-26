@@ -11,7 +11,8 @@
 3. Bilibili 番剧 - 以 `https://www.bilibili.com/bangumi/play/` 开头
 4. Bilibili 短链 - 类似 `【♿男よ、来い♿-哔哩哔哩】 https://b23.tv/KCC6YjE` 的分享字符串
 5. 播放抖音视频 - 抖音分享文本，类似 `4.84 t@e.oQ 01/20 gba:/ # 抖音戏曲文化艺术节 梨园光景与君游，恭迎诸位入此一梦！10月18日，赴江西上饶葛仙村 # 第三届抖音戏曲文化艺术节 共赏好戏！  https://v.douyin.com/s-1dKNIKD58/ 复制此链接，打开Dou音搜索，直接观看视频！`
-6. 经过指令设置后，允许播放任意 ffmpeg 能够解析的链接
+6. 经过指令设置后，允许播放樱花动漫，以 `https://yhdm.one/vod-play/` 开头
+7. 经过指令设置后，允许播放任意 ffmpeg 能够解析的链接
 
 ### 指令
 目前所有指令皆为客户端指令与服务器无关
@@ -22,7 +23,9 @@
 4. /mcedia option max \[数量\]: 设置最多允许几个播放器同时播放（默认为 5）
 5. /mcedia option max_non_low_overhead \[数量\]: 设置最多允许几个播放器同时以最高开销播放（默认为 1）
 6. /mcedia option direct_link toggle: 开启/关闭 允许播放本地文件 / 流媒体直链等（默认为关）
-7. /mcedia control ...: 本地控制播放器暂停、速度
+8. /mcedia option yhdm toggle 开启/关闭樱花动漫播放（默认为关）
+9. /mcedia option physics toggle 开启/关闭物理声效（默认为开）
+10. /mcedia control ...: 本地控制播放器暂停、速度、快进、播放
 
 ### 播放器配置项
 声音由盔甲架**副手 x 轴**旋转调节
@@ -57,8 +60,8 @@
 感谢 [OyatsuSuki](https://github.com/OyatsuSuki) 贡献，bilibili 登录、弹幕渲染等相当多的代码、想法
 
 ## 已知问题
-- [ ] 声源位置轴异常
-- [ ] 有概率不循环播放
+- [x] 声源位置轴异常
+- [x] 有概率不循环播放
 - [ ] 有概率声源初始化失败导致没有声音
 
 ## 更新计划
@@ -68,7 +71,7 @@
 
 - 媒体
   - [ ] bilibili 番剧弹幕
-  - [ ] 樱花动漫
+  - [x] 樱花动漫
 
 ## 未来可能考虑的更新
 
