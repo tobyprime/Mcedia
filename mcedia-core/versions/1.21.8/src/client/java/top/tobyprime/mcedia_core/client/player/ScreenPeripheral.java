@@ -29,6 +29,8 @@ public final class ScreenPeripheral implements MediaPlayerPeripheral, AutoClosea
     private @Nullable ResourceLocation backgroundTextureId = ResourceLocation.fromNamespaceAndPath("mcedia", "textures/gui/idle_screen.png");
     private @Nullable PlayerHost host;
     private boolean danmakuVisible = true;
+    private boolean progressBarVisible = true;
+    private @Nullable String statusText;
     private boolean closed;
 
     public ScreenPeripheral(Level level) {
@@ -122,6 +124,22 @@ public final class ScreenPeripheral implements MediaPlayerPeripheral, AutoClosea
         if (!danmakuVisible) {
             danmakuSession.clear();
         }
+    }
+
+    public boolean isProgressBarVisible() {
+        return progressBarVisible;
+    }
+
+    public void setProgressBarVisible(boolean progressBarVisible) {
+        this.progressBarVisible = progressBarVisible;
+    }
+
+    public @Nullable String getStatusText() {
+        return statusText;
+    }
+
+    public void setStatusText(@Nullable String statusText) {
+        this.statusText = statusText;
     }
 
     public @Nullable MediaPlay getMediaPlay() {

@@ -185,6 +185,12 @@ public final class PlayerScreenEntityRenderer {
     }
 
     private static void submitPlaybackState(State state, PoseStack poseStack, SubmitNodeCollector submitNodeCollector) {
+        // Custom status text from downstream mods takes priority over built-in state text
+        if (state.statusText != null && !state.statusText.isBlank()) {
+            renderStatusText(submitNodeCollector, poseStack, state, state.statusText, 0xCCFFFFFF);
+            return;
+        }
+
         var playbackState = state.playbackState;
         if (playbackState == null || playbackState == PlaybackState.IDLE || playbackState == PlaybackState.PLAYING) {
             return;
@@ -215,6 +221,11 @@ public final class PlayerScreenEntityRenderer {
             }
         }
 
+        renderStatusText(submitNodeCollector, poseStack, state, text, color);
+    }
+
+    private static void renderStatusText(SubmitNodeCollector submitNodeCollector, PoseStack poseStack,
+            State state, String text, int color) {
         var font = Minecraft.getInstance().font;
         float textHeight = state.height * 0.08F;
         float scale = textHeight / font.lineHeight;
@@ -283,7 +294,7 @@ public final class PlayerScreenEntityRenderer {
     }
 
     private static void submitProgressBar(State state, PoseStack poseStack, SubmitNodeCollector submitNodeCollector) {
-        if (state.playbackState == null || state.playbackState == PlaybackState.IDLE
+        if (!state.progressBarVisible || state.playbackState == null || state.playbackState == PlaybackState.IDLE
                 || state.playbackState == PlaybackState.ERROR) {
             return;
         }
@@ -407,6 +418,8 @@ public final class PlayerScreenEntityRenderer {
         state.media = peripheral.getMediaPlay();
         state.danmakuSession = peripheral.getDanmakuSession();
         state.danmakuVisible = peripheral.isDanmakuVisible();
+        state.progressBarVisible = peripheral.isProgressBarVisible();
+        state.statusText = peripheral.getStatusText();
 
         state.playbackState = peripheral.getPlaybackState();
         state.errorMessage = peripheral.getErrorMessage();
@@ -444,6 +457,8 @@ public final class PlayerScreenEntityRenderer {
         public @Nullable String errorMessage;
         public float progress;
         public boolean danmakuVisible = true;
+        public boolean progressBarVisible = true;
+        public @Nullable String statusText;
         public top.tobyprime.mcedia_core.client.danmaku.runtime.PlayerScreenDanmakuSession danmakuSession = new top.tobyprime.mcedia_core.client.danmaku.runtime.PlayerScreenDanmakuSession();
     }
 
