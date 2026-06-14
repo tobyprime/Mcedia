@@ -209,6 +209,7 @@ public final class ScreenPeripheral implements MediaPlayerPeripheral, AutoClosea
 
     public enum ScreenFillMode {
         FILL,
-        KEEP_ASPECT_COVER
+        KEEP_ASPECT_COVER,
+        KEEP_ASPECT_FIT
     }
 }

@@ -106,11 +106,13 @@ public final class PlayerScreenEntityRenderer {
         if (shouldRenderBackgroundLayer(state)) {
             return null;
         }
-        return state.textureId;
+        return null;
     }
 
     private static boolean shouldRenderBackgroundLayer(State state) {
-        return state.fillMode == ScreenFillMode.KEEP_ASPECT_COVER && state.backgroundTextureId != null;
+        return state.backgroundTextureId != null
+                && (state.fillMode == ScreenFillMode.FILL
+                || state.fillMode == ScreenFillMode.KEEP_ASPECT_COVER);
     }
 
     private static boolean hasPlayableVideoFrame(State state) {
@@ -121,7 +123,7 @@ public final class PlayerScreenEntityRenderer {
         float renderWidth = state.width;
         float renderHeight = state.height;
 
-        if (state.fillMode != ScreenFillMode.KEEP_ASPECT_COVER
+        if ((state.fillMode != ScreenFillMode.KEEP_ASPECT_COVER && state.fillMode != ScreenFillMode.KEEP_ASPECT_FIT)
                 || state.textureWidth <= 0
                 || state.textureHeight <= 0
                 || state.width <= 0.0F
