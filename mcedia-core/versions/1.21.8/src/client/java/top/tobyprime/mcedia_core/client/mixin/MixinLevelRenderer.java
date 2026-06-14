@@ -10,6 +10,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import top.tobyprime.mcedia_core.client.debug.DebugRendererAudioHitbox;
 import top.tobyprime.mcedia_core.client.player.MediaPlayerHostManager;
 import top.tobyprime.mcedia_core.client.renderer.McediaRenderer;
 
@@ -23,5 +24,6 @@ public class MixinLevelRenderer {
         var frustum = McediaRenderer.get().getCurrentFrustum();
         MediaPlayerHostManager.get().tickVideo(frustum);
         McediaRenderer.get().submitScreens(bufferSource, camera);
+        DebugRendererAudioHitbox.submit(poseStack, bufferSource, camera, frustum);
     }
 }
