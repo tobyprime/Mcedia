@@ -290,13 +290,10 @@ public final class PlatformResolverBootstrap {
 
         var data = infoJson.getAsJsonObject("data");
         var qualityOptions = optArray(data, "quality_description");
-        int bestQn = 10000;
-        if (qualityOptions != null && !qualityOptions.isEmpty()) {
-            bestQn = qualityOptions.get(0).getAsJsonObject().get("qn").getAsInt();
-        }
+        int selectedQn = selectLiveQn(qualityOptions, MediaResolverSettings.getResolutionLimit());
 
         var finalUrl = "https://api.live.bilibili.com/xlive/web-room/v1/playUrl/playUrl?cid=" + realRoomId
-                + "&platform=h5&qn=" + bestQn;
+                + "&platform=h5&qn=" + selectedQn;
         var finalResponse = HTTP.send(HttpRequest.newBuilder()
                 .uri(URI.create(finalUrl))
                 .header("User-Agent", BILIBILI_UA)
@@ -311,6 +308,36 @@ public final class PlatformResolverBootstrap {
             throw new IllegalStateException("未找到可播放流");
         }
         return durlArray.get(0).getAsJsonObject().get("url").getAsString();
+    }
+
+    /**
+     * Maps a height-based resolution limit to a Bilibili live qn value,
+     * then selects the best available option not exceeding the limit.
+     */
+    private static int selectLiveQn(JsonArray qualityOptions, int maxHeight) {
+        int targetQn = resolutionLimitToLiveQn(maxHeight);
+        if (qualityOptions == null || qualityOptions.isEmpty()) {
+            return targetQn;
+        }
+
+        int bestMatch = qualityOptions.get(0).getAsJsonObject().get("qn").getAsInt();
+        for (int i = 0; i < qualityOptions.size(); i++) {
+            int qn = qualityOptions.get(i).getAsJsonObject().get("qn").getAsInt();
+            if (qn <= targetQn) {
+                return qn;
+            }
+            bestMatch = qn;
+        }
+        return bestMatch;
+    }
+
+    private static int resolutionLimitToLiveQn(int maxHeight) {
+        if (maxHeight <= 0) return 10000;
+        if (maxHeight >= 1440) return 10000;
+        if (maxHeight >= 1080) return 400;
+        if (maxHeight >= 720) return 250;
+        if (maxHeight >= 480) return 150;
+        return 80;
     }
 
     private static PlatformMedia resolveDouyinInternal(String target) throws Exception {
