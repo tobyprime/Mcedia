@@ -11,6 +11,7 @@ import top.tobyprime.mcedia.api.media.MediaPlayInfo;
 import top.tobyprime.mcedia.api.resolver.MediaResolverSettings;
 import top.tobyprime.mcedia.api.resolver.MediaResolvers;
 import top.tobyprime.mcedia_platforms.auth.BilibiliCookie;
+import top.tobyprime.mcedia_platforms.auth.BilibiliWbiSign;
 import top.tobyprime.mcedia_platforms.danmaku.bilibili.BilibiliDanmakuProvider;
 
 import java.net.URI;
@@ -214,7 +215,8 @@ public final class PlatformResolverBootstrap {
     private static PlatformMedia resolveBilibiliLiveInternal(String input) throws Exception {
         var roomId = extractRoomIdFromInput(input);
         var realRoomId = getRealRoomId(roomId);
-        var streamUrl = getLiveStreamUrl(realRoomId);
+        var cookie = BilibiliCookie.getCookie();
+        var streamUrl = getLiveStreamUrl(realRoomId, cookie);
 
         var roomInfoUrl = "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id=" + realRoomId;
         var infoResponse = HTTP.send(HttpRequest.newBuilder()
@@ -241,7 +243,6 @@ public final class PlatformResolverBootstrap {
         headers.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         headers.put("Referer", "https://www.bilibili.com/");
         headers.put("Origin", "https://www.bilibili.com");
-        var cookie = BilibiliCookie.getCookie();
 
         var info = new MediaInfo(title, uname, null, "bilibili");
         return new PlatformMedia(new MediaPlayInfo(streamUrl, null, headers, cookie), info);
@@ -276,38 +277,104 @@ public final class PlatformResolverBootstrap {
         return String.valueOf(data.get("room_id").getAsLong());
     }
 
-    private static String getLiveStreamUrl(String realRoomId) throws Exception {
-        var infoUrl = "https://api.live.bilibili.com/xlive/web-room/v1/playUrl/playUrl?cid=" + realRoomId
-                + "&platform=h5&qn=10000";
-        var infoResponse = HTTP.send(HttpRequest.newBuilder()
-                .uri(URI.create(infoUrl))
-                .header("User-Agent", BILIBILI_UA)
-                .build(), HttpResponse.BodyHandlers.ofString());
-        var infoJson = parseObject(infoResponse.body());
-        if (optInt(infoJson, "code", -1) != 0) {
-            throw new IllegalStateException(optString(infoJson, "message", "获取直播清晰度列表失败"));
-        }
+    private static String getLiveStreamUrl(String realRoomId, String cookie) throws Exception {
+        var resolutionLimit = MediaResolverSettings.getResolutionLimit();
 
-        var data = infoJson.getAsJsonObject("data");
+        // Step 1: request with qn=0 to discover available qualities
+        var params = BilibiliWbiSign.createBaseParams(realRoomId, "0");
+        BilibiliWbiSign.sign(params);
+        var responseBody = doV2LiveRequest(params, cookie);
+        var root = parseObject(responseBody);
+        if (optInt(root, "code", -1) != 0) {
+            throw new IllegalStateException("获取直播清晰度列表失败: " + optString(root, "message", ""));
+        }
+        var data = root.getAsJsonObject("data");
+
         var qualityOptions = optArray(data, "quality_description");
-        int selectedQn = selectLiveQn(qualityOptions, MediaResolverSettings.getResolutionLimit());
-
-        var finalUrl = "https://api.live.bilibili.com/xlive/web-room/v1/playUrl/playUrl?cid=" + realRoomId
-                + "&platform=h5&qn=" + selectedQn;
-        var finalResponse = HTTP.send(HttpRequest.newBuilder()
-                .uri(URI.create(finalUrl))
-                .header("User-Agent", BILIBILI_UA)
-                .build(), HttpResponse.BodyHandlers.ofString());
-        var finalJson = parseObject(finalResponse.body());
-        if (optInt(finalJson, "code", -1) != 0) {
-            throw new IllegalStateException(optString(finalJson, "message", "获取直播流失败"));
+        int selectedQn = selectLiveQn(qualityOptions, resolutionLimit);
+        if (qualityOptions != null && !qualityOptions.isEmpty()) {
+            var available = new StringBuilder();
+            for (int i = 0; i < qualityOptions.size(); i++) {
+                if (!available.isEmpty()) available.append(", ");
+                var q = qualityOptions.get(i).getAsJsonObject();
+                available.append(q.get("qn")).append("=").append(q.get("desc"));
+            }
+            LOGGER.info("Bilibili live quality options: [{}], selected qn={}", available, selectedQn);
         }
 
-        var durlArray = optArray(finalJson.getAsJsonObject("data"), "durl");
-        if (durlArray == null || durlArray.isEmpty()) {
+        // Step 2: request with selected quality for stream URL
+        params = BilibiliWbiSign.createBaseParams(realRoomId, String.valueOf(selectedQn));
+        BilibiliWbiSign.sign(params);
+        responseBody = doV2LiveRequest(params, cookie);
+        root = parseObject(responseBody);
+        if (optInt(root, "code", -1) != 0) {
+            throw new IllegalStateException("获取直播流失败: " + optString(root, "message", ""));
+        }
+        data = root.getAsJsonObject("data");
+
+        var url = extractV2StreamUrl(data);
+        if (url == null) {
             throw new IllegalStateException("未找到可播放流");
         }
-        return durlArray.get(0).getAsJsonObject().get("url").getAsString();
+        return url;
+    }
+
+    private static String doV2LiveRequest(Map<String, String> params, String cookie) throws Exception {
+        var query = toQueryString(params);
+        var requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?" + query))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Referer", "https://live.bilibili.com/");
+        if (cookie != null && !cookie.isBlank()) {
+            requestBuilder.header("Cookie", cookie);
+        }
+        var response = HTTP.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() / 100 != 2) {
+            throw new IllegalStateException("请求直播API失败, status=" + response.statusCode());
+        }
+        return response.body();
+    }
+
+    private static String toQueryString(Map<String, String> params) {
+        var sb = new StringBuilder();
+        for (var entry : params.entrySet()) {
+            if (!sb.isEmpty()) sb.append('&');
+            sb.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        return sb.toString();
+    }
+
+    /** Navigates data.playurl_info.playurl.stream[].format[].codec[].url_info[]
+     *  where base_url is at codec level and host/extra are at url_info level. */
+    private static String extractV2StreamUrl(JsonObject data) {
+        var playurlInfo = optObject(data, "playurl_info");
+        if (playurlInfo == null) return null;
+        var playurl = optObject(playurlInfo, "playurl");
+        if (playurl == null) return null;
+        var streams = optArray(playurl, "stream");
+        if (streams == null || streams.isEmpty()) return null;
+        for (var streamEl : streams) {
+            var formats = optArray(streamEl.getAsJsonObject(), "format");
+            if (formats == null || formats.isEmpty()) continue;
+            for (var formatEl : formats) {
+                var codecs = optArray(formatEl.getAsJsonObject(), "codec");
+                if (codecs == null || codecs.isEmpty()) continue;
+                for (var codecEl : codecs) {
+                    var codec = codecEl.getAsJsonObject();
+                    var baseUrl = optString(codec, "base_url", "");
+                    if (baseUrl.isEmpty()) continue;
+                    var urlInfos = optArray(codec, "url_info");
+                    if (urlInfos == null || urlInfos.isEmpty()) continue;
+                    var urlInfo = urlInfos.get(0).getAsJsonObject();
+                    var host = optString(urlInfo, "host", "");
+                    var extra = optString(urlInfo, "extra", "");
+                    if (!host.isEmpty()) {
+                        return host + baseUrl + extra;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
