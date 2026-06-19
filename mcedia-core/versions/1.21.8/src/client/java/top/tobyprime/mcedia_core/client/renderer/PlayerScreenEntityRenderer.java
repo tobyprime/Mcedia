@@ -112,7 +112,8 @@ public final class PlayerScreenEntityRenderer {
     private static boolean shouldRenderBackgroundLayer(State state) {
         return state.backgroundTextureId != null
                 && (state.fillMode == ScreenFillMode.FILL
-                || state.fillMode == ScreenFillMode.KEEP_ASPECT_COVER);
+                || state.fillMode == ScreenFillMode.KEEP_ASPECT_COVER
+                || state.fillMode == ScreenFillMode.KEEP_ASPECT_FIT);
     }
 
     private static boolean hasPlayableVideoFrame(State state) {
