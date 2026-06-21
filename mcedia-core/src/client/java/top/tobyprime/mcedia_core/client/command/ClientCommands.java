@@ -21,6 +21,8 @@ import top.tobyprime.mcedia.api.resolver.MediaResolvers;
 import top.tobyprime.mcedia.player.config.Configs;
 import top.tobyprime.mcedia.player.core.SingleMediaPlayer;
 import top.tobyprime.mcedia_core.client.audio.SpeakerAudioChannelMode;
+import top.tobyprime.mcedia_core.client.player.HudScreenPeripheral;
+import top.tobyprime.mcedia_core.client.player.HudSpeakerPeripheral;
 import top.tobyprime.mcedia_core.client.player.MediaPlayerHostManager;
 import top.tobyprime.mcedia_core.client.player.ScreenPeripheral;
 import top.tobyprime.mcedia_core.client.player.SpeakerPeripheral;
@@ -51,7 +53,9 @@ public final class ClientCommands {
 
             root.then(ClientCommandManager.literal("dev")
                     .then(ClientCommandManager.literal("create")
-                            .executes(context -> createHostWithPeripherals(context.getSource()))));
+                            .executes(context -> createHostWithPeripherals(context.getSource())))
+                    .then(ClientCommandManager.literal("createHud")
+                            .executes(context -> createHudHost(context.getSource()))));
 
             root.then(ClientCommandManager.literal("config")
                     .executes(context -> showConfig(context.getSource()))
@@ -156,6 +160,38 @@ public final class ClientCommands {
                     .maxVideoSize(decoderMaxWidth(decoderH), decoderH)
                     .build());
             source.sendFeedback(Component.literal("Created host " + handle.hostId()));
+        });
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int createHudHost(FabricClientCommandSource source) {
+        var client = Minecraft.getInstance();
+        client.execute(() -> {
+            var window = client.getWindow();
+            int sw = window.getGuiScaledWidth();
+            int sh = window.getGuiScaledHeight();
+
+            var hudScreen = new HudScreenPeripheral();
+            hudScreen.setScreenSize(sw / 3, sh / 3);
+            hudScreen.setPosition(sw - sw / 3, 0);
+
+            var hudSpeakerLeft = new HudSpeakerPeripheral();
+            hudSpeakerLeft.setAudioChannelMode(SpeakerAudioChannelMode.LEFT);
+
+            var hudSpeakerRight = new HudSpeakerPeripheral();
+            hudSpeakerRight.setAudioChannelMode(SpeakerAudioChannelMode.RIGHT);
+
+            var manager = MediaPlayerHostManager.get();
+            var decoderH = decoderMaxHeight(Configs.MAX_RESOLUTION_HEIGHT);
+            var handle = manager.createHostAndGetId(new DecoderConfiguration.Builder()
+                    .maxVideoSize(decoderMaxWidth(decoderH), decoderH)
+                    .build());
+            manager.assignPeripheralToHost(handle.hostId(), hudScreen);
+            manager.assignPeripheralToHost(handle.hostId(), hudSpeakerLeft);
+            manager.assignPeripheralToHost(handle.hostId(), hudSpeakerRight);
+
+            source.sendFeedback(Component.literal(
+                    "Created host " + handle.hostId() + " with HUD screen and stereo speakers"));
         });
         return Command.SINGLE_SUCCESS;
     }

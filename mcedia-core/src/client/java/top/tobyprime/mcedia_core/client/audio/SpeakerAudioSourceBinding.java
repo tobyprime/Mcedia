@@ -14,7 +14,12 @@ public final class SpeakerAudioSourceBinding implements AudioSourceBinding {
     private boolean closed;
 
     public SpeakerAudioSourceBinding(MinecraftSoundEngineAdapter soundEngineAdapter, Supplier<Vec3> positionSupplier) {
+        this(soundEngineAdapter, positionSupplier, false);
+    }
+
+    public SpeakerAudioSourceBinding(MinecraftSoundEngineAdapter soundEngineAdapter, Supplier<Vec3> positionSupplier, boolean relative) {
         this.source = new OpenAlAudioSource(soundEngineAdapter, positionSupplier);
+        this.source.setRelative(relative);
     }
 
     @Override

@@ -2,12 +2,14 @@ package top.tobyprime.mcedia_core.client.renderer;
 
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+import top.tobyprime.mcedia_core.client.player.HudScreenPeripheral;
 import top.tobyprime.mcedia_core.client.player.MediaPlayerPeripheral;
 import top.tobyprime.mcedia_core.client.player.PlayerHost;
 import top.tobyprime.mcedia_core.client.player.ScreenPeripheral;
@@ -111,6 +113,19 @@ public final class McediaRenderer {
             int light = LevelRenderer.getLightColor(level, BlockPos.containing(screen.getPosition()));
             PlayerScreenEntityRenderer.extractRenderState(screen, state, light);
             PlayerScreenEntityRenderer.submit(state, screen.getPosition(), cameraPos, bufferSource);
+        }
+    }
+
+    public void submitHudScreens(GuiGraphics guiGraphics) {
+        Set<MediaPlayerPeripheral> activePeripherals;
+        synchronized (lock) {
+            activePeripherals = new LinkedHashSet<>(peripherals);
+        }
+
+        for (var peripheral : activePeripherals) {
+            if (peripheral instanceof HudScreenPeripheral hudScreen && hudScreen.isAlive()) {
+                HudScreenRenderer.render(hudScreen, guiGraphics);
+            }
         }
     }
 }

@@ -18,6 +18,7 @@
     "MixinSoundEngine",
     "MixinSoundOptionsScreen",
     "MixinDebugScreenEntries",
+    "MixinInGameHud",
     "accessor.SoundManagerAccessor",
     "accessor.SoundEngineAccessor",
     "accessor.OptionsSubScreenAccessor"

@@ -56,6 +56,7 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
     private volatile SpeakerAudioChannelMode channelMode = SpeakerAudioChannelMode.MIX;
     private volatile long lastFrameTimestamp = -1L;
     private volatile long cachedPlaytime = -1L;
+    private boolean relative;
 
     public OpenAlAudioSource(MinecraftSoundEngineAdapter soundEngineAdapter, Supplier<Vec3> positionSupplier) {
         this.soundEngineAdapter = soundEngineAdapter;
@@ -193,6 +194,10 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         this.maxDistance = sanitizeMaxDistance(maxDistance);
     }
 
+    public void setRelative(boolean relative) {
+        this.relative = relative;
+    }
+
     @Override
     public void clear() {
         soundEngineAdapter.executeBlockingOnAudioThread(() -> {
@@ -237,6 +242,7 @@ public final class OpenAlAudioSource implements AudioSource, AutoCloseable {
         AL10.alSourcef(sourceId, AL10.AL_MAX_DISTANCE, currentMaxDistance);
         AL10.alSourcef(sourceId, AL10.AL_REFERENCE_DISTANCE, 1.0F);
         AL10.alSourcef(sourceId, AL10.AL_ROLLOFF_FACTOR, 1.0F);
+        AL10.alSourcei(sourceId, AL10.AL_SOURCE_RELATIVE, relative ? AL10.AL_TRUE : AL10.AL_FALSE);
         if (checkError("update source state", AlErrorHandling.INVALIDATE_AUDIO_STATE)) {
             return;
         }
