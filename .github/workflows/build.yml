@@ -286,26 +286,17 @@ jobs:
           publish_version() {
             local jar="$1"
             local project_id="$2"
-            local mcver="$3"
+            local game_versions_json="$3"
             local version_number="$4"
             local display_name="$5"
             local loaders_json="$6"
             local deps_json="$7"
 
-            # Read minecraft_version from version-specific gradle.properties
-            local prop_file="mcedia-core/versions/${mcver}/gradle.properties"
-            local game_version="$mcver"
-            if [ -f "$prop_file" ]; then
-              local mv
-              mv=$(grep '^minecraft_version' "$prop_file" | cut -d= -f2 | tr -d ' ')
-              [ -n "$mv" ] && game_version="$mv"
-            fi
-
             local data
             data=$(jq -n \
               --arg name "$display_name" \
               --arg version_number "$version_number" \
-              --argjson game_versions "[ \"$game_version\" ]" \
+              --argjson game_versions "$game_versions_json" \
               --arg version_type "release" \
               --argjson loaders "$loaders_json" \
               --argjson dependencies "$deps_json" \
@@ -325,7 +316,7 @@ jobs:
                 primary_file: "file"
               }')
 
-            echo "  → ${display_name} (${mcver})"
+            echo "  → ${display_name} (${game_versions_json})"
             response=$(curl -sL -w "\n%{http_code}" -X POST "https://api.modrinth.com/v2/version" \
               -H "Authorization: $MODRINTH_TOKEN" \
               -F "data=$data" \
@@ -347,13 +338,16 @@ jobs:
               filename=$(basename "$jar")
               [[ "$filename" == *-sources-* ]] && continue
 
-              # Parse: mcedia_core-<modver>+<mcver>.<platform>+build<ts>.jar
-              rest="${filename#mcedia_core-}"
+              # Strip .jar then +build<ts> suffix
+              name="${filename%.jar}"
+              name="${name%+build*}"
+
+              # name: mcedia_core-<modver>+<mcver>.<platform>
+              rest="${name#mcedia_core-}"
               modver="${rest%%+*}"
               rest2="${rest#*+}"
-              mcver="${rest2%%.*}"
-              platform="${rest2#*.}"
-              platform="${platform%%+build*}"
+              mcver="${rest2%.*}"       # "1.21.11" from "1.21.11.windows-x86_64"
+              platform="${rest2##*.}"   # "windows-x86_64"
 
               # Only publish windows-x86_64
               [ "$platform" != "windows-x86_64" ] && continue
@@ -361,10 +355,16 @@ jobs:
               version_number="${modver}+${mcver}"
               display_name="mcedia-core ${modver}+${mcver}"
 
+              # Build game versions list (expand 26.1 → 26.1,26.1.1,26.1.2)
+              case "$mcver" in
+                26.1) gv='["26.1","26.1.1","26.1.2"]' ;;
+                *)    gv="[\"${mcver}\"]" ;;
+              esac
+
               publish_version \
                 "$jar" \
                 "$MODRINTH_CORE_PROJECT_ID" \
-                "$mcver" \
+                "$gv" \
                 "$version_number" \
                 "$display_name" \
                 '["fabric"]' \
@@ -382,13 +382,23 @@ jobs:
               filename=$(basename "$jar")
               [[ "$filename" == *-sources-* ]] && continue
 
-              # Parse: mcedia_cn_platforms-<modver>+<mcver>.<platform>+build<ts>.jar
-              rest="${filename#mcedia_cn_platforms-}"
+              # Strip .jar then +build<ts> suffix
+              name="${filename%.jar}"
+              name="${name%+build*}"
+
+              # name: mcedia_cn_platforms-<modver>+<mcver>.<platform>
+              rest="${name#mcedia_cn_platforms-}"
               modver="${rest%%+*}"
               rest2="${rest#*+}"
-              mcver="${rest2%%.*}"
+              mcver="${rest2%.*}"       # "1.21.11" from "1.21.11.universal"
               version_number="${modver}+${mcver}"
               display_name="mcedia-cn-platforms ${modver}+${mcver}"
+
+              # Build game versions list (expand 26.1 → 26.1,26.1.1,26.1.2)
+              case "$mcver" in
+                26.1) gv='["26.1","26.1.1","26.1.2"]' ;;
+                *)    gv="[\"${mcver}\"]" ;;
+              esac
 
               # Depend on mcedia-core
               deps="[]"
@@ -399,7 +409,7 @@ jobs:
               publish_version \
                 "$jar" \
                 "$MODRINTH_CN_PLATFORMS_PROJECT_ID" \
-                "$mcver" \
+                "$gv" \
                 "$version_number" \
                 "$display_name" \
                 '["fabric"]' \
