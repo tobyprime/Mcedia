@@ -343,8 +343,7 @@ jobs:
           # === mcedia-core (windows-x86_64 only) ===
           if [ -n "${MODRINTH_TOKEN:-}" ] && [ -n "${MODRINTH_CORE_PROJECT_ID:-}" ]; then
             echo "::group::Publish mcedia-core to Modrinth"
-            for jar in release-assets/mcedia_core-*.jar; do
-              [ -f "$jar" ] || continue
+            find release-assets -maxdepth 1 -name 'mcedia_core-*.jar' -print0 | while IFS= read -r -d '' jar; do
               filename=$(basename "$jar")
               [[ "$filename" == *-sources-* ]] && continue
 
@@ -379,16 +378,15 @@ jobs:
           # === mcedia-cn-platforms (no platform variants) ===
           if [ -n "${MODRINTH_TOKEN:-}" ] && [ -n "${MODRINTH_CN_PLATFORMS_PROJECT_ID:-}" ]; then
             echo "::group::Publish mcedia-cn-platforms to Modrinth"
-            for jar in release-assets/mcedia_cn_platforms-*.jar; do
-              [ -f "$jar" ] || continue
+            find release-assets -maxdepth 1 -name 'mcedia_cn_platforms-*.jar' -print0 | while IFS= read -r -d '' jar; do
               filename=$(basename "$jar")
               [[ "$filename" == *-sources-* ]] && continue
 
-              # Parse: mcedia_cn_platforms-<modver>+<mcver>+build<ts>.jar
+              # Parse: mcedia_cn_platforms-<modver>+<mcver>.<platform>+build<ts>.jar
               rest="${filename#mcedia_cn_platforms-}"
               modver="${rest%%+*}"
               rest2="${rest#*+}"
-              mcver="${rest2%%+*}"
+              mcver="${rest2%%.*}"
               version_number="${modver}+${mcver}"
               display_name="mcedia-cn-platforms ${modver}+${mcver}"
 
