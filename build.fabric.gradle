@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter
 plugins {
     id 'maven-publish'
     id 'net.fabricmc.fabric-loom' version '1.15-SNAPSHOT'
+    id 'com.modrinth.minotaur' version '2.+'
 }
 
 def mcVersion = project.property('minecraft_version').toString()
@@ -301,6 +302,40 @@ publishing {
         mavenLocal()
         maven {
             url = uri("${rootDir}/publish")
+        }
+    }
+}
+
+def resolveGameVersions() {
+    def key = "modrinth_game_versions_${mcVersion.replace('.', '_')}"
+    def expanded = rootProject.findProperty(key)?.toString()
+    if (expanded) {
+        return expanded.split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+    }
+    return [mcVersion]
+}
+
+modrinth {
+    token = System.getenv('MODRINTH_TOKEN')
+
+    projectId = System.getenv("MODRINTH_${moduleName.toUpperCase().replace('-', '_')}_PROJECT_ID")
+    if (projectId == null || projectId.isEmpty()) {
+        logger.warn("MODRINTH_${moduleName.toUpperCase().replace('-', '_')}_PROJECT_ID not set — Modrinth publish disabled")
+    }
+
+    versionNumber = "${project.version}+${mcVersion}"
+    uploadFile = tasks.findByName('remapJar') ?: tasks.named('jar').get()
+    versionType = 'release'
+    gameVersions = resolveGameVersions()
+    loaders = ['fabric']
+    changelog = "Automated build from commit ${System.getenv('GITHUB_SHA')?.take(7) ?: 'local'}."
+
+    dependencies {
+        if (moduleName == 'mcedia-cn-platforms') {
+            def coreId = System.getenv('MODRINTH_MCEDIA_CORE_PROJECT_ID')
+            if (coreId) {
+                required.project coreId
+            }
         }
     }
 }

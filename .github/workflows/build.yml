@@ -151,6 +151,16 @@ jobs:
           ./gradlew :mcedia-cn-platforms-${{ matrix.mc_version }}:buildAndCollect \
                     -Psupported_mc_versions=${{ matrix.mc_version }}
 
+      - name: Publish to Modrinth
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_MCEDIA_CN_PLATFORMS_PROJECT_ID: ${{ secrets.MODRINTH_CN_PLATFORMS_PROJECT_ID }}
+          MODRINTH_MCEDIA_CORE_PROJECT_ID: ${{ secrets.MODRINTH_CORE_PROJECT_ID }}
+        run: |
+          ./gradlew :mcedia-cn-platforms-${{ matrix.mc_version }}:modrinth \
+                    -Psupported_mc_versions=${{ matrix.mc_version }}
+
       - name: Upload cn-platforms JAR (${{ matrix.mc_version }})
         uses: actions/upload-artifact@v4
         with:
@@ -195,6 +205,16 @@ jobs:
                     -Psupported_mc_versions=${{ matrix.mc_version }} \
                     -PplatformName=${{ matrix.platform }} \
                     -x test
+
+      - name: Publish to Modrinth
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform == 'windows-x86_64'
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_MCEDIA_CORE_PROJECT_ID: ${{ secrets.MODRINTH_CORE_PROJECT_ID }}
+        run: |
+          ./gradlew :mcedia-core-${{ matrix.mc_version }}:modrinth \
+                    -Psupported_mc_versions=${{ matrix.mc_version }} \
+                    -PplatformName=${{ matrix.platform }} -x test
 
       - name: Upload core JAR (${{ matrix.mc_version }} ${{ matrix.platform }})
         uses: actions/upload-artifact@v4
@@ -273,155 +293,3 @@ jobs:
             - macosx-arm64
           files: release-assets/*.jar
           fail_on_unmatched_files: true
-
-      # ── Publish to Modrinth ────────────────────────────────────────────
-      - name: Publish to Modrinth
-        env:
-          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-          MODRINTH_CORE_PROJECT_ID: ${{ secrets.MODRINTH_CORE_PROJECT_ID }}
-          MODRINTH_CN_PLATFORMS_PROJECT_ID: ${{ secrets.MODRINTH_CN_PLATFORMS_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-
-          publish_version() {
-            local jar="$1"
-            local project_id="$2"
-            local game_versions_json="$3"
-            local version_number="$4"
-            local display_name="$5"
-            local loaders_json="$6"
-            local deps_json="$7"
-
-            local data
-            data=$(jq -n \
-              --arg name "$display_name" \
-              --arg version_number "$version_number" \
-              --argjson game_versions "$game_versions_json" \
-              --arg version_type "release" \
-              --argjson loaders "$loaders_json" \
-              --argjson dependencies "$deps_json" \
-              --arg project_id "$project_id" \
-              --arg changelog "Automated build from commit ${GITHUB_SHA:0:7}." \
-              '{
-                name: $name,
-                version_number: $version_number,
-                changelog: $changelog,
-                game_versions: $game_versions,
-                version_type: $version_type,
-                loaders: $loaders,
-                dependencies: $dependencies,
-                project_id: $project_id,
-                featured: false,
-                file_parts: ["file"],
-                primary_file: "file"
-              }')
-
-            echo "  → ${display_name} (${game_versions_json})"
-            response=$(curl -sL -w "\n%{http_code}" -X POST "https://api.modrinth.com/v2/version" \
-              -H "Authorization: $MODRINTH_TOKEN" \
-              -F "data=$data" \
-              -F "file=@${jar}")
-            http_code=$(echo "$response" | tail -1)
-            body=$(echo "$response" | head -n -1)
-
-            if [ "$http_code" = "200" ]; then
-              echo "  ✓ Success"
-            else
-              echo "  ✗ Failed (HTTP $http_code): $(echo "$body" | head -c 200)"
-            fi
-          }
-
-          # === mcedia-core (windows-x86_64 only) ===
-          if [ -n "${MODRINTH_TOKEN:-}" ] && [ -n "${MODRINTH_CORE_PROJECT_ID:-}" ]; then
-            echo "::group::Publish mcedia-core to Modrinth"
-            find release-assets -maxdepth 1 -name 'mcedia_core-*.jar' -print0 | while IFS= read -r -d '' jar; do
-              filename=$(basename "$jar")
-              [[ "$filename" == *-sources-* ]] && continue
-
-              # Strip .jar then +build<ts> suffix
-              name="${filename%.jar}"
-              name="${name%+build*}"
-
-              # name: mcedia_core-<modver>+<mcver>.<platform>
-              rest="${name#mcedia_core-}"
-              modver="${rest%%+*}"
-              rest2="${rest#*+}"
-              mcver="${rest2%.*}"       # "1.21.11" from "1.21.11.windows-x86_64"
-              platform="${rest2##*.}"   # "windows-x86_64"
-
-              # Only publish windows-x86_64
-              [ "$platform" != "windows-x86_64" ] && continue
-
-              version_number="${modver}+${mcver}"
-              display_name="mcedia-core ${modver}+${mcver}"
-
-              # Read game versions from version-specific gradle.properties
-              gv_file="mcedia-core/versions/${mcver}/gradle.properties"
-              gv_csv=$(grep '^modrinth_game_versions' "$gv_file" 2>/dev/null | cut -d= -f2- | tr -d ' ')
-              if [ -z "$gv_csv" ]; then
-                gv="[\"${mcver}\"]"
-              else
-                gv="[\"$(echo "$gv_csv" | sed 's/,/","/g')\"]"
-              fi
-
-              publish_version \
-                "$jar" \
-                "$MODRINTH_CORE_PROJECT_ID" \
-                "$gv" \
-                "$version_number" \
-                "$display_name" \
-                '["fabric"]' \
-                '[]' || true
-            done
-            echo "::endgroup::"
-          else
-            echo "::notice::Skip Modrinth core publish: MODRINTH_TOKEN or MODRINTH_CORE_PROJECT_ID not set"
-          fi
-
-          # === mcedia-cn-platforms (no platform variants) ===
-          if [ -n "${MODRINTH_TOKEN:-}" ] && [ -n "${MODRINTH_CN_PLATFORMS_PROJECT_ID:-}" ]; then
-            echo "::group::Publish mcedia-cn-platforms to Modrinth"
-            find release-assets -maxdepth 1 -name 'mcedia_cn_platforms-*.jar' -print0 | while IFS= read -r -d '' jar; do
-              filename=$(basename "$jar")
-              [[ "$filename" == *-sources-* ]] && continue
-
-              # Strip .jar then +build<ts> suffix
-              name="${filename%.jar}"
-              name="${name%+build*}"
-
-              # name: mcedia_cn_platforms-<modver>+<mcver>.<platform>
-              rest="${name#mcedia_cn_platforms-}"
-              modver="${rest%%+*}"
-              rest2="${rest#*+}"
-              mcver="${rest2%.*}"       # "1.21.11" from "1.21.11.universal"
-              version_number="${modver}+${mcver}"
-              display_name="mcedia-cn-platforms ${modver}+${mcver}"
-
-              # Read game versions from version-specific gradle.properties
-              gv_file="mcedia-cn-platforms/versions/${mcver}/gradle.properties"
-              gv_csv=$(grep '^modrinth_game_versions' "$gv_file" 2>/dev/null | cut -d= -f2- | tr -d ' ')
-              if [ -z "$gv_csv" ]; then
-                gv="[\"${mcver}\"]"
-              else
-                gv="[\"$(echo "$gv_csv" | sed 's/,/","/g')\"]"
-              fi
-
-              # Depend on mcedia-core
-              deps="[]"
-              if [ -n "${MODRINTH_CORE_PROJECT_ID:-}" ]; then
-                deps="[{\"project_id\":\"${MODRINTH_CORE_PROJECT_ID}\",\"dependency_type\":\"required\"}]"
-              fi
-
-              publish_version \
-                "$jar" \
-                "$MODRINTH_CN_PLATFORMS_PROJECT_ID" \
-                "$gv" \
-                "$version_number" \
-                "$display_name" \
-                '["fabric"]' \
-                "$deps" || true
-            done
-            echo "::endgroup::"
-          else
-            echo "::notice::Skip Modrinth cn-platforms publish: MODRINTH_TOKEN or MODRINTH_CN_PLATFORMS_PROJECT_ID not set"
-          fi
