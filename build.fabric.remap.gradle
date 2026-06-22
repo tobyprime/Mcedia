@@ -335,13 +335,13 @@ publishing {
     }
 }
 
-def resolveGameVersions() {
-    def key = "modrinth_game_versions_${mcVersion.replace('.', '_')}"
+def resolveGameVersions(version) {
+    def key = "modrinth_game_versions_${version.replace('.', '_')}"
     def expanded = rootProject.findProperty(key)?.toString()
     if (expanded) {
         return expanded.split(',').collect { it.trim() }.findAll { !it.isEmpty() }
     }
-    return [mcVersion]
+    return [version]
 }
 
 def modrinthProjectId = System.getenv("MODRINTH_${moduleName.toUpperCase().replace('-', '_')}_PROJECT_ID")
@@ -358,7 +358,7 @@ modrinth {
     versionNumber = "${project.version}+${mcVersion}"
     uploadFile = tasks.findByName('remapJar') ?: tasks.named('jar').get()
     versionType = 'release'
-    gameVersions = resolveGameVersions()
+    gameVersions = resolveGameVersions(mcVersion)
     loaders = ['fabric']
     changelog = "Automated build from commit ${System.getenv('GITHUB_SHA')?.take(7) ?: 'local'}."
 
