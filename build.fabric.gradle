@@ -315,11 +315,14 @@ def resolveGameVersions() {
     return [mcVersion]
 }
 
+def modrinthProjectId = System.getenv("MODRINTH_${moduleName.toUpperCase().replace('-', '_')}_PROJECT_ID")
+
 modrinth {
     token = System.getenv('MODRINTH_TOKEN')
 
-    projectId = System.getenv("MODRINTH_${moduleName.toUpperCase().replace('-', '_')}_PROJECT_ID")
-    if (projectId == null || projectId.isEmpty()) {
+    if (modrinthProjectId != null && !modrinthProjectId.isEmpty()) {
+        projectId = modrinthProjectId
+    } else {
         logger.warn("MODRINTH_${moduleName.toUpperCase().replace('-', '_')}_PROJECT_ID not set — Modrinth publish disabled")
     }
 
