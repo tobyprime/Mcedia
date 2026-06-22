@@ -355,11 +355,14 @@ jobs:
               version_number="${modver}+${mcver}"
               display_name="mcedia-core ${modver}+${mcver}"
 
-              # Build game versions list (expand 26.1 → 26.1,26.1.1,26.1.2)
-              case "$mcver" in
-                26.1) gv='["26.1","26.1.1","26.1.2"]' ;;
-                *)    gv="[\"${mcver}\"]" ;;
-              esac
+              # Read game versions from version-specific gradle.properties
+              gv_file="mcedia-core/versions/${mcver}/gradle.properties"
+              gv_csv=$(grep '^modrinth_game_versions' "$gv_file" 2>/dev/null | cut -d= -f2- | tr -d ' ')
+              if [ -z "$gv_csv" ]; then
+                gv="[\"${mcver}\"]"
+              else
+                gv="[\"$(echo "$gv_csv" | sed 's/,/","/g')\"]"
+              fi
 
               publish_version \
                 "$jar" \
@@ -394,11 +397,14 @@ jobs:
               version_number="${modver}+${mcver}"
               display_name="mcedia-cn-platforms ${modver}+${mcver}"
 
-              # Build game versions list (expand 26.1 → 26.1,26.1.1,26.1.2)
-              case "$mcver" in
-                26.1) gv='["26.1","26.1.1","26.1.2"]' ;;
-                *)    gv="[\"${mcver}\"]" ;;
-              esac
+              # Read game versions from version-specific gradle.properties
+              gv_file="mcedia-cn-platforms/versions/${mcver}/gradle.properties"
+              gv_csv=$(grep '^modrinth_game_versions' "$gv_file" 2>/dev/null | cut -d= -f2- | tr -d ' ')
+              if [ -z "$gv_csv" ]; then
+                gv="[\"${mcver}\"]"
+              else
+                gv="[\"$(echo "$gv_csv" | sed 's/,/","/g')\"]"
+              fi
 
               # Depend on mcedia-core
               deps="[]"
