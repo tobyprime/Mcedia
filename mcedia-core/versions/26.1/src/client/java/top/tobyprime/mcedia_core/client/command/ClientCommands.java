@@ -1,7 +1,6 @@
 package top.tobyprime.mcedia_core.client.command;
 
 import com.mojang.brigadier.Command;
-import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -10,9 +9,9 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.Minecraft;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
@@ -46,9 +45,9 @@ public final class ClientCommands {
     private static final float SCREEN_WIDTH = SCREEN_SCALE * SCREEN_ASPECT_WIDTH;
     private static final float SCREEN_HEIGHT = SCREEN_SCALE * SCREEN_ASPECT_HEIGHT;
 
-    private static final SuggestionProvider<CommandSourceStack> SUGGEST_RESOLUTIONS = (context, builder) ->
+    private static final SuggestionProvider<FabricClientCommandSource> SUGGEST_RESOLUTIONS = (context, builder) ->
             SharedSuggestionProvider.suggest(java.util.List.of("320p", "720p", "1080p", "2k", "4k", "8k", "unlimited"), builder);
-    private static final SuggestionProvider<CommandSourceStack> SUGGEST_HOST_IDS = (context, builder) -> {
+    private static final SuggestionProvider<FabricClientCommandSource> SUGGEST_HOST_IDS = (context, builder) -> {
         var hostEntries = MediaPlayerHostManager.get().getHostsByIdSnapshot();
         var suggestions = new ArrayList<String>();
         for (var hostId : hostEntries.keySet()) {
@@ -61,125 +60,121 @@ public final class ClientCommands {
     }
 
     public static void register() {
-        // Called from FabricEntryPointClient, but commands are now registered via MixinCommands mixin
-        // to avoid dependency on Fabric client command API. This entry point remains for lifecycle logging.
-        LOGGER.info("Mcedia commands registered via MixinCommands");
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            var root = net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("mcedia");
+
+            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("dev")
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("create")
+                            .executes(context -> createHostWithPeripherals(context.getSource())))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("createHud")
+                            .executes(context -> createHudHost(context.getSource()))));
+
+            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("config")
+                    .executes(context -> showConfig(context.getSource()))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("resolution")
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("level", StringArgumentType.word())
+                                    .suggests(SUGGEST_RESOLUTIONS)
+                                    .executes(context -> setResolution(
+                                            context.getSource(),
+                                            StringArgumentType.getString(context, "level")))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("activedecoderlimit")
+                            .executes(context -> showActiveDecoderLimit(context.getSource()))
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("count", IntegerArgumentType.integer(0))
+                                    .executes(context -> setActiveDecoderLimit(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "count")))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("throttleddecoderlimit")
+                            .executes(context -> showThrottledDecoderLimit(context.getSource()))
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("count", IntegerArgumentType.integer(0))
+                                    .executes(context -> setThrottledDecoderLimit(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "count")))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("lowoverheadfps")
+                            .executes(context -> showLowOverheadFPS(context.getSource()))
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("fps", IntegerArgumentType.integer(1))
+                                    .executes(context -> setLowOverheadFPS(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "fps")))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("danmaku")
+                            .executes(context -> showDanmakuVisible(context.getSource()))
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("visible", BoolArgumentType.bool())
+                                    .executes(context -> setDanmakuVisible(
+                                            context.getSource(),
+                                            BoolArgumentType.getBool(context, "visible")))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("volume")
+                            .executes(context -> showVolume(context.getSource()))
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("factor", DoubleArgumentType.doubleArg(0.0D, 4.0D))
+                                    .executes(context -> setVolume(
+                                            context.getSource(),
+                                            DoubleArgumentType.getDouble(context, "factor"))))));
+
+            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("host")
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("create")
+                            .executes(context -> createHost(context.getSource())))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("list")
+                            .executes(context -> listHosts(context.getSource())))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("seturl")
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(SUGGEST_HOST_IDS)
+                                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("mediaUrl", StringArgumentType.greedyString())
+                                            .executes(context -> setHostUrl(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    StringArgumentType.getString(context, "mediaUrl"))))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("forward")
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(SUGGEST_HOST_IDS)
+                                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("seconds", IntegerArgumentType.integer(1))
+                                            .executes(context -> seekHostRelative(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    IntegerArgumentType.getInteger(context, "seconds"),
+                                                    true)))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("backward")
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(SUGGEST_HOST_IDS)
+                                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("seconds", IntegerArgumentType.integer(1))
+                                            .executes(context -> seekHostRelative(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    IntegerArgumentType.getInteger(context, "seconds"),
+                                                    false)))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("setspeed")
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(SUGGEST_HOST_IDS)
+                                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("speed", DoubleArgumentType.doubleArg(0.1D, 8.0D))
+                                            .executes(context -> setHostSpeed(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    DoubleArgumentType.getDouble(context, "speed"))))))
+                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("pause")
+                            .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("hostId", IntegerArgumentType.integer(1))
+                                    .suggests(SUGGEST_HOST_IDS)
+                                    .executes(context -> setHostPaused(
+                                            context.getSource(),
+                                            IntegerArgumentType.getInteger(context, "hostId"),
+                                            true))
+                                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument("paused", BoolArgumentType.bool())
+                                            .executes(context -> setHostPaused(
+                                                    context.getSource(),
+                                                    IntegerArgumentType.getInteger(context, "hostId"),
+                                                    BoolArgumentType.getBool(context, "paused")))))));
+
+            dispatcher.register(root);
+        });
     }
 
-    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        var root = Commands.literal("mcedia");
-
-        root.then(Commands.literal("dev")
-                .then(Commands.literal("create")
-                        .executes(context -> createHostWithPeripherals(context.getSource())))
-                .then(Commands.literal("createHud")
-                        .executes(context -> createHudHost(context.getSource()))));
-
-        root.then(Commands.literal("config")
-                .executes(context -> showConfig(context.getSource()))
-                .then(Commands.literal("resolution")
-                        .then(Commands.argument("level", StringArgumentType.word())
-                                .suggests(SUGGEST_RESOLUTIONS)
-                                .executes(context -> setResolution(
-                                        context.getSource(),
-                                        StringArgumentType.getString(context, "level")))))
-                .then(Commands.literal("activedecoderlimit")
-                        .executes(context -> showActiveDecoderLimit(context.getSource()))
-                        .then(Commands.argument("count", IntegerArgumentType.integer(0))
-                                .executes(context -> setActiveDecoderLimit(
-                                        context.getSource(),
-                                        IntegerArgumentType.getInteger(context, "count")))))
-                .then(Commands.literal("throttleddecoderlimit")
-                        .executes(context -> showThrottledDecoderLimit(context.getSource()))
-                        .then(Commands.argument("count", IntegerArgumentType.integer(0))
-                                .executes(context -> setThrottledDecoderLimit(
-                                        context.getSource(),
-                                        IntegerArgumentType.getInteger(context, "count")))))
-                .then(Commands.literal("lowoverheadfps")
-                        .executes(context -> showLowOverheadFPS(context.getSource()))
-                        .then(Commands.argument("fps", IntegerArgumentType.integer(1))
-                                .executes(context -> setLowOverheadFPS(
-                                        context.getSource(),
-                                        IntegerArgumentType.getInteger(context, "fps")))))
-                .then(Commands.literal("danmaku")
-                        .executes(context -> showDanmakuVisible(context.getSource()))
-                        .then(Commands.argument("visible", BoolArgumentType.bool())
-                                .executes(context -> setDanmakuVisible(
-                                        context.getSource(),
-                                        BoolArgumentType.getBool(context, "visible")))))
-                .then(Commands.literal("volume")
-                        .executes(context -> showVolume(context.getSource()))
-                        .then(Commands.argument("factor", DoubleArgumentType.doubleArg(0.0D, 4.0D))
-                                .executes(context -> setVolume(
-                                        context.getSource(),
-                                        DoubleArgumentType.getDouble(context, "factor"))))));
-
-        root.then(Commands.literal("host")
-                .then(Commands.literal("create")
-                        .executes(context -> createHost(context.getSource())))
-                .then(Commands.literal("list")
-                        .executes(context -> listHosts(context.getSource())))
-                .then(Commands.literal("seturl")
-                        .then(Commands.argument("hostId", IntegerArgumentType.integer(1))
-                                .suggests(SUGGEST_HOST_IDS)
-                                .then(Commands.argument("mediaUrl", StringArgumentType.greedyString())
-                                        .executes(context -> setHostUrl(
-                                                context.getSource(),
-                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                StringArgumentType.getString(context, "mediaUrl"))))))
-                .then(Commands.literal("forward")
-                        .then(Commands.argument("hostId", IntegerArgumentType.integer(1))
-                                .suggests(SUGGEST_HOST_IDS)
-                                .then(Commands.argument("seconds", IntegerArgumentType.integer(1))
-                                        .executes(context -> seekHostRelative(
-                                                context.getSource(),
-                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                IntegerArgumentType.getInteger(context, "seconds"),
-                                                true)))))
-                .then(Commands.literal("backward")
-                        .then(Commands.argument("hostId", IntegerArgumentType.integer(1))
-                                .suggests(SUGGEST_HOST_IDS)
-                                .then(Commands.argument("seconds", IntegerArgumentType.integer(1))
-                                        .executes(context -> seekHostRelative(
-                                                context.getSource(),
-                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                IntegerArgumentType.getInteger(context, "seconds"),
-                                                false)))))
-                .then(Commands.literal("setspeed")
-                        .then(Commands.argument("hostId", IntegerArgumentType.integer(1))
-                                .suggests(SUGGEST_HOST_IDS)
-                                .then(Commands.argument("speed", DoubleArgumentType.doubleArg(0.1D, 8.0D))
-                                        .executes(context -> setHostSpeed(
-                                                context.getSource(),
-                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                DoubleArgumentType.getDouble(context, "speed"))))))
-                .then(Commands.literal("pause")
-                        .then(Commands.argument("hostId", IntegerArgumentType.integer(1))
-                                .suggests(SUGGEST_HOST_IDS)
-                                .executes(context -> setHostPaused(
-                                        context.getSource(),
-                                        IntegerArgumentType.getInteger(context, "hostId"),
-                                        true))
-                                .then(Commands.argument("paused", BoolArgumentType.bool())
-                                        .executes(context -> setHostPaused(
-                                                context.getSource(),
-                                                IntegerArgumentType.getInteger(context, "hostId"),
-                                                BoolArgumentType.getBool(context, "paused")))))));
-
-        dispatcher.register(root);
-    }
-
-    private static int createHost(CommandSourceStack source) {
+    private static int createHost(FabricClientCommandSource source) {
         var client = Minecraft.getInstance();
         var decoderH = decoderMaxHeight(Configs.MAX_RESOLUTION_HEIGHT);
         var handle = MediaPlayerHostManager.get().createHostAndGetId(new DecoderConfiguration.Builder()
                 .maxVideoSize(decoderMaxWidth(decoderH), decoderH)
                 .build());
-        source.sendSuccess(() -> Component.literal("Created host " + handle.hostId()), false);
+        source.sendFeedback(Component.literal("Created host " + handle.hostId()));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int createHudHost(CommandSourceStack source) {
+    private static int createHudHost(FabricClientCommandSource source) {
         var client = Minecraft.getInstance();
         client.execute(() -> {
             var window = client.getWindow();
@@ -205,18 +200,18 @@ public final class ClientCommands {
             manager.assignPeripheralToHost(handle.hostId(), hudSpeakerLeft);
             manager.assignPeripheralToHost(handle.hostId(), hudSpeakerRight);
 
-            source.sendSuccess(() -> Component.literal(
-                    "Created host " + handle.hostId() + " with HUD screen and stereo speakers"), false);
+            source.sendFeedback(Component.literal(
+                    "Created host " + handle.hostId() + " with HUD screen and stereo speakers"));
         });
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int createHostWithPeripherals(CommandSourceStack source) {
+    private static int createHostWithPeripherals(FabricClientCommandSource source) {
         var client = Minecraft.getInstance();
         var player = client.player;
-        var level = client.level;  // 使用客户端世界，以便 ScreenPeripheral.isAlive() 正确匹配
+        var level = client.level;
         if (player == null || level == null) {
-            source.sendFailure(Component.literal("Client player or level not ready"));
+            source.sendError(Component.literal("Client player or level not ready"));
             return 0;
         }
         var look = player.getLookAngle();
@@ -234,7 +229,6 @@ public final class ClientCommands {
         var screen = new ScreenPeripheral(level);
         screen.setScreenSize(SCREEN_WIDTH, SCREEN_HEIGHT);
         screen.setPosition(screenPos);
-        // Rotate screen so its +Z face points back toward the player
         float yawRad = player.getYRot() * Mth.DEG_TO_RAD;
         screen.setWorldRotation(new Quaternionf().rotationY((float) Math.PI + yawRad));
 
@@ -262,46 +256,46 @@ public final class ClientCommands {
         manager.assignPeripheralToHost(handle.hostId(), leftSpeaker);
         manager.assignPeripheralToHost(handle.hostId(), rightSpeaker);
 
-        source.sendSuccess(() -> Component.literal(
-                "Created host " + handle.hostId() + " with runtime screen and stereo speakers"), false);
+        source.sendFeedback(Component.literal(
+                "Created host " + handle.hostId() + " with runtime screen and stereo speakers"));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int listHosts(CommandSourceStack source) {
+    private static int listHosts(FabricClientCommandSource source) {
         var hostEntries = MediaPlayerHostManager.get().getHostsByIdSnapshot();
         if (hostEntries.isEmpty()) {
-            source.sendSuccess(() -> Component.literal("No hosts, use /mcedia host create"), false);
+            source.sendFeedback(Component.literal("No hosts, use /mcedia host create"));
             return Command.SINGLE_SUCCESS;
         }
 
-        source.sendSuccess(() -> Component.literal("Hosts:"), false);
+        source.sendFeedback(Component.literal("Hosts:"));
         for (var entry : hostEntries.entrySet()) {
             int hostId = entry.getKey();
             int peripheralCount = entry.getValue().peripheralCount();
-            source.sendSuccess(() -> Component.literal("- " + hostId + " (peripherals=" + peripheralCount + ")"), false);
+            source.sendFeedback(Component.literal("- " + hostId + " (peripherals=" + peripheralCount + ")"));
         }
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int showDanmakuVisible(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Danmaku visible: " + Configs.DANMAKU_VISIBLE), false);
+    private static int showDanmakuVisible(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Danmaku visible: " + Configs.DANMAKU_VISIBLE));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setDanmakuVisible(CommandSourceStack source, boolean visible) {
+    private static int setDanmakuVisible(FabricClientCommandSource source, boolean visible) {
         Configs.DANMAKU_VISIBLE = visible;
-        source.sendSuccess(() -> Component.literal("Set danmaku visible to " + visible), false);
+        source.sendFeedback(Component.literal("Set danmaku visible to " + visible));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int showVolume(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Global volume factor: " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)), false);
+    private static int showVolume(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Global volume factor: " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setVolume(CommandSourceStack source, double factor) {
+    private static int setVolume(FabricClientCommandSource source, double factor) {
         Configs.VOLUME_FACTOR = (float) Math.min(Math.max(factor, 0.0), 4.0);
-        source.sendSuccess(() -> Component.literal("Set global volume factor to " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)), false);
+        source.sendFeedback(Component.literal("Set global volume factor to " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)));
         return Command.SINGLE_SUCCESS;
     }
 
@@ -341,67 +335,67 @@ public final class ClientCommands {
         return decoderHeight * 16 / 9;
     }
 
-    private static int showConfig(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Max video resolution: " + resolutionLevelName(Configs.MAX_RESOLUTION_HEIGHT)), false);
-        source.sendSuccess(() -> Component.literal("Global volume factor: " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)), false);
-        source.sendSuccess(() -> Component.literal("Active decoder limit: " + Configs.ACTIVE_DECODER_LIMIT), false);
-        source.sendSuccess(() -> Component.literal("Throttled decoder limit: " + Configs.THROTTLED_DECODER_LIMIT), false);
-        source.sendSuccess(() -> Component.literal("Low overhead upload FPS: " + Configs.LOW_OVERHEAD_UPLOAD_FPS), false);
+    private static int showConfig(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Max video resolution: " + resolutionLevelName(Configs.MAX_RESOLUTION_HEIGHT)));
+        source.sendFeedback(Component.literal("Global volume factor: " + String.format(Locale.ROOT, "%.2f", Configs.VOLUME_FACTOR)));
+        source.sendFeedback(Component.literal("Active decoder limit: " + Configs.ACTIVE_DECODER_LIMIT));
+        source.sendFeedback(Component.literal("Throttled decoder limit: " + Configs.THROTTLED_DECODER_LIMIT));
+        source.sendFeedback(Component.literal("Low overhead upload FPS: " + Configs.LOW_OVERHEAD_UPLOAD_FPS));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int showActiveDecoderLimit(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Active decoder limit: " + Configs.ACTIVE_DECODER_LIMIT), false);
+    private static int showActiveDecoderLimit(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Active decoder limit: " + Configs.ACTIVE_DECODER_LIMIT));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setActiveDecoderLimit(CommandSourceStack source, int count) {
+    private static int setActiveDecoderLimit(FabricClientCommandSource source, int count) {
         Configs.ACTIVE_DECODER_LIMIT = Math.max(0, count);
-        source.sendSuccess(() -> Component.literal("Set active decoder limit to " + Configs.ACTIVE_DECODER_LIMIT), false);
+        source.sendFeedback(Component.literal("Set active decoder limit to " + Configs.ACTIVE_DECODER_LIMIT));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int showThrottledDecoderLimit(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Throttled decoder limit: " + Configs.THROTTLED_DECODER_LIMIT), false);
+    private static int showThrottledDecoderLimit(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Throttled decoder limit: " + Configs.THROTTLED_DECODER_LIMIT));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setThrottledDecoderLimit(CommandSourceStack source, int count) {
+    private static int setThrottledDecoderLimit(FabricClientCommandSource source, int count) {
         Configs.THROTTLED_DECODER_LIMIT = Math.max(0, count);
-        source.sendSuccess(() -> Component.literal("Set throttled decoder limit to " + Configs.THROTTLED_DECODER_LIMIT), false);
+        source.sendFeedback(Component.literal("Set throttled decoder limit to " + Configs.THROTTLED_DECODER_LIMIT));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int showLowOverheadFPS(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Low overhead upload FPS: " + Configs.LOW_OVERHEAD_UPLOAD_FPS), false);
+    private static int showLowOverheadFPS(FabricClientCommandSource source) {
+        source.sendFeedback(Component.literal("Low overhead upload FPS: " + Configs.LOW_OVERHEAD_UPLOAD_FPS));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setLowOverheadFPS(CommandSourceStack source, int fps) {
+    private static int setLowOverheadFPS(FabricClientCommandSource source, int fps) {
         Configs.LOW_OVERHEAD_UPLOAD_FPS = Math.max(1, fps);
-        source.sendSuccess(() -> Component.literal("Set low overhead upload FPS to " + Configs.LOW_OVERHEAD_UPLOAD_FPS), false);
+        source.sendFeedback(Component.literal("Set low overhead upload FPS to " + Configs.LOW_OVERHEAD_UPLOAD_FPS));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setResolution(CommandSourceStack source, String level) {
+    private static int setResolution(FabricClientCommandSource source, String level) {
         var height = resolutionHeight(level);
         Configs.MAX_RESOLUTION_HEIGHT = height;
         MediaResolverSettings.setResolutionLimit(height);
-        source.sendSuccess(() -> Component.literal("Set max video resolution to " + resolutionLevelName(height)), false);
-        source.sendSuccess(() -> Component.literal("New hosts will use this limit. Reload media on existing hosts to apply."), false);
+        source.sendFeedback(Component.literal("Set max video resolution to " + resolutionLevelName(height)));
+        source.sendFeedback(Component.literal("New hosts will use this limit. Reload media on existing hosts to apply."));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setHostUrl(CommandSourceStack source, int hostId, String mediaUrl) {
+    private static int setHostUrl(FabricClientCommandSource source, int hostId, String mediaUrl) {
         if (mediaUrl == null || mediaUrl.isBlank()) {
-            source.sendFailure(Component.literal("mediaUrl cannot be blank"));
+            source.sendError(Component.literal("mediaUrl cannot be blank"));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal("Loading media for host " + hostId + "..."), false);
+        source.sendFeedback(Component.literal("Loading media for host " + hostId + "..."));
         var host = MediaPlayerHostManager.get().getHostById(hostId);
         if (host == null) {
-            source.sendFailure(Component.literal("Host not found: " + hostId));
+            source.sendError(Component.literal("Host not found: " + hostId));
             return 0;
         }
 
@@ -410,27 +404,27 @@ public final class ClientCommands {
                     var client = Minecraft.getInstance();
                     client.execute(() -> {
                         if (throwable == null) {
-                            source.sendSuccess(() -> Component.literal("Host " + hostId + " loaded media"), false);
+                            source.sendFeedback(Component.literal("Host " + hostId + " loaded media"));
                             return;
                         }
-                        source.sendFailure(Component
+                        source.sendError(Component
                                 .literal("Failed to load media for host " + hostId + ": " + rootMessage(throwable)));
                     });
                 });
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int seekHostRelative(CommandSourceStack source, int hostId, int seconds, boolean forward) {
+    private static int seekHostRelative(FabricClientCommandSource source, int hostId, int seconds, boolean forward) {
         var host = MediaPlayerHostManager.get().getHostById(hostId);
         if (host == null) {
-            source.sendFailure(Component.literal("Host not found: " + hostId));
+            source.sendError(Component.literal("Host not found: " + hostId));
             return 0;
         }
 
         var player = host.getPlayer();
         var media = player.getMedia();
         if (media == null) {
-            source.sendFailure(Component.literal("Host " + hostId + " has no active media"));
+            source.sendError(Component.literal("Host " + hostId + " has no active media"));
             return 0;
         }
 
@@ -457,40 +451,40 @@ public final class ClientCommands {
         } else {
             media.seek(seekTargetUs);
         }
-        source.sendSuccess(() -> Component.literal((forward ? "Forwarded " : "Moved backward ")
+        source.sendFeedback(Component.literal((forward ? "Forwarded " : "Moved backward ")
                 + seconds + "s for host " + hostId
-                + " (time=" + formatSeconds(seekTargetUs) + "s)"), false);
+                + " (time=" + formatSeconds(seekTargetUs) + "s)"));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setHostSpeed(CommandSourceStack source, int hostId, double speed) {
+    private static int setHostSpeed(FabricClientCommandSource source, int hostId, double speed) {
         var host = MediaPlayerHostManager.get().getHostById(hostId);
         if (host == null) {
-            source.sendFailure(Component.literal("Host not found: " + hostId));
+            source.sendError(Component.literal("Host not found: " + hostId));
             return 0;
         }
 
         LOGGER.info("Set host {} speed to {}x", hostId, speed);
         host.getPlayer().setSpeed(speed);
-        source.sendSuccess(() -> Component.literal("Set host " + hostId + " speed to " + speed + "x"), false);
+        source.sendFeedback(Component.literal("Set host " + hostId + " speed to " + speed + "x"));
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int setHostPaused(CommandSourceStack source, int hostId, boolean paused) {
+    private static int setHostPaused(FabricClientCommandSource source, int hostId, boolean paused) {
         var host = MediaPlayerHostManager.get().getHostById(hostId);
         if (host == null) {
-            source.sendFailure(Component.literal("Host not found: " + hostId));
+            source.sendError(Component.literal("Host not found: " + hostId));
             return 0;
         }
 
         var player = host.getPlayer();
         if (!(player instanceof SingleMediaPlayer singlePlayer)) {
-            source.sendFailure(Component.literal("Host player does not support pause control"));
+            source.sendError(Component.literal("Host player does not support pause control"));
             return 0;
         }
 
         singlePlayer.setPaused(paused);
-        source.sendSuccess(() -> Component.literal((paused ? "Paused " : "Resumed ") + "host " + hostId), false);
+        source.sendFeedback(Component.literal((paused ? "Paused " : "Resumed ") + "host " + hostId));
         return Command.SINGLE_SUCCESS;
     }
 
