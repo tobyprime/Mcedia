@@ -67,7 +67,7 @@ public final class PlayerScreenEntityRenderer {
 
     private static void renderTexturedQuad(PoseStack poseStack, MultiBufferSource.BufferSource bufferSource,
             int lightCoords, ResourceLocation textureId, Quad quad, float z) {
-        RenderType renderType = RenderType.entityTranslucent(textureId);
+        RenderType renderType = McediaRenderTypes.entityTranslucentUnlit(textureId);
         VertexConsumer consumer = bufferSource.getBuffer(renderType);
         var pose = poseStack.last();
         vertex(consumer, pose, lightCoords, -quad.halfWidth(), -quad.halfHeight(), z, 0.0F, 1.0F);
@@ -78,7 +78,7 @@ public final class PlayerScreenEntityRenderer {
 
     private static void renderTexturedQuad(PoseStack poseStack, MultiBufferSource.BufferSource bufferSource,
             int lightCoords, ResourceLocation textureId, Quad quad, float z, UvBounds uvBounds) {
-        RenderType renderType = RenderType.entityTranslucent(textureId);
+        RenderType renderType = McediaRenderTypes.entityTranslucentUnlit(textureId);
         VertexConsumer consumer = bufferSource.getBuffer(renderType);
         var pose = poseStack.last();
         vertex(consumer, pose, lightCoords, -quad.halfWidth(), -quad.halfHeight(), z, uvBounds.uMin(), uvBounds.vMax());
@@ -320,7 +320,7 @@ public final class PlayerScreenEntityRenderer {
 
     private static void renderColoredQuad(PoseStack poseStack, MultiBufferSource.BufferSource bufferSource,
             float left, float bottom, float right, float top, int color, int lightCoords) {
-        RenderType renderType = RenderType.entityTranslucent(WHITE_TEXTURE);
+        RenderType renderType = McediaRenderTypes.entityTranslucentUnlit(WHITE_TEXTURE);
         VertexConsumer consumer = bufferSource.getBuffer(renderType);
         var pose = poseStack.last();
         consumer.addVertex(pose, left, bottom, 0.0015F)
