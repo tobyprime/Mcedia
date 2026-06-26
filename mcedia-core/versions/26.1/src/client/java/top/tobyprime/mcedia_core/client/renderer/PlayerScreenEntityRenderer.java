@@ -6,7 +6,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -88,7 +87,7 @@ public final class PlayerScreenEntityRenderer {
             float z,
             UvBounds uvBounds
     ) {
-        RenderType renderType = RenderTypes.entityTranslucent(textureId);
+        RenderType renderType = McediaRenderTypes.entityTranslucentUnlit(textureId);
         submitNodeCollector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
             vertex(buffer, pose, lightCoords, -quad.halfWidth(), -quad.halfHeight(), z, uvBounds.uMin(), uvBounds.vMax());
             vertex(buffer, pose, lightCoords, quad.halfWidth(), -quad.halfHeight(), z, uvBounds.uMax(), uvBounds.vMax());
@@ -343,7 +342,7 @@ public final class PlayerScreenEntityRenderer {
 
     private static void renderColoredQuad(SubmitNodeCollector submitNodeCollector, PoseStack poseStack,
             float left, float bottom, float right, float top, int color, int lightCoords) {
-        var renderType = RenderTypes.entityTranslucent(WHITE_TEXTURE);
+        var renderType = McediaRenderTypes.entityTranslucentUnlit(WHITE_TEXTURE);
         submitNodeCollector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
             buffer.addVertex(pose, left, bottom, 0.0015F)
                     .setColor(color)
