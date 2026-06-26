@@ -57,7 +57,13 @@ public final class CommandBilibili {
                     }
                     return 1;
                 }));
-        dispatcher.register(literal("mcedia").then(literal("platforms").then(bilibiliNode)));
+        var platformsNode = literal("platforms").then(bilibiliNode).build();
+        var existingMcedia = dispatcher.getRoot().getChild("mcedia");
+        if (existingMcedia != null) {
+            existingMcedia.addChild(platformsNode);
+        } else {
+            dispatcher.register(literal("mcedia").then(platformsNode));
+        }
     }
 
     private static void login(FabricClientCommandSource source) {

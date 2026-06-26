@@ -16,7 +16,7 @@
     "mcedia_platforms.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=${loader_version}",
+    "mcedia_core": "*",
     "minecraft": "${minecraft_version_range}"
   }
 }
