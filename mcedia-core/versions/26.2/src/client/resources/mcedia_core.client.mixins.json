@@ -1,0 +1,26 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "top.tobyprime.mcedia_core.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  },
+  "mixins": [
+    "MixinGameRenderer",
+    "MixinLevelRenderer",
+    "MixinDebugRenderer",
+    "MixinSoundEngine",
+    "MixinSoundOptionsScreen",
+    "MixinDebugScreenEntries",
+    "MixinInGameHud",
+    "accessor.SoundManagerAccessor",
+    "accessor.SoundEngineAccessor",
+    "accessor.OptionsSubScreenAccessor"
+  ]
+}
