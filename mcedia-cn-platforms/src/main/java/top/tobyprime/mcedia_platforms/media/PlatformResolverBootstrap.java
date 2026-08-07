@@ -12,6 +12,8 @@ import top.tobyprime.mcedia.api.resolver.MediaResolverSettings;
 import top.tobyprime.mcedia.api.resolver.MediaResolvers;
 import top.tobyprime.mcedia_platforms.auth.BilibiliCookie;
 import top.tobyprime.mcedia_platforms.auth.BilibiliWbiSign;
+import top.tobyprime.mcedia_platforms.auth.NeteaseCookie;
+import top.tobyprime.mcedia_platforms.auth.NeteaseCrypto;
 import top.tobyprime.mcedia_platforms.danmaku.bilibili.BilibiliDanmakuProvider;
 
 import java.net.URI;
@@ -30,6 +32,11 @@ public final class PlatformResolverBootstrap {
     private static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
     private static final String BILIBILI_UA = "Mozilla/5.0";
     private static final String DOUYIN_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
+    private static final String NETEASE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
+    private static final Pattern SONG_ID_URL_PATTERN = Pattern.compile("(?:song|music)(?:\\?id=|/)(\\d+)");
+    private static final Pattern SONG_ID_HASH_PATTERN = Pattern.compile("(?:#/)?song\\?id=(\\d+)");
+    private static final Pattern PURE_DIGIT_PATTERN = Pattern.compile("\\d+");
 
     private PlatformResolverBootstrap() {
     }
@@ -42,9 +49,11 @@ public final class PlatformResolverBootstrap {
         MediaResolvers.register("bilibili", PlatformResolverBootstrap::resolveBilibili);
         MediaResolvers.register("bilibili_live", PlatformResolverBootstrap::resolveBilibiliLive);
         MediaResolvers.register("douyin", PlatformResolverBootstrap::resolveDouyin);
+        MediaResolvers.register("netease", PlatformResolverBootstrap::resolveNetease);
         MediaResolvers.registerParser(new BilibiliUrlParser(), 0);
         MediaResolvers.registerParser(new DouyinUrlParser(), 0);
-        LOGGER.info("Registered platform media resolvers: bilibili, bilibili_live, douyin");
+        MediaResolvers.registerParser(new NeteaseUrlParser(), 0);
+        LOGGER.info("Registered platform media resolvers: bilibili, bilibili_live, douyin, netease");
     }
 
     private static PlatformMedia resolveBilibili(String target) {
@@ -52,6 +61,14 @@ public final class PlatformResolverBootstrap {
             return resolveBilibiliInternal(target);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to resolve bilibili media: " + e.getMessage(), e);
+        }
+    }
+
+    private static PlatformMedia resolveNetease(String target) {
+        try {
+            return resolveNeteaseInternal(target);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to resolve netease media: " + e.getMessage(), e);
         }
     }
 
@@ -405,6 +422,139 @@ public final class PlatformResolverBootstrap {
         if (maxHeight >= 720) return 250;
         if (maxHeight >= 480) return 150;
         return 80;
+    }
+
+    private static PlatformMedia resolveNeteaseInternal(String target) throws Exception {
+        var songId = extractNeteaseSongId(target);
+        if (songId == null) {
+            throw new IllegalArgumentException("未找到歌曲 ID");
+        }
+
+        var cookie = NeteaseCookie.getCookie();
+
+        // Step 1: fetch song detail
+        // c needs to be a JSON string containing the array, not a raw array
+        var detailData = "{\"c\":\"[{\\\"id\\\":" + songId + "}]\",\"csrf_token\":\"\"}";
+        var detailBody = NeteaseCrypto.encrypt(detailData);
+        var detailResponse = HTTP.send(HttpRequest.newBuilder()
+                .uri(URI.create("https://music.163.com/weapi/v3/song/detail"))
+                .header("User-Agent", NETEASE_UA)
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Referer", "https://music.163.com/")
+                .POST(HttpRequest.BodyPublishers.ofString(toFormBody(detailBody)))
+                .build(), HttpResponse.BodyHandlers.ofString());
+        var detailJson = parseObject(detailResponse.body());
+        if (optInt(detailJson, "code", -1) != 200) {
+            throw new IllegalStateException("获取歌曲信息失败: " + optString(detailJson, "message", ""));
+        }
+
+        var songs = optArray(detailJson, "songs");
+        if (songs == null || songs.isEmpty()) {
+            throw new IllegalStateException("未找到歌曲信息");
+        }
+        var song = songs.get(0).getAsJsonObject();
+        var title = song.get("name").getAsString();
+        var artists = song.getAsJsonArray("ar");
+        var artist = artists != null && !artists.isEmpty()
+                ? artists.get(0).getAsJsonObject().get("name").getAsString()
+                : "Unknown";
+        var al = optObject(song, "al");
+        var coverUrl = al != null ? optString(al, "picUrl", null) : null;
+        var duration = optInt(song, "duration", 0);
+
+        // Step 2: fetch audio URL
+        var bitrate = selectBestBitrate(MediaResolverSettings.getResolutionLimit());
+        var level = bitrateToLevel(bitrate);
+        // ids must be a JSON array, and v1 endpoint needs encodeType for some levels
+        var playData = "{\"ids\":[" + songId + "],\"br\":" + bitrate + ",\"level\":\"" + level + "\",\"encodeType\":\"mp3\",\"csrf_token\":\"\"}";
+        var playBody = NeteaseCrypto.encrypt(playData);
+        var playRequestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create("https://music.163.com/weapi/song/enhance/player/url/v1"))
+                .header("User-Agent", NETEASE_UA)
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Referer", "https://music.163.com/")
+                .POST(HttpRequest.BodyPublishers.ofString(toFormBody(playBody)));
+        if (cookie != null && !cookie.isBlank()) {
+            playRequestBuilder.header("Cookie", cookie);
+        }
+        var playResponse = HTTP.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        var playJson = parseObject(playResponse.body());
+        if (optInt(playJson, "code", -1) != 200) {
+            throw new IllegalStateException("获取播放地址失败: " + optString(playJson, "message", ""));
+        }
+        var playDataArray = optArray(playJson, "data");
+        if (playDataArray == null || playDataArray.isEmpty()) {
+            throw new IllegalStateException("未找到播放数据");
+        }
+        var songPlayInfo = playDataArray.get(0).getAsJsonObject();
+        var url = optString(songPlayInfo, "url", null);
+        if (url == null || url.isBlank() || optInt(songPlayInfo, "code", -1) != 200) {
+            throw new IllegalStateException("未找到可播放的音频 URL（歌曲可能需要 VIP 或登录）");
+        }
+
+        var metadata = new HashMap<String, String>();
+        metadata.put("netease.song_id", songId);
+        metadata.put("netease.duration", String.valueOf(duration));
+        metadata.put("netease.level", level);
+        var info = new MediaInfo(title, artist, coverUrl, "netease", metadata);
+
+        var headers = new HashMap<String, String>();
+        headers.put("User-Agent", NETEASE_UA);
+        headers.put("Referer", "https://music.163.com/");
+        headers.put("Origin", "https://music.163.com");
+
+        return new PlatformMedia(new MediaPlayInfo(url, null, headers, cookie), info);
+    }
+
+    private static String extractNeteaseSongId(String target) {
+        if (target == null || target.isBlank()) {
+            return null;
+        }
+
+        var trimmed = target.trim();
+
+        if (PURE_DIGIT_PATTERN.matcher(trimmed).matches()) {
+            return trimmed;
+        }
+
+        var matcher = SONG_ID_URL_PATTERN.matcher(trimmed);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+
+        matcher = SONG_ID_HASH_PATTERN.matcher(trimmed);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+
+        return null;
+    }
+
+    private static int selectBestBitrate(int maxHeight) {
+        // Map height to bitrate: 0 = max, >=1080 = lossless, 720 = 320k, 480 = 192k, else 128k
+        if (maxHeight <= 0) return 999000; // lossless
+        if (maxHeight >= 1080) return 999000;
+        if (maxHeight >= 720) return 320000;
+        if (maxHeight >= 480) return 192000;
+        return 128000;
+    }
+
+    private static String bitrateToLevel(int bitrate) {
+        if (bitrate >= 999000) return "lossless";
+        if (bitrate >= 320000) return "exhigh";
+        if (bitrate >= 192000) return "high";
+        return "standard";
+    }
+
+    private static String toFormBody(Map<String, String> params) {
+        var sb = new StringBuilder();
+        for (var entry : params.entrySet()) {
+            if (!sb.isEmpty()) sb.append('&');
+            sb.append(java.net.URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
+                    .append('=')
+                    .append(java.net.URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+        }
+        return sb.toString();
     }
 
     private static PlatformMedia resolveDouyinInternal(String target) throws Exception {

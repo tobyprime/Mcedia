@@ -1,10 +1,9 @@
 package top.tobyprime.mcedia_core.client.renderer;
 
 import com.mojang.blaze3d.opengl.GlTexture;
-import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.textures.GpuTexture;
-import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.Identifier;
@@ -218,14 +217,14 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
 
         GpuTexture writeTex = (writeIndex == 0) ? textureA : textureB;
 
-        if (writeTex instanceof GlTexture glTex && "OpenGL".equals(RenderSystem.getDevice().getBackendName())) {
+        if (writeTex instanceof GlTexture glTex && "OpenGL".equals(RenderSystem.getDevice().getDeviceInfo().backendName())) {
             if (uploader == null) {
                 uploader = new GlTextureUploader();
             }
             uploader.upload(glTex.glId(), width, height, directBuffer, writeIndex);
         } else {
             RenderSystem.getDevice().createCommandEncoder()
-                .writeToTexture(writeTex, directBuffer, NativeImage.Format.RGBA, 0, 0, 0, 0, width, height);
+                .writeToTexture(writeTex, directBuffer, 0, 0, 0, 0, width, height);
         }
         DecoderMetrics.tracker().onVideoFrameUploaded();
 
@@ -244,8 +243,8 @@ public final class MediaTextureImpl extends AbstractTexture implements MediaText
         var device = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING;
 
-        textureA = device.createTexture(() -> "mcedia:" + textureId + ":a", usage, TextureFormat.RGBA8, width, height, 1, 1);
-        textureB = device.createTexture(() -> "mcedia:" + textureId + ":b", usage, TextureFormat.RGBA8, width, height, 1, 1);
+        textureA = device.createTexture(() -> "mcedia:" + textureId + ":a", usage, GpuFormat.RGBA8_UNORM, width, height, 1, 1);
+        textureB = device.createTexture(() -> "mcedia:" + textureId + ":b", usage, GpuFormat.RGBA8_UNORM, width, height, 1, 1);
 
         currentWidth = width;
         currentHeight = height;

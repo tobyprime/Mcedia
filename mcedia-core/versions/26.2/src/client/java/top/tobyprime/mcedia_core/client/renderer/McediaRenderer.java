@@ -3,11 +3,11 @@ package top.tobyprime.mcedia_core.client.renderer;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 import top.tobyprime.mcedia_core.client.player.HudScreenPeripheral;
@@ -108,7 +108,7 @@ public final class McediaRenderer {
 
             var screenPos = screen.getPosition();
             var state = PlayerScreenEntityRenderer.createRenderState();
-            int light = LevelRenderer.getLightCoords(level, BlockPos.containing(screenPos));
+            int light = LightCoordsUtil.getLightCoords(level, BlockPos.containing(screenPos));
             PlayerScreenEntityRenderer.extractRenderState(screen, state, light);
             poseStack.pushPose();
             poseStack.translate(

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import java.util.function.Function;
 import net.minecraft.util.Util;
+import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -31,7 +32,7 @@ public final class McediaRenderTypes {
                         .withLocation("pipeline/mcedia_entity_translucent_unlit")
                         .withShaderDefine("ALPHA_CUTOUT", 0.1F)
                         .withShaderDefine("NO_CARDINAL_LIGHTING")
-                        .withSampler("Sampler1")
+                        .withBindGroupLayout(BindGroupLayouts.SAMPLER1)
                         .withColorTargetState(new ColorTargetState(com.mojang.blaze3d.pipeline.BlendFunction.TRANSLUCENT))
                         .withCull(false)
                         .build()
