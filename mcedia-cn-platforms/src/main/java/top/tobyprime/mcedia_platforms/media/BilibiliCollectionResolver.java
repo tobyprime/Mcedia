@@ -35,8 +35,10 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
     private static final Pattern SEASON_PATTERN = Pattern.compile(BASE_DOMAIN + "/bangumi/play/ss(\\d+)");
     private static final Pattern EPISODE_PATTERN = Pattern.compile(BASE_DOMAIN + "/bangumi/play/ep(\\d+)");
     private static final Pattern FAVORITES_PATTERN = Pattern.compile(BASE_DOMAIN + "/list/ml(\\d+)");
+    private static final Pattern BVID_PATTERN = Pattern.compile("(BV[a-zA-Z0-9]+)");
 
     private static final int MAX_FAVORITES_ITEMS = 100;
+    private static final int MAX_VIDEO_ITEMS = 200;
 
     private final HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
 
@@ -57,6 +59,13 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
             var favoritesMatcher = FAVORITES_PATTERN.matcher(target);
             if (favoritesMatcher.find()) {
                 return Optional.of(resolveFavorites(favoritesMatcher.group(1)));
+            }
+            var bvidMatcher = BVID_PATTERN.matcher(target);
+            if (bvidMatcher.find()) {
+                var videoCollection = resolveVideoCollection(bvidMatcher.group(1));
+                if (videoCollection.isPresent()) {
+                    return videoCollection;
+                }
             }
         } catch (Exception e) {
             LOGGER.info("Failed to resolve bilibili collection: target={}, reason={}", target, e.getMessage());
@@ -167,6 +176,109 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
             }
         }
         return new BilibiliCollection(title, cover, items);
+    }
+
+    /** 根据视频 BV 查询所属合集(ugc_season)或多分P,均不存在则 empty。 */
+    private Optional<MediaCollection> resolveVideoCollection(String bvid) throws Exception {
+        var api = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid;
+        var requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(api))
+                .header("User-Agent", UA)
+                .header("Referer", "https://www.bilibili.com/");
+        var cookie = BilibiliCookie.getCookie();
+        if (cookie != null && !cookie.isBlank()) {
+            requestBuilder.header("Cookie", cookie);
+        }
+        var response = http.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        var json = JsonParser.parseString(response.body()).getAsJsonObject();
+        if (optInt(json, "code", -1) != 0) {
+            return Optional.empty();
+        }
+        return buildVideoCollection(json.getAsJsonObject("data"));
+    }
+
+    /** 从 view API 的 data 构建视频合集;纯函数便于单元测试,不发网络请求。
+     *  优先级: 视频所属合集(ugc_season) > 多分P;两者皆无返回 empty。 */
+    static Optional<MediaCollection> buildVideoCollection(JsonObject data) {
+        if (data == null) {
+            return Optional.empty();
+        }
+        var season = optObject(data, "ugc_season");
+        if (season != null) {
+            var episodes = optArray(season, "episodes");
+            if (episodes != null && !episodes.isEmpty()) {
+                return Optional.of(buildUgcSeasonCollection(season, episodes));
+            }
+        }
+        var pages = optArray(data, "pages");
+        if (pages != null && pages.size() > 1 && isNotBlank(optString(data, "bvid", null))) {
+            return Optional.of(buildMultiPageCollection(data, pages));
+        }
+        return Optional.empty();
+    }
+
+    private static MediaCollection buildUgcSeasonCollection(JsonObject season, JsonArray episodes) {
+        var title = optString(season, "title", "Bilibili 合集");
+        var cover = normalizeCoverUrl(optString(season, "cover", null));
+        var items = new ArrayList<MediaCollectionItem>();
+        for (var element : episodes) {
+            if (items.size() >= MAX_VIDEO_ITEMS) {
+                break;
+            }
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            var episode = element.getAsJsonObject();
+            var bvid = optString(episode, "bvid", null);
+            if (isBlank(bvid)) {
+                continue;
+            }
+            var page = optInt(episode, "page", 1);
+            items.add(new BilibiliCollectionItem(
+                    optString(episode, "title", "P" + page),
+                    normalizeCoverUrl(optString(episode, "cover", null)),
+                    videoTarget(bvid, page)
+            ));
+        }
+        return new BilibiliCollection(title, cover, items);
+    }
+
+    private static MediaCollection buildMultiPageCollection(JsonObject data, JsonArray pages) {
+        var bvid = optString(data, "bvid", null);
+        var title = optString(data, "title", "Bilibili 视频");
+        var cover = normalizeCoverUrl(optString(data, "pic", null));
+        var items = new ArrayList<MediaCollectionItem>();
+        int nextPage = 1;
+        for (var element : pages) {
+            if (items.size() >= MAX_VIDEO_ITEMS) {
+                break;
+            }
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            var pageObj = element.getAsJsonObject();
+            var page = optInt(pageObj, "page", nextPage);
+            nextPage = page + 1;
+            var partTitle = optString(pageObj, "part", "P" + page);
+            items.add(new BilibiliCollectionItem(
+                    partTitle,
+                    null,
+                    videoTarget(bvid, page)
+            ));
+        }
+        return new BilibiliCollection(title, cover, items);
+    }
+
+    private static String videoTarget(String bvid, int page) {
+        return "https://www.bilibili.com/video/" + bvid + "?p=" + page;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static boolean isNotBlank(String value) {
+        return !isBlank(value);
     }
 
     private static String episodeDisplayTitle(JsonObject episode) {
