@@ -18,6 +18,7 @@ import top.tobyprime.mcedia.api.video.VideoFrame;
 import top.tobyprime.mcedia.decoder.ffmpeg.frame.FfmpegAudioFrame;
 import top.tobyprime.mcedia.decoder.ffmpeg.frame.FfmpegVideoFrame;
 import top.tobyprime.mcedia.decoder.ffmpeg.internal.FfmpegProcessImageFlags;
+import top.tobyprime.mcedia.decoder.ffmpeg.internal.FfmpegSwsColorSpaceConfigurer;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -49,6 +50,8 @@ public class FfmpegDecoder implements Decoder {
     private final AtomicBoolean runtimeAudioEnabled = new AtomicBoolean(true);
     private final FrameStream<VideoFrame> videoStream = new FrameStream<>(DECODER_MAX_VIDEO_FRAMES);
     private final FrameStream<AudioFrame> audioStream = new FrameStream<>(DECODER_MAX_AUDIO_FRAMES);
+    @Nullable
+    private FfmpegSwsColorSpaceConfigurer colorSpaceConfigurer;
 
     @Nullable
     private volatile Thread masterDecoderThread;
@@ -69,6 +72,9 @@ public class FfmpegDecoder implements Decoder {
         masterGrabberLock.writeLock().lock();
         audioGrabberLock.writeLock().lock();
         try {
+            if (colorSpaceConfigurer == null) {
+                colorSpaceConfigurer = new FfmpegSwsColorSpaceConfigurer();
+            }
             runtimeVideoEnabled.set(config.getEnableVideo());
             runtimeAudioEnabled.set(config.getEnableAudio());
             if (config.getEnableVideo()) {
@@ -471,6 +477,12 @@ public class FfmpegDecoder implements Decoder {
                     long decodeStartNanos = System.nanoTime();
                     frame = masterGrabber.grab();
                     decodeElapsedNanos = System.nanoTime() - decodeStartNanos;
+
+                    // 逐帧校正 swscale 色彩空间与亮度范围（发灰/亮度不准）
+                    var colorConfigurer = colorSpaceConfigurer;
+                    if (frame != null && frame.image != null && colorConfigurer != null) {
+                        colorConfigurer.configure(masterGrabber, frame);
+                    }
 
                     if (frame == null) {
                         break;

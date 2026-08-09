@@ -6,11 +6,13 @@ import top.tobyprime.mcedia.api.media.Media;
 import top.tobyprime.mcedia.api.media.MediaInfo;
 import top.tobyprime.mcedia.api.media.MediaPlayInfo;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MediaResolversTest {
 
@@ -143,6 +145,74 @@ class MediaResolversTest {
         Media resolved = MediaResolvers.resolve("anything");
 
         assertEquals("a", resolved.getPlayInfo().getUrl());
+    }
+
+    // -- collection resolver registry tests --
+
+    @Test
+    void tryResolveCollectionReturnsEmptyWhenNoCollectionResolverRegistered() {
+        assertTrue(MediaResolvers.tryResolveCollection("https://example.com/album").isEmpty());
+    }
+
+    @Test
+    void tryResolveCollectionUsesFirstMatchingCollectionResolver() {
+        MediaResolvers.registerCollectionResolver("platform-a", target -> target.startsWith("a:")
+                ? Optional.of(new TestCollection("album-a", List.of()))
+                : Optional.empty());
+        MediaResolvers.registerCollectionResolver("platform-b", target -> target.startsWith("b:")
+                ? Optional.of(new TestCollection("album-b", List.of()))
+                : Optional.empty());
+
+        var resolved = MediaResolvers.tryResolveCollection("b:123");
+
+        assertTrue(resolved.isPresent());
+        assertEquals("album-b", resolved.get().getTitle());
+    }
+
+    @Test
+    void tryResolveCollectionSkipsMismatchedResolvers() {
+        MediaResolvers.registerCollectionResolver("platform-a", target -> target.startsWith("a:")
+                ? Optional.of(new TestCollection("album-a", List.of()))
+                : Optional.empty());
+
+        var resolved = MediaResolvers.tryResolveCollection("https://example.com/video");
+
+        assertTrue(resolved.isEmpty());
+    }
+
+    @Test
+    void collectionResolverOverwriteIsAllowed() {
+        MediaResolvers.registerCollectionResolver("platform", target -> Optional.of(new TestCollection("first", List.of())));
+        MediaResolvers.registerCollectionResolver("platform", target -> Optional.of(new TestCollection("second", List.of())));
+
+        var resolved = MediaResolvers.tryResolveCollection("anything");
+
+        assertEquals("second", resolved.get().getTitle());
+    }
+
+    private static final class TestCollection implements top.tobyprime.mcedia.api.media.MediaCollection {
+        private final String title;
+        private final List<top.tobyprime.mcedia.api.media.MediaCollectionItem> items;
+
+        private TestCollection(String title, List<top.tobyprime.mcedia.api.media.MediaCollectionItem> items) {
+            this.title = title;
+            this.items = items;
+        }
+
+        @Override
+        public String getTitle() {
+            return title;
+        }
+
+        @Override
+        public String getCoverUrl() {
+            return null;
+        }
+
+        @Override
+        public List<top.tobyprime.mcedia.api.media.MediaCollectionItem> getItems() {
+            return items;
+        }
     }
 
     private static final class TestMedia implements Media {

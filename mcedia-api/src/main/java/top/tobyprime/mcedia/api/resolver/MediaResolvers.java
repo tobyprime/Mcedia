@@ -4,25 +4,45 @@ import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.tobyprime.mcedia.api.media.Media;
+import top.tobyprime.mcedia.api.media.MediaCollection;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class MediaResolvers {
     private static final Logger LOGGER = LoggerFactory.getLogger(MediaResolvers.class);
 
     private static final Map<String, MediaResolver> RESOLVERS = new ConcurrentHashMap<>();
     private static final List<PrioritizedParser> PARSERS = new CopyOnWriteArrayList<>();
+    private static final Map<String, MediaCollectionResolver> COLLECTION_RESOLVERS = new ConcurrentHashMap<>();
+    private static final AtomicLong STATE_REVISION = new AtomicLong();
 
     private record PrioritizedParser(MediaUrlParser parser, int priority) {
     }
 
     private MediaResolvers() {
+    }
+
+    /**
+     * 解析器依赖的外部状态（如账号登录态）变化时递增的版本号。
+     * 调用方可用它判断是否需要重新解析已缓存/失败的媒体。
+     */
+    public static long getStateRevision() {
+        return STATE_REVISION.get();
+    }
+
+    /**
+     * 通知解析器外部状态发生变化（例如 Bilibili 登录/登出后，可重新解析以获取更高清晰度）。
+     */
+    public static void notifyStateChanged() {
+        STATE_REVISION.incrementAndGet();
     }
 
     // -- platform resolver registry --
@@ -68,11 +88,43 @@ public final class MediaResolvers {
         PARSERS.sort(Comparator.comparingInt(PrioritizedParser::priority));
     }
 
+    // -- collection (album) resolver registry --
+
+    /**
+     * 注册专辑/合集解析器。同一 platform 重复注册会覆盖旧实现。
+     */
+    public static void registerCollectionResolver(@NotNull String platform, @NotNull MediaCollectionResolver resolver) {
+        if (platform == null || platform.isBlank()) {
+            throw new IllegalArgumentException("Collection resolver platform cannot be blank");
+        }
+        var normalizedPlatform = platform.trim().toLowerCase(Locale.ROOT);
+        var previous = COLLECTION_RESOLVERS.put(normalizedPlatform, Objects.requireNonNull(resolver, "resolver"));
+        if (previous != null) {
+            LOGGER.warn("Collection resolver for platform '{}' is overwritten.", normalizedPlatform);
+        }
+    }
+
+    /**
+     * 尝试将 target 解析为专辑/合集。若已有注册的合集解析器将其识别为合集则返回合集，否则 empty。
+     */
+    public static @NotNull Optional<MediaCollection> tryResolveCollection(@NotNull String target) {
+        Objects.requireNonNull(target, "target");
+        for (var resolver : COLLECTION_RESOLVERS.values()) {
+            var collection = resolver.tryResolveCollection(target.trim());
+            if (collection.isPresent()) {
+                return collection;
+            }
+        }
+        return Optional.empty();
+    }
+
     // -- test support --
 
     static void reset() {
         RESOLVERS.clear();
         PARSERS.clear();
+        COLLECTION_RESOLVERS.clear();
+        notifyStateChanged();
     }
 
     // -- resolution --
