@@ -144,7 +144,7 @@ public final class PlatformResolverBootstrap {
         var info = new MediaInfo(
                 partName == null || partName.isBlank() ? title : title + " - " + partName,
                 owner,
-                optString(data, "pic", null),
+                normalizeBilibiliCoverUrl(optString(data, "pic", null)),
                 "bilibili",
                 metadata
         );
@@ -691,6 +691,18 @@ public final class PlatformResolverBootstrap {
         return "https://www.bilibili.com/video/" + target;
     }
 
+    /**
+     * Bilibili returns http cover URLs; hdslb.com serves https too, so emit https
+     * to keep the strict cover downloader from tripping over an http-&gt;https redirect.
+     */
+    private static String normalizeBilibiliCoverUrl(String coverUrl) {
+        if (coverUrl == null || coverUrl.isBlank()) {
+            return null;
+        }
+        String trimmed = coverUrl.trim();
+        return trimmed.startsWith("http://") ? "https://" + trimmed.substring("http://".length()) : trimmed;
+    }
+
     private static int parsePNumberFromUrl(String url) {
         var matcher = Pattern.compile("[?&]p=(\\d+)").matcher(url);
         if (matcher.find()) {
@@ -749,7 +761,7 @@ public final class PlatformResolverBootstrap {
         var episodeTitle = optString(selectedEpisode, "share_copy",
                 optString(selectedEpisode, "long_title", optString(selectedEpisode, "title", episodeId)));
         var displayTitle = seasonTitle.equals(episodeTitle) ? seasonTitle : seasonTitle + " - " + episodeTitle;
-        var coverUrl = optString(selectedEpisode, "cover", optString(result, "cover", null));
+        var coverUrl = normalizeBilibiliCoverUrl(optString(selectedEpisode, "cover", optString(result, "cover", null)));
         return new BangumiEpisodeSelection(
                 episodeId,
                 cidElement.getAsLong(),

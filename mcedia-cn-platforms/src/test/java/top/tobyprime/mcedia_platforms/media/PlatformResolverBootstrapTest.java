@@ -20,6 +20,7 @@ class PlatformResolverBootstrapTest {
     private static Method parseBangumiEpIdFromUrl;
     private static Method parseBangumiSeasonIdFromUrl;
     private static Method parsePNumberFromUrl;
+    private static Method normalizeBilibiliCoverUrl;
 
     @BeforeAll
     static void setUp() throws Exception {
@@ -47,6 +48,9 @@ class PlatformResolverBootstrapTest {
         parsePNumberFromUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
                 "parsePNumberFromUrl", String.class);
         parsePNumberFromUrl.setAccessible(true);
+        normalizeBilibiliCoverUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "normalizeBilibiliCoverUrl", String.class);
+        normalizeBilibiliCoverUrl.setAccessible(true);
     }
 
     private JsonObject invokeSelect(JsonArray video, int maxHeight) throws Exception {
@@ -79,6 +83,10 @@ class PlatformResolverBootstrapTest {
 
     private int invokeParsePNumberFromUrl(String input) throws Exception {
         return (int) parsePNumberFromUrl.invoke(null, input);
+    }
+
+    private String invokeNormalizeBilibiliCoverUrl(String input) throws Exception {
+        return (String) normalizeBilibiliCoverUrl.invoke(null, input);
     }
 
     private static JsonArray videoTracks(JsonObject... tracks) {
@@ -267,6 +275,16 @@ class PlatformResolverBootstrapTest {
     void parsesBangumiPageNumberFromSeasonUrl() throws Exception {
         assertEquals(2, invokeParsePNumberFromUrl("https://www.bilibili.com/bangumi/play/ss12345?p=2"));
         assertEquals(1, invokeParsePNumberFromUrl("https://www.bilibili.com/bangumi/play/ss12345"));
+    }
+
+    @Test
+    void bilibiliCoverUrlsAreEmittedOverHttps() throws Exception {
+        assertEquals("https://i0.hdslb.com/bfs/archive/abc.jpg",
+                invokeNormalizeBilibiliCoverUrl("http://i0.hdslb.com/bfs/archive/abc.jpg"));
+        assertEquals("https://i0.hdslb.com/bfs/bangumi/image/abc.png",
+                invokeNormalizeBilibiliCoverUrl("https://i0.hdslb.com/bfs/bangumi/image/abc.png"));
+        assertEquals(null, invokeNormalizeBilibiliCoverUrl(null));
+        assertEquals(null, invokeNormalizeBilibiliCoverUrl("  "));
     }
 
     @Test
