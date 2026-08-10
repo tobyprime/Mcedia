@@ -86,11 +86,15 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
     /** 通过 season_id 或 ep_id 查询番剧，返回整季专辑。ep 链接用 ep_id 反查同样返回完整季度。 */
     private MediaCollection resolveBangumi(String idKey, String idValue) throws Exception {
         var api = "https://api.bilibili.com/pgc/view/web/season?" + idKey + "=" + idValue;
-        var response = http.send(HttpRequest.newBuilder()
+        var requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(api))
                 .header("User-Agent", UA)
-                .header("Referer", "https://www.bilibili.com/")
-                .build(), HttpResponse.BodyHandlers.ofString());
+                .header("Referer", "https://www.bilibili.com/");
+        var combinedCookie = BilibiliCookie.combinedCookie();
+        if (!combinedCookie.isBlank()) {
+            requestBuilder.header("Cookie", combinedCookie);
+        }
+        var response = http.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
         var json = JsonParser.parseString(response.body()).getAsJsonObject();
         if (optInt(json, "code", -1) != 0) {
             throw new IllegalStateException(optString(json, "message", "获取番剧信息失败"));
@@ -134,9 +138,9 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
                     .uri(URI.create(api))
                     .header("User-Agent", UA)
                     .header("Referer", "https://www.bilibili.com/");
-            var cookie = BilibiliCookie.getCookie();
-            if (cookie != null && !cookie.isBlank()) {
-                requestBuilder.header("Cookie", cookie);
+            var combinedCookie = BilibiliCookie.combinedCookie();
+            if (!combinedCookie.isBlank()) {
+                requestBuilder.header("Cookie", combinedCookie);
             }
             var response = http.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
             var json = JsonParser.parseString(response.body()).getAsJsonObject();
@@ -185,9 +189,9 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
                 .uri(URI.create(api))
                 .header("User-Agent", UA)
                 .header("Referer", "https://www.bilibili.com/");
-        var cookie = BilibiliCookie.getCookie();
-        if (cookie != null && !cookie.isBlank()) {
-            requestBuilder.header("Cookie", cookie);
+        var combinedCookie = BilibiliCookie.combinedCookie();
+        if (!combinedCookie.isBlank()) {
+            requestBuilder.header("Cookie", combinedCookie);
         }
         var response = http.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
         var json = JsonParser.parseString(response.body()).getAsJsonObject();

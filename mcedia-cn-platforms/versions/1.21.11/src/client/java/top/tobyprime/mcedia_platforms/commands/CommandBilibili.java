@@ -2,6 +2,7 @@ package top.tobyprime.mcedia_platforms.commands;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.tree.CommandNode;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.Minecraft;
@@ -56,7 +57,22 @@ public final class CommandBilibili {
                     }
                     return 1;
                 }));
-        dispatcher.register(ClientCommandManager.literal("mcedia").then(ClientCommandManager.literal("platforms").then(bilibiliNode)));
+        attachToPlatforms(dispatcher, bilibiliNode.build());
+    }
+
+    /** 将子命令挂到已存在的 /mcedia platforms 节点下；节点不存在时创建，避免覆盖其他平台命令。 */
+    private static void attachToPlatforms(CommandDispatcher<FabricClientCommandSource> dispatcher, CommandNode<FabricClientCommandSource> node) {
+        var existingMcedia = dispatcher.getRoot().getChild("mcedia");
+        if (existingMcedia == null) {
+            dispatcher.register(ClientCommandManager.literal("mcedia").then(ClientCommandManager.literal("platforms").then(node)));
+            return;
+        }
+        var existingPlatforms = existingMcedia.getChild("platforms");
+        if (existingPlatforms != null) {
+            existingPlatforms.addChild(node);
+        } else {
+            existingMcedia.addChild(ClientCommandManager.literal("platforms").then(node).build());
+        }
     }
 
     private static void login(FabricClientCommandSource source) {

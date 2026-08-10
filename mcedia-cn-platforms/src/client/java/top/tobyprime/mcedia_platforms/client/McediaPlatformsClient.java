@@ -6,7 +6,10 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import top.tobyprime.mcedia_platforms.auth.BilibiliAuthManager;
 import top.tobyprime.mcedia_platforms.auth.BilibiliCookie;
+import top.tobyprime.mcedia_platforms.auth.NeteaseAuthManager;
+import top.tobyprime.mcedia_platforms.auth.NeteaseCookie;
 import top.tobyprime.mcedia_platforms.commands.CommandBilibili;
+import top.tobyprime.mcedia_platforms.commands.CommandNetease;
 import top.tobyprime.mcedia_platforms.media.PlatformResolverBootstrap;
 
 import java.io.IOException;
@@ -21,10 +24,14 @@ public final class McediaPlatformsClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         PlatformResolverBootstrap.init();
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> CommandBilibili.register(dispatcher));
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+            CommandBilibili.register(dispatcher);
+            CommandNetease.register(dispatcher);
+        });
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
             loadConfig();
             BilibiliAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
+            NeteaseAuthManager.getInstance().checkAndUpdateLoginStatusAsync();
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> saveConfig());
     }
@@ -43,6 +50,7 @@ public final class McediaPlatformsClient implements ClientModInitializer {
                     cookies.load(input);
                 }
                 BilibiliCookie.fromProperties(cookies);
+                NeteaseCookie.fromProperties(cookies);
             }
         } catch (IOException ignored) {
         }
@@ -55,6 +63,7 @@ public final class McediaPlatformsClient implements ClientModInitializer {
             var props = new Properties();
             var cookies = new Properties();
             BilibiliCookie.writeToProperties(cookies);
+            NeteaseCookie.writeToProperties(cookies);
             try (var output = Files.newOutputStream(CONFIG_PATH)) {
                 props.store(output, "Mcedia Platforms config");
             }

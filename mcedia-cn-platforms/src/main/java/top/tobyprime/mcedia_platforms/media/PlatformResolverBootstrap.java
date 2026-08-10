@@ -14,16 +14,21 @@ import top.tobyprime.mcedia_platforms.auth.BilibiliAccountStatus;
 import top.tobyprime.mcedia_platforms.auth.BilibiliAuthManager;
 import top.tobyprime.mcedia_platforms.auth.BilibiliCookie;
 import top.tobyprime.mcedia_platforms.auth.BilibiliWbiSign;
+import top.tobyprime.mcedia_platforms.auth.NeteaseAuthManager;
 import top.tobyprime.mcedia_platforms.auth.NeteaseCookie;
 import top.tobyprime.mcedia_platforms.auth.NeteaseCrypto;
 import top.tobyprime.mcedia_platforms.danmaku.bilibili.BilibiliDanmakuProvider;
 
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,7 +38,7 @@ public final class PlatformResolverBootstrap {
     private static final Logger LOGGER = LoggerFactory.getLogger(PlatformResolverBootstrap.class);
     private static final AtomicBoolean INITIALIZED = new AtomicBoolean(false);
     private static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
-    private static final String BILIBILI_UA = "Mozilla/5.0";
+    private static final String BILIBILI_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     private static final String DOUYIN_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
     private static final String NETEASE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
@@ -136,7 +141,15 @@ public final class PlatformResolverBootstrap {
 
         var headers = createBilibiliMediaHeaders();
         var resolved = resolveBilibiliPlayInfoWithFallback(
-                "https://api.bilibili.com/x/player/playurl?bvid=" + bvid + "&cid=" + cid,
+                "https://api.bilibili.com/x/player/playurl",
+                Map.of(
+                        "bvid", bvid,
+                        "cid", String.valueOf(cid),
+                        // 免登录解锁 1080P，以及 web 客户端播放参数
+                        "try_look", "1",
+                        "voice_balance", "1",
+                        "gaia_source", "pre-load",
+                        "web_location", "1550101"),
                 "data",
                 headers,
                 false
@@ -182,8 +195,10 @@ public final class PlatformResolverBootstrap {
         var selection = selectBangumiEpisode(result, sourceUrl, episodeId);
         var headers = createBilibiliMediaHeaders();
         var resolved = resolveBilibiliPlayInfoWithFallback(
-                "https://api.bilibili.com/pgc/player/web/playurl?ep_id=" + selection.episodeId()
-                        + "&cid=" + selection.cid(),
+                "https://api.bilibili.com/pgc/player/web/playurl",
+                Map.of(
+                        "ep_id", selection.episodeId(),
+                        "cid", String.valueOf(selection.cid())),
                 "result",
                 headers,
                 true
@@ -422,13 +437,16 @@ public final class PlatformResolverBootstrap {
         // c needs to be a JSON string containing the array, not a raw array
         var detailData = "{\"c\":\"[{\\\"id\\\":" + songId + "}]\",\"csrf_token\":\"\"}";
         var detailBody = NeteaseCrypto.encrypt(detailData);
-        var detailResponse = HTTP.send(HttpRequest.newBuilder()
+        var detailRequestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create("https://music.163.com/weapi/v3/song/detail"))
                 .header("User-Agent", NETEASE_UA)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("Referer", "https://music.163.com/")
-                .POST(HttpRequest.BodyPublishers.ofString(toFormBody(detailBody)))
-                .build(), HttpResponse.BodyHandlers.ofString());
+                .POST(HttpRequest.BodyPublishers.ofString(toFormBody(detailBody)));
+        if (cookie != null && !cookie.isBlank()) {
+            detailRequestBuilder.header("Cookie", cookie);
+        }
+        var detailResponse = HTTP.send(detailRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
         var detailJson = parseObject(detailResponse.body());
         if (optInt(detailJson, "code", -1) != 200) {
             throw new IllegalStateException("获取歌曲信息失败: " + optString(detailJson, "message", ""));
@@ -448,40 +466,51 @@ public final class PlatformResolverBootstrap {
         var coverUrl = al != null ? optString(al, "picUrl", null) : null;
         var duration = optInt(song, "duration", 0);
 
-        // Step 2: fetch audio URL
-        var bitrate = selectBestBitrate(MediaResolverSettings.getResolutionLimit());
-        var level = bitrateToLevel(bitrate);
-        // ids must be a JSON array, and v1 endpoint needs encodeType for some levels
-        var playData = "{\"ids\":[" + songId + "],\"br\":" + bitrate + ",\"level\":\"" + level + "\",\"encodeType\":\"mp3\",\"csrf_token\":\"\"}";
-        var playBody = NeteaseCrypto.encrypt(playData);
-        var playRequestBuilder = HttpRequest.newBuilder()
-                .uri(URI.create("https://music.163.com/weapi/song/enhance/player/url/v1"))
-                .header("User-Agent", NETEASE_UA)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .header("Referer", "https://music.163.com/")
-                .POST(HttpRequest.BodyPublishers.ofString(toFormBody(playBody)));
-        if (cookie != null && !cookie.isBlank()) {
-            playRequestBuilder.header("Cookie", cookie);
+        // Step 2: fetch audio URL — 依据登录态选择期望音质并逐级降级，保证可播
+        var csrfToken = NeteaseCookie.csrfToken();
+        String selectedLevel = null;
+        String url = null;
+        for (var level : neteaseCandidateLevels()) {
+            var encodeType = "lossless".equals(level) ? "flac" : "mp3";
+            // ids must be a JSON array; v1 endpoint 以 level 决定音质，csrf_token 取自 cookie
+            var playData = "{\"ids\":[" + songId + "],\"level\":\"" + level + "\",\"encodeType\":\"" + encodeType + "\",\"csrf_token\":\"" + csrfToken + "\"}";
+            var playBody = NeteaseCrypto.encrypt(playData);
+            var playRequestBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create("https://music.163.com/weapi/song/enhance/player/url/v1"))
+                    .header("User-Agent", NETEASE_UA)
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Referer", "https://music.163.com/")
+                    .POST(HttpRequest.BodyPublishers.ofString(toFormBody(playBody)));
+            if (cookie != null && !cookie.isBlank()) {
+                playRequestBuilder.header("Cookie", cookie);
+            }
+            var playResponse = HTTP.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+            var playJson = parseObject(playResponse.body());
+            if (optInt(playJson, "code", -1) != 200) {
+                LOGGER.info("Netease playurl level={} rejected: {}", level, optString(playJson, "message", ""));
+                continue;
+            }
+            var playDataArray = optArray(playJson, "data");
+            if (playDataArray == null || playDataArray.isEmpty()) {
+                continue;
+            }
+            var candidate = playDataArray.get(0).getAsJsonObject();
+            var candidateUrl = optString(candidate, "url", null);
+            if (candidateUrl != null && !candidateUrl.isBlank() && optInt(candidate, "code", -1) == 200) {
+                selectedLevel = level;
+                url = candidateUrl;
+                break;
+            }
+            LOGGER.info("Netease playurl level={} returned no playable url", level);
         }
-        var playResponse = HTTP.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
-        var playJson = parseObject(playResponse.body());
-        if (optInt(playJson, "code", -1) != 200) {
-            throw new IllegalStateException("获取播放地址失败: " + optString(playJson, "message", ""));
-        }
-        var playDataArray = optArray(playJson, "data");
-        if (playDataArray == null || playDataArray.isEmpty()) {
-            throw new IllegalStateException("未找到播放数据");
-        }
-        var songPlayInfo = playDataArray.get(0).getAsJsonObject();
-        var url = optString(songPlayInfo, "url", null);
-        if (url == null || url.isBlank() || optInt(songPlayInfo, "code", -1) != 200) {
+        if (url == null || selectedLevel == null) {
             throw new IllegalStateException("未找到可播放的音频 URL（歌曲可能需要 VIP 或登录）");
         }
 
         var metadata = new HashMap<String, String>();
         metadata.put("netease.song_id", songId);
         metadata.put("netease.duration", String.valueOf(duration));
-        metadata.put("netease.level", level);
+        metadata.put("netease.level", selectedLevel);
         var info = new MediaInfo(title, artist, coverUrl, "netease", metadata);
 
         var headers = new HashMap<String, String>();
@@ -528,8 +557,30 @@ public final class PlatformResolverBootstrap {
     private static String bitrateToLevel(int bitrate) {
         if (bitrate >= 999000) return "lossless";
         if (bitrate >= 320000) return "exhigh";
-        if (bitrate >= 192000) return "high";
+        if (bitrate >= 192000) return "higher";
         return "standard";
+    }
+
+    /**
+     * 依据登录态与画质上限生成网易云候选音质列表（期望音质在前，逐级降级到 standard）：
+     * VIP 可请求无损；非 VIP 登录封顶 exhigh；未登录仅标准 128k，避免请求高音质被拒。
+     */
+    private static List<String> neteaseCandidateLevels() {
+        var status = NeteaseAuthManager.getInstance().getAccountStatus();
+        int bitrate = selectBestBitrate(MediaResolverSettings.getResolutionLimit());
+        if (status.isLoggedIn && status.isVip) {
+            return levelsDownFrom(bitrate);
+        }
+        if (status.isLoggedIn) {
+            return levelsDownFrom(Math.min(bitrate, 320000));
+        }
+        return List.of("standard");
+    }
+
+    private static List<String> levelsDownFrom(int bitrate) {
+        var all = List.of("lossless", "exhigh", "higher", "standard");
+        int index = all.indexOf(bitrateToLevel(bitrate));
+        return index < 0 ? all : all.subList(index, all.size());
     }
 
     private static String toFormBody(Map<String, String> params) {
@@ -608,20 +659,39 @@ public final class PlatformResolverBootstrap {
     /**
      * 按清晰度阶梯依次请求播放地址：先尝试高清晰度（含登录后可用的会员档），
      * 当前档不可用或未返回该档时降级到下一档。
+     * <p>
+     * 每次请求都携带 buvid 设备指纹（见 {@link BilibiliCookie#combinedCookie()}）。
+     * 命中 B 站 412 风控时先刷新 buvid 指纹重试一次，仍被拦截则回退到 WBI 签名端点；
+     * 两者都被拦截才视为风控，直接以清晰的中文错误终止。
      */
-    private static BilibiliResolvedPlayInfo resolveBilibiliPlayInfoWithFallback(String basePlayApi, String payloadPath, Map<String, String> headers, boolean rejectRestrictedPlayback) throws Exception {
+    private static BilibiliResolvedPlayInfo resolveBilibiliPlayInfoWithFallback(String playApiBase, Map<String, String> baseParams, String payloadPath, Map<String, String> headers, boolean rejectRestrictedPlayback) throws Exception {
         int maxHeight = MediaResolverSettings.getResolutionLimit();
         int[] candidates = bilibiliQnCandidates(maxHeight);
         String lastMessage = null;
+        boolean buvidRefreshed = false;
         for (int attempt = 0; attempt < candidates.length; attempt++) {
             int qn = candidates[attempt];
-            String playApi = basePlayApi + bilibiliPlayUrlOptions(qn);
-            var playRequestBuilder = HttpRequest.newBuilder()
-                    .uri(URI.create(playApi))
-                    .header("User-Agent", BILIBILI_UA)
-                    .header("Referer", "https://www.bilibili.com/");
-            String cookie = addBilibiliCookie(playRequestBuilder, playApi);
-            HttpResponse<String> playResponse = HTTP.send(playRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+            var params = bilibiliPlayUrlParams(baseParams, qn);
+            HttpResponse<String> playResponse = sendPlayUrlRequest(playApiBase + "?" + buildQueryString(params));
+            if (isBilibiliRiskControl(playResponse)) {
+                if (!buvidRefreshed && BilibiliCookie.refreshBuvid()) {
+                    buvidRefreshed = true;
+                    LOGGER.info("Bilibili playurl qn={} risk controlled, refreshed buvid and retrying", qn);
+                    attempt--;
+                    continue;
+                }
+                var wbiResponse = sendPlayUrlRequest(wbiPlayApi(playApiBase, params));
+                if (isBilibiliRiskControl(wbiResponse)) {
+                    throw new IllegalStateException("B站风控拦截(412)：请求过于频繁，请稍后重试，或在本机登录B站账号");
+                }
+                LOGGER.info("Bilibili playurl qn={} risk controlled on plain endpoint, using WBI endpoint", qn);
+                playResponse = wbiResponse;
+            }
+            if (playResponse.statusCode() != HttpURLConnection.HTTP_OK) {
+                lastMessage = "HTTP " + playResponse.statusCode() + " 获取播放地址失败";
+                LOGGER.info("Bilibili playurl HTTP {} for qn={}", playResponse.statusCode(), qn);
+                continue;
+            }
             var playJson = parseObject(playResponse.body());
             if (optInt(playJson, "code", -1) != 0) {
                 lastMessage = optString(playJson, "message", "qn=" + qn + " 获取播放地址失败");
@@ -640,7 +710,7 @@ public final class PlatformResolverBootstrap {
                     throw new IllegalStateException(restriction);
                 }
             }
-            var resolved = extractBilibiliPlayInfo(payload, headers, cookie, maxHeight, qn);
+            var resolved = extractBilibiliPlayInfo(payload, headers, cookieOf(playResponse), maxHeight, qn);
             if (resolved == null) {
                 lastMessage = "qn=" + qn + " 未找到可播放流";
                 LOGGER.info("Bilibili playurl qn={} returned no playable stream", qn);
@@ -665,13 +735,75 @@ public final class PlatformResolverBootstrap {
         throw new IllegalStateException(lastMessage == null ? "未找到可播放流" : "未找到可播放流：" + lastMessage);
     }
 
-    private static String bilibiliPlayUrlOptions(int qn) {
-        int fnval = qn <= BILIBILI_QN_1080P ? 16 : 4048;
-        var options = "&qn=" + qn + "&fnver=0&fnval=" + fnval;
+    /** 依据 qn 构建 playurl 请求参数（base 参数 + 清晰度相关参数）。 */
+    private static Map<String, String> bilibiliPlayUrlParams(Map<String, String> baseParams, int qn) {
+        var params = new LinkedHashMap<String, String>(baseParams);
+        params.put("qn", String.valueOf(qn));
+        params.put("fnver", "0");
+        params.put("fnval", qn <= BILIBILI_QN_1080P ? "16" : "4048");
         if (qn >= BILIBILI_QN_4K) {
-            options += "&fourk=1";
+            params.put("fourk", "1");
         }
-        return options;
+        return params;
+    }
+
+    private static String buildQueryString(Map<String, String> params) {
+        var sb = new StringBuilder();
+        for (var entry : params.entrySet()) {
+            if (!sb.isEmpty()) sb.append('&');
+            sb.append(urlEncode(entry.getKey())).append('=').append(urlEncode(entry.getValue()));
+        }
+        return sb.toString();
+    }
+
+    private static String urlEncode(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return value;
+        }
+    }
+
+    /** 发送 B 站 API 请求，携带 buvid 指纹（有登录 Cookie 时一并携带）。 */
+    private static HttpResponse<String> sendPlayUrlRequest(String url) throws Exception {
+        var requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", BILIBILI_UA)
+                .header("Referer", "https://www.bilibili.com/");
+        addBilibiliCookie(requestBuilder, url);
+        return HTTP.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static String cookieOf(HttpResponse<String> response) {
+        return response.request().headers().firstValue("Cookie").orElse(null);
+    }
+
+    /** 判定响应是否被 B 站风控拦截（412 状态码、JSON code=-412，或风控 HTML 页面）。 */
+    private static boolean isBilibiliRiskControl(HttpResponse<String> response) {
+        if (response.statusCode() == 412) {
+            return true;
+        }
+        var body = response.body();
+        if (body == null || body.isBlank()) {
+            return false;
+        }
+        String trimmed = body.trim();
+        if (body.contains("code\":-412") || body.contains("code\": -412")) {
+            return true;
+        }
+        return (trimmed.startsWith("<!DOCTYPE html") && body.contains("bilibili"))
+                || body.contains("错误号: 412")
+                || body.contains("风控");
+    }
+
+    /** 将 playurl 请求转为 WBI 签名版本：VOD 端点换到 wbi 路径并签名，番剧端点保持路径仅签名。 */
+    private static String wbiPlayApi(String playApiBase, Map<String, String> params) throws Exception {
+        var signed = new LinkedHashMap<String, String>(params);
+        BilibiliWbiSign.sign(signed);
+        var base = playApiBase.endsWith("/x/player/playurl")
+                ? playApiBase.replace("/x/player/playurl", "/x/player/wbi/playurl")
+                : playApiBase;
+        return base + "?" + buildQueryString(signed);
     }
 
     /** 依据分辨率上限与登录状态构建清晰度尝试阶梯；登录（有 cookie/VIP）时加入会员专属高码率档。 */
@@ -862,18 +994,18 @@ public final class PlatformResolverBootstrap {
         }
     }
 
-    /** 仅对受信 B 站域名附带 Cookie，避免账号信息泄漏到第三方媒体 CDN。 */
+    /** 仅对受信 B 站域名附带 Cookie（登录 Cookie + buvid 指纹），避免账号信息泄漏到第三方媒体 CDN。 */
     private static String addBilibiliCookie(HttpRequest.Builder builder, String url) {
-        var cookie = BilibiliCookie.getCookie();
-        if (cookie == null || cookie.isBlank()) {
+        if (!isTrustedBilibiliHost(hostOf(url))) {
+            LOGGER.warn("Omit Bilibili cookie for non-Bilibili request host '{}'", hostOf(url));
             return null;
         }
-        if (isTrustedBilibiliHost(hostOf(url))) {
-            builder.header("Cookie", cookie);
-            return cookie;
+        var combined = BilibiliCookie.combinedCookie();
+        if (combined.isBlank()) {
+            return null;
         }
-        LOGGER.warn("Omit Bilibili cookie for non-Bilibili request host '{}'", hostOf(url));
-        return null;
+        builder.header("Cookie", combined);
+        return combined;
     }
 
     private static String trustedBilibiliMediaCookie(String cookie, String videoUrl, String audioUrl) {
@@ -1079,7 +1211,15 @@ public final class PlatformResolverBootstrap {
     }
 
     private static JsonObject parseObject(String json) {
-        return JsonParser.parseString(json).getAsJsonObject();
+        if (json == null || json.isBlank()) {
+            throw new IllegalArgumentException("B站接口返回空响应");
+        }
+        try {
+            return JsonParser.parseString(json).getAsJsonObject();
+        } catch (RuntimeException e) {
+            String snippet = json.length() > 120 ? json.substring(0, 120) + "…" : json;
+            throw new IllegalArgumentException("B站接口返回非 JSON 内容（可能是风控/错误页面，HTTP 响应体以 " + snippet + " 开头）", e);
+        }
     }
 
     private static JsonObject optObject(JsonObject object, String key) {
