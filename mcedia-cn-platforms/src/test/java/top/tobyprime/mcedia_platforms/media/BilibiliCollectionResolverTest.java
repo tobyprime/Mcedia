@@ -134,6 +134,33 @@ class BilibiliCollectionResolverTest {
     }
 
     @Test
+    void buildVideoCollectionPrefersMultiPageOverSingleVideoSeasonWrapper() {
+        var data = JsonParser.parseString("""
+                {"bvid":"BV1LXMo6kEDe","title":"正片4K","pic":"http://i0.hdslb.com/pic.jpg",
+                 "pages":[
+                    {"cid":1,"page":1,"part":"P01"},
+                    {"cid":2,"page":2,"part":"P02"},
+                    {"cid":3,"page":3,"part":"P03"}
+                 ],
+                 "ugc_season":{
+                    "title":"蜘蛛侠","cover":"http://i1.hdslb.com/cover.jpg",
+                    "sections":[{"title":"正片","episodes":[
+                        {"bvid":"BV1LXMo6kEDe","page":{"cid":9,"page":1,"part":"P01"},"title":"正片"}
+                    ]}]}}
+                """).getAsJsonObject();
+
+        var collection = BilibiliCollectionResolver.buildVideoCollection(data);
+
+        assertTrue(collection.isPresent());
+        assertEquals("正片4K", collection.get().getTitle());
+        var items = collection.get().getItems();
+        assertEquals(3, items.size());
+        assertEquals("P01", items.get(0).getTitle());
+        assertEquals("https://www.bilibili.com/video/BV1LXMo6kEDe?p=1", items.get(0).getResolutionTarget());
+        assertEquals("https://www.bilibili.com/video/BV1LXMo6kEDe?p=3", items.get(2).getResolutionTarget());
+    }
+
+    @Test
     void buildVideoCollectionReturnsEmptyWhenNoPlayableStructurePresent() {
         assertTrue(BilibiliCollectionResolver.buildVideoCollection(JsonParser.parseString("{}").getAsJsonObject()).isEmpty());
         assertTrue(BilibiliCollectionResolver.buildVideoCollection(

@@ -210,7 +210,7 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
         var season = optObject(data, "ugc_season");
         if (season != null) {
             var episodes = collectSeasonEpisodes(season);
-            if (episodes != null && !episodes.isEmpty()) {
+            if (episodes != null && !episodes.isEmpty() && !isSingleVideoWrapper(data, episodes)) {
                 return Optional.of(buildUgcSeasonCollection(season, episodes));
             }
         }
@@ -270,6 +270,16 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
             }
         }
         return null;
+    }
+
+    /** 合集若仅收录当前视频本身(单集且 bvid 相同),则无增量信息,应回退到多分P解析。 */
+    private static boolean isSingleVideoWrapper(JsonObject data, JsonArray episodes) {
+        if (episodes.size() != 1 || !episodes.get(0).isJsonObject()) {
+            return false;
+        }
+        var currentBvid = optString(data, "bvid", null);
+        var episodeBvid = optString(episodes.get(0).getAsJsonObject(), "bvid", null);
+        return isNotBlank(currentBvid) && currentBvid.equals(episodeBvid);
     }
 
     /** 剧集分P:page 可能为整数,也可能是含 page 字段的对象(新版合集结构)。 */
