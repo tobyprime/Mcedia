@@ -1,6 +1,7 @@
 package top.tobyprime.mcedia_platforms.media;
 
 import com.google.gson.JsonParser;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import top.tobyprime.mcedia_platforms.auth.NeteaseCrypto;
 
@@ -17,7 +18,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * End-to-end test for NeteaseCloudMusic API resolution.
  * Tests the live API with song 139774 (The truth that you leave - Pianoboy)
  * which is known to return a playable URL without login.
+ *
+ * <p>Live 测试依赖外部网络与网易云接口，默认禁用，仅手动运行。
  */
+@Disabled("Live Netease API 测试，需手动运行（依赖外网与网易云接口）")
 class NeteaseIntegrationTest {
     private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final String TEST_SONG_ID = "139774";

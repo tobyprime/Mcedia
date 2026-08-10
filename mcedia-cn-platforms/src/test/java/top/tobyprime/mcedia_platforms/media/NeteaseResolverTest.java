@@ -122,8 +122,8 @@ class NeteaseResolverTest {
     }
 
     @Test
-    void levelIsHighFor192000() throws Exception {
-        assertEquals("high", invokeBitrateToLevel(192000));
+    void levelIsHigherFor192000() throws Exception {
+        assertEquals("higher", invokeBitrateToLevel(192000));
     }
 
     @Test
