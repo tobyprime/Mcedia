@@ -107,6 +107,33 @@ class BilibiliCollectionResolverTest {
     }
 
     @Test
+    void buildVideoCollectionBuildsCollectionFromUgcSeasonSections() {
+        var data = JsonParser.parseString("""
+                {"bvid":"BV1ymMyzqEuU","title":"单个视频","pic":"http://i0.hdslb.com/pic.jpg",
+                 "ugc_season":{
+                    "title":"服务器宣传","cover":"http://i1.hdslb.com/cover.jpg",
+                    "sections":[
+                        {"title":"正片","episodes":[
+                            {"bvid":"BV1ymMyzqEuU","page":{"cid":1,"page":1,"part":"招新"},"title":"招新视频"},
+                            {"bvid":"BV1abctest99","page":{"cid":2,"page":3,"part":"第三页"},"title":"第三页视频"}
+                        ]}
+                    ]}}
+                """).getAsJsonObject();
+
+        var collection = BilibiliCollectionResolver.buildVideoCollection(data);
+
+        assertTrue(collection.isPresent());
+        assertEquals("服务器宣传", collection.get().getTitle());
+        assertEquals("https://i1.hdslb.com/cover.jpg", collection.get().getCoverUrl());
+        var items = collection.get().getItems();
+        assertEquals(2, items.size());
+        assertEquals("招新视频", items.get(0).getTitle());
+        assertEquals("https://www.bilibili.com/video/BV1ymMyzqEuU?p=1", items.get(0).getResolutionTarget());
+        assertEquals("第三页视频", items.get(1).getTitle());
+        assertEquals("https://www.bilibili.com/video/BV1abctest99?p=3", items.get(1).getResolutionTarget());
+    }
+
+    @Test
     void buildVideoCollectionReturnsEmptyWhenNoPlayableStructurePresent() {
         assertTrue(BilibiliCollectionResolver.buildVideoCollection(JsonParser.parseString("{}").getAsJsonObject()).isEmpty());
         assertTrue(BilibiliCollectionResolver.buildVideoCollection(

@@ -205,7 +205,7 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
         }
         var season = optObject(data, "ugc_season");
         if (season != null) {
-            var episodes = optArray(season, "episodes");
+            var episodes = collectSeasonEpisodes(season);
             if (episodes != null && !episodes.isEmpty()) {
                 return Optional.of(buildUgcSeasonCollection(season, episodes));
             }
@@ -233,7 +233,7 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
             if (isBlank(bvid)) {
                 continue;
             }
-            var page = optInt(episode, "page", 1);
+            var page = episodePage(episode);
             items.add(new BilibiliCollectionItem(
                     optString(episode, "title", "P" + page),
                     normalizeCoverUrl(optString(episode, "cover", null)),
@@ -241,6 +241,47 @@ public final class BilibiliCollectionResolver implements MediaCollectionResolver
             ));
         }
         return new BilibiliCollection(title, cover, items);
+    }
+
+    /** 收集合集剧集:优先顶层 episodes,否则合并 sections[].episodes[](新版合集结构)。 */
+    private static JsonArray collectSeasonEpisodes(JsonObject season) {
+        var episodes = optArray(season, "episodes");
+        if (episodes != null && !episodes.isEmpty()) {
+            return episodes;
+        }
+        var sections = optArray(season, "sections");
+        if (sections != null) {
+            var merged = new JsonArray();
+            for (var element : sections) {
+                if (!element.isJsonObject()) {
+                    continue;
+                }
+                var sectionEpisodes = optArray(element.getAsJsonObject(), "episodes");
+                if (sectionEpisodes != null) {
+                    merged.addAll(sectionEpisodes);
+                }
+            }
+            if (!merged.isEmpty()) {
+                return merged;
+            }
+        }
+        return null;
+    }
+
+    /** 剧集分P:page 可能为整数,也可能是含 page 字段的对象(新版合集结构)。 */
+    private static int episodePage(JsonObject episode) {
+        var element = episode.get("page");
+        if (element == null || element.isJsonNull()) {
+            return 1;
+        }
+        if (element.isJsonObject()) {
+            return optInt(element.getAsJsonObject(), "page", 1);
+        }
+        try {
+            return element.getAsInt();
+        } catch (Exception e) {
+            return 1;
+        }
     }
 
     private static MediaCollection buildMultiPageCollection(JsonObject data, JsonArray pages) {
