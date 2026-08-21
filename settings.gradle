@@ -38,6 +38,9 @@ def parseMcVersionToNumber = { String mcVersion ->
 include 'mcedia-api'
 include 'mcedia-player'
 include 'mcedia-decoder-ffmpeg'
+include 'mcedia-core-runtime'
+include 'mcedia-core-bundle'
+include 'mcedia-cn-platforms-bundle'
 
 versionedModules.each { moduleName ->
     include moduleName

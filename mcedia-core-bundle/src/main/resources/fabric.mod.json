@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "mcedia_core_bundle",
+  "version": "${version}",
+  "name": "Mcedia Core",
+  "description": "Cross-version and cross-platform Mcedia Core distribution",
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "jars": ${nested_jars}
+}

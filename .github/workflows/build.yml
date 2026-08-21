@@ -31,10 +31,6 @@ on:
         default: 'all'
         required: true
         type: string
-      create_release:
-        description: 'Create a GitHub Release with the built artifacts'
-        default: false
-        type: boolean
 
 env:
   GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8'
@@ -118,18 +114,50 @@ jobs:
             mcedia-decoder-ffmpeg/build/libs/*.jar
           if-no-files-found: warn
 
+  # ── Shared runtime ───────────────────────────────────────────────────
+  runtime:
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build shared universal-native runtime
+        run: ./gradlew --configure-on-demand :mcedia-core-runtime:publishMavenJavaPublicationToMavenRepository
+
+      - name: Upload runtime Maven repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcedia-runtime-publish
+          path: publish/top/tobyprime/mcedia-core-runtime/
+          if-no-files-found: error
+
   # ── Versioned: cn-platforms ─────────────────────────────────────────
   # Chinese platform integration mod. One build per MC version.
   # No native platform variants — does not bundle FFmpeg.
   # Runs tests (no GL/OpenAL dependency).
   cn-platforms:
-    needs: discover
+    needs: [discover, runtime]
     runs-on: ubuntu-latest
     strategy:
       matrix:
         mc_version: ${{ fromJSON(needs.discover.outputs.mc_versions) }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download runtime Maven repository
+        uses: actions/download-artifact@v4
+        with:
+          name: mcedia-runtime-publish
+          path: publish/top/tobyprime/mcedia-core-runtime
 
       - name: Resolve Java version for ${{ matrix.mc_version }}
         id: jdk
@@ -151,38 +179,31 @@ jobs:
           ./gradlew :mcedia-cn-platforms-${{ matrix.mc_version }}:buildAndCollect \
                     -Psupported_mc_versions=${{ matrix.mc_version }}
 
-      - name: Publish to Modrinth
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-          MODRINTH_MCEDIA_CN_PLATFORMS_PROJECT_ID: ${{ secrets.MODRINTH_CN_PLATFORMS_PROJECT_ID }}
-          MODRINTH_MCEDIA_CORE_PROJECT_ID: ${{ secrets.MODRINTH_CORE_PROJECT_ID }}
-        run: |
-          ./gradlew :mcedia-cn-platforms-${{ matrix.mc_version }}:modrinth \
-                    -Psupported_mc_versions=${{ matrix.mc_version }}
-
-      - name: Upload cn-platforms JAR (${{ matrix.mc_version }})
+      - name: Upload Platforms bundle input (${{ matrix.mc_version }})
         uses: actions/upload-artifact@v4
         with:
-          name: mcedia-cn-platforms-${{ matrix.mc_version }}
+          name: mcedia-cn-platforms-input-${{ matrix.mc_version }}
           path: build/libs/${{ matrix.mc_version }}/*.jar
           if-no-files-found: warn
 
-  # ── Versioned: core (matrix: mc_version × native_platform) ──────────
-  # Core mod that bundles FFmpeg native binaries. Each platform variant
-  # selects a different JavaCPP Maven artifact — no cross-compilation.
-  # Tests are skipped: they depend on Minecraft's rendering/audio
-  # infrastructure (GL context, OpenAL) not available on CI runners.
+  # ── Versioned: core (matrix: mc_version) ──────────────────────────────
+  # One intermediate Core JAR per Minecraft version, each embedding all FFmpeg
+  # native platforms. These JARs are consumed only by the final bundle job.
   core:
-    needs: discover
+    needs: [discover, runtime]
     runs-on: ubuntu-latest
     strategy:
       matrix:
         mc_version: ${{ fromJSON(needs.discover.outputs.mc_versions) }}
-        platform:   ${{ fromJSON(needs.discover.outputs.platforms) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download runtime Maven repository
+        uses: actions/download-artifact@v4
+        with:
+          name: mcedia-runtime-publish
+          path: publish/top/tobyprime/mcedia-core-runtime
 
       - name: Resolve Java version for ${{ matrix.mc_version }}
         id: jdk
@@ -199,97 +220,59 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build core ${{ matrix.mc_version }} for ${{ matrix.platform }}
+      - name: Build universal-native core for ${{ matrix.mc_version }}
         run: |
           ./gradlew :mcedia-core-${{ matrix.mc_version }}:buildAndCollect \
                     -Psupported_mc_versions=${{ matrix.mc_version }} \
-                    -PplatformName=${{ matrix.platform }} \
-                    -x test
+                    -PuniversalNatives=true -x test
 
-      - name: Publish to Modrinth
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform == 'windows-x86_64'
-        env:
-          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-          MODRINTH_MCEDIA_CORE_PROJECT_ID: ${{ secrets.MODRINTH_CORE_PROJECT_ID }}
-        run: |
-          ./gradlew :mcedia-core-${{ matrix.mc_version }}:modrinth \
-                    -Psupported_mc_versions=${{ matrix.mc_version }} \
-                    -PplatformName=${{ matrix.platform }} -x test
-
-      - name: Upload core JAR (${{ matrix.mc_version }} ${{ matrix.platform }})
+      - name: Upload Core bundle input (${{ matrix.mc_version }})
         uses: actions/upload-artifact@v4
         with:
-          name: mcedia-core-${{ matrix.mc_version }}-${{ matrix.platform }}
+          name: mcedia-core-input-${{ matrix.mc_version }}
           path: build/libs/${{ matrix.mc_version }}/*.jar
           if-no-files-found: error
 
-  # ── Release ──────────────────────────────────────────────────────────
-  # Creates a GitHub Release with all built JARs as assets.
-  # Triggered by:
-  #   - Push of a tag matching v* (e.g. v1.0.0, v1.0.0-rc1)
-  #   - workflow_dispatch with create_release=true
-  release:
-    if: |
-      startsWith(github.ref, 'refs/tags/v')
-      || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
-    needs: [non-versioned, cn-platforms, core]
+  # ── Cross-version bundles ─────────────────────────────────────────────
+  bundles:
+    needs: [discover, runtime, cn-platforms, core]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all build artifacts
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Download versioned bundle inputs
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          pattern: mcedia-*-input-*
+          path: inputs
 
-      - name: Gather JAR files
-        run: |
-          mkdir -p release-assets
-          find artifacts -name '*.jar' -type f | while read jar; do
-            echo "Collected: $jar"
-            cp "$jar" release-assets/
-          done
-          echo "---"
-          ls -lh release-assets/
-
-      - name: Determine release tag and name
-        id: tag
-        run: |
-          if [ '${{ github.event_name }}' = 'workflow_dispatch' ]; then
-            # Use current version from gradle.properties
-            VERSION=$(grep '^version=' gradle.properties | cut -d= -f2)
-            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "name=v${VERSION} (manual release)"
-          else
-            TAG=${GITHUB_REF_NAME}
-            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-            echo "name=${TAG}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Download runtime bundle input
+        uses: actions/download-artifact@v4
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.tag.outputs.name }}
-          body: |
-            Automated build from commit ${{ github.sha }}.
+          name: mcedia-runtime-publish
+          path: runtime-publish
 
-            ## Modules
+      - name: Stage bundle inputs
+        run: |
+          mkdir -p build/bundle-input/core build/bundle-input/platforms
+          cp $(find runtime-publish -name 'mcedia-core-runtime-*.jar' -type f | head -1) build/bundle-input/core/mcedia-core-runtime.jar
+          for mc in $(grep '^supported_mc_versions' gradle.properties | cut -d= -f2 | tr ',' ' '); do
+            cp $(find inputs/mcedia-core-input-${mc} -name '*.jar' -type f | head -1) build/bundle-input/core/mcedia-core-${mc}.jar
+            cp $(find inputs/mcedia-cn-platforms-${mc} -name '*.jar' -type f | head -1) build/bundle-input/platforms/mcedia-platforms-${mc}.jar
+          done
 
-            - **mcedia-api** — API interfaces
-            - **mcedia-player** — Media player engine
-            - **mcedia-decoder-ffmpeg** — FFmpeg decoder via JavaCV
-            - **mcedia-core** (per-platform) — Core Fabric mod with FFmpeg native binaries
-            - **mcedia-cn-platforms** — Chinese streaming platform integration
+      - name: Build cross-version bundles
+        run: ./gradlew :mcedia-core-bundle:bundleJar :mcedia-cn-platforms-bundle:bundleJar
 
-            ## Native Platforms (mcedia-core)
-
-            - windows-x86_64
-            - linux-x86_64
-            - linux-arm64
-            - macosx-x86_64
-            - macosx-arm64
-          files: release-assets/*.jar
-          fail_on_unmatched_files: true
+      - name: Upload final Core bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcedia-final-bundles
+          path: build/libs/bundle/*.jar
+          if-no-files-found: error

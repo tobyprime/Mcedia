@@ -10,6 +10,10 @@ version = findProperty('version') ?: '0.4-SNAPSHOT'
 subprojects {
     repositories {
         mavenLocal()
+        maven {
+            name = 'McediaCoreLocal'
+            url = uri("${rootDir}/publish")
+        }
         mavenCentral()
         maven {
             name = 'Fabric'

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "mcedia_core_runtime",
+  "version": "${version}",
+  "name": "Mcedia Core Runtime",
+  "description": "Shared Mcedia API, player, decoder, and native runtime",
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "mixins": ["mcedia.decoder.ffmpeg.mixins.json"],
+  "depends": {
+    "minecraft": ">=1.21.8"
+  }
+}

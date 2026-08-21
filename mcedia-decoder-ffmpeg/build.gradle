@@ -12,6 +12,10 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 def platform = project.findProperty('platformName') ?: detectPlatform()
+def universalNatives = project.findProperty('universalNatives')?.toBoolean() ?: false
+def nativePlatforms = universalNatives
+        ? project.property('supported_native_platforms').toString().split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+        : [platform]
 
 def detectPlatform() {
     def osName = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
@@ -53,7 +57,9 @@ dependencies {
 
     implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}"
     implementation "org.bytedeco:javacv:${project.javacv_version}"
-    implementation "org.bytedeco:javacpp:${project.javacpp_version}:${platform}"
-    implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}:${platform}"
+    nativePlatforms.each { nativePlatform ->
+        runtimeOnly "org.bytedeco:javacpp:${project.javacpp_version}:${nativePlatform}"
+        runtimeOnly "org.bytedeco:ffmpeg:${project.ffmpeg_version}:${nativePlatform}"
+    }
 
 }

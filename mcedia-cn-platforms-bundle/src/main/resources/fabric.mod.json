@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "mcedia_platforms_bundle",
+  "version": "${version}",
+  "name": "Mcedia Platforms",
+  "description": "Cross-version Mcedia Platforms distribution",
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "jars": ${nested_jars}
+}

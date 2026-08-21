@@ -1,0 +1,54 @@
+plugins {
+    id 'java-library'
+    id 'base'
+}
+
+def runtimePlatforms = (rootProject.property('supported_native_platforms').toString().split(',') as List)
+    .collect { it.trim() }.findAll { !it.isEmpty() }
+
+configurations {
+    runtimeDependencies
+}
+
+dependencies {
+    runtimeDependencies "org.bytedeco:javacv:${rootProject.property('javacv_version')}"
+    runtimeDependencies "org.bytedeco:ffmpeg:${rootProject.property('ffmpeg_version')}"
+    runtimePlatforms.each { platform ->
+        runtimeDependencies "org.bytedeco:javacpp:${rootProject.property('javacpp_version')}:${platform}"
+        runtimeDependencies "org.bytedeco:ffmpeg:${rootProject.property('ffmpeg_version')}:${platform}"
+    }
+}
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release.set(21)
+}
+
+tasks.named('processResources') {
+    inputs.property('version', rootProject.version)
+    filesMatching('fabric.mod.json') {
+        expand(version: rootProject.version)
+    }
+}
+
+tasks.named('jar') {
+    group = 'build'
+    archiveBaseName = 'mcedia-core-runtime'
+    archiveVersion = rootProject.version
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn(':mcedia-api:jar', ':mcedia-player:jar', ':mcedia-decoder-ffmpeg:jar')
+    from {
+        [project(':mcedia-api').tasks.named('jar').get().archiveFile.get().asFile,
+         project(':mcedia-player').tasks.named('jar').get().archiveFile.get().asFile,
+         project(':mcedia-decoder-ffmpeg').tasks.named('jar').get().archiveFile.get().asFile].collect { zipTree(it) }
+    }
+    from {
+        configurations.runtimeDependencies.collect { zipTree(it) }
+    }
+    from('src/main/resources')
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+}
+
+tasks.named('assemble') { dependsOn('jar') }

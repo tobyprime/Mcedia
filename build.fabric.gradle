@@ -93,12 +93,6 @@ base {
     archivesName = artifactBaseName
 }
 
-if (moduleName == 'mcedia-core') {
-    configurations {
-        bundledLibs
-    }
-}
-
 loom {
     if (splitClientSources) {
         splitEnvironmentSourceSets()
@@ -183,15 +177,10 @@ dependencies {
 
     switch (moduleName) {
         case 'mcedia-core':
-            implementation project(':mcedia-player')
-            runtimeOnly project(':mcedia-decoder-ffmpeg')
-
-            bundledLibs project(':mcedia-api')
-            bundledLibs project(':mcedia-player')
-            bundledLibs project(':mcedia-decoder-ffmpeg')
+            implementation "top.tobyprime:mcedia-core-runtime:${rootProject.version}"
             break
         case 'mcedia-cn-platforms':
-            implementation project(':mcedia-api')
+            implementation "top.tobyprime:mcedia-core-runtime:${rootProject.version}"
             implementation "com.google.code.gson:gson:${rootProject.property('gson_version')}"
             include "com.google.code.gson:gson:${rootProject.property('gson_version')}"
             implementation "org.jetbrains:annotations:${rootProject.property('annotations_version')}"
@@ -238,16 +227,6 @@ jar {
     if (licenseFile.exists()) {
         from(licenseFile) {
             rename { "${it}_${artifactBaseName}" }
-        }
-    }
-
-    if (moduleName == 'mcedia-core') {
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-        dependsOn(configurations.bundledLibs)
-        from {
-            configurations.bundledLibs.collect { zipTree(it) }
-        } {
-            exclude 'fabric.mod.json', '*.mixins.json', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
         }
     }
 }
@@ -315,7 +294,7 @@ def resolveGameVersions(version) {
     return [version]
 }
 
-def modrinthProjectId = System.getenv("MODRINTH_${moduleName.toUpperCase().replace('-', '_')}_PROJECT_ID")
+def modrinthProjectId = null
 
 if (modrinthProjectId != null && !modrinthProjectId.isEmpty()) {
     modrinth {

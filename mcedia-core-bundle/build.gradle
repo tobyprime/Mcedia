@@ -1,0 +1,44 @@
+import groovy.json.JsonOutput
+import org.gradle.api.GradleException
+import org.gradle.api.tasks.bundling.Jar
+
+plugins {
+    id 'base'
+}
+
+def supportedMcVersions = (findProperty('supported_mc_versions') ?: '').toString()
+    .split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+if (supportedMcVersions.isEmpty()) {
+    throw new GradleException('supported_mc_versions must contain at least one Minecraft version')
+}
+
+def bundleInputDir = file(findProperty('bundleInputDir') ?: "${rootProject.buildDir}/bundle-input/core")
+def bundleVersion = rootProject.version.toString()
+def jarEntries = supportedMcVersions.collect { mcVersion -> "mcedia-core-${mcVersion}.jar" }
+def runtimeEntry = 'mcedia-core-runtime.jar'
+
+tasks.register('verifyBundleInputs') {
+    inputs.dir(bundleInputDir)
+    doLast {
+        def missing = jarEntries.collect { new File(bundleInputDir, it) }.findAll { !it.isFile() }
+        if (!missing.isEmpty()) throw new GradleException("Missing Core bundle inputs: ${missing*.name.join(', ')}")
+    }
+}
+
+tasks.register('bundleJar', Jar) {
+    group = 'build'
+    dependsOn('verifyBundleInputs')
+    archiveBaseName = 'mcedia-core-bundle'
+    archiveVersion = bundleVersion
+    destinationDirectory = rootProject.layout.buildDirectory.dir('libs/bundle')
+    from(bundleInputDir) { include(runtimeEntry, *jarEntries); into('META-INF/jars') }
+    from('src/main/resources') {
+        expand(
+            version: bundleVersion,
+            minecraft_version_range: '>=1.21.8',
+            nested_jars: JsonOutput.toJson(([runtimeEntry] + jarEntries).collect { [file: "META-INF/jars/${it}"] })
+        )
+    }
+}
+
+tasks.named('assemble') { dependsOn('bundleJar') }

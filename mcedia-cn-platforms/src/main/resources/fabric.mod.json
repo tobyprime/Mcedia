@@ -17,6 +17,7 @@
   ],
   "depends": {
     "mcedia_core": "*",
+    "mcedia_core_runtime": "*",
     "minecraft": "${minecraft_version_range}"
   }
 }

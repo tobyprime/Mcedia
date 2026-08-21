@@ -13,6 +13,7 @@
   },
   "mixins": ["mcedia_core.client.mixins.json"],
   "depends": {
+    "mcedia_core_runtime": "*",
     "minecraft": "${minecraft_version_range}"
   }
 }
