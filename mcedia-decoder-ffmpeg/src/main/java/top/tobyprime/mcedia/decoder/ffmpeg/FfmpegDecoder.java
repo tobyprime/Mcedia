@@ -254,6 +254,8 @@ public class FfmpegDecoder implements Decoder {
             grabber.setOption("an", config.getEnableAudio() ? "0" : "1"); // 视频解码禁用音频
 
             grabber.setOption("vf", "format=rgba");
+            // Bilibili 等来源的部分 H.264 流在 FFmpeg 帧线程解码时会在原生层崩溃，固定为单线程解码
+            grabber.setVideoOption("threads", "1");
             grabber.setPixelFormat(avutil.AV_PIX_FMT_RGBA);
             if (config.getMaxVideoWidth() > 0 || config.getMaxVideoHeight() > 0) {
                 var width = config.getMaxVideoWidth() > 0 ? config.getMaxVideoWidth() : -1;

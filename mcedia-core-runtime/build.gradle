@@ -3,14 +3,27 @@ plugins {
     id 'base'
 }
 
-def runtimePlatforms = (rootProject.property('supported_native_platforms').toString().split(',') as List)
-    .collect { it.trim() }.findAll { !it.isEmpty() }
+def configuredPlatform = project.findProperty('runtimeNativePlatform')?.toString()?.trim()
+def supportedPlatforms = rootProject.property('supported_native_platforms').toString()
+    .split(',')
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
+def runtimePlatforms = (configuredPlatform ?: supportedPlatforms.join(','))
+    .split(',')
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
+if (runtimePlatforms.isEmpty() || runtimePlatforms.any { !supportedPlatforms.contains(it) }) {
+    throw new GradleException("Invalid runtimeNativePlatform: ${runtimePlatforms}")
+}
 
 configurations {
     runtimeDependencies
 }
 
 dependencies {
+    compileOnly "org.bytedeco:javacv:${rootProject.property('javacv_version')}"
+    compileOnly "org.bytedeco:ffmpeg:${rootProject.property('ffmpeg_version')}"
+    compileOnly "org.bytedeco:javacpp:${rootProject.property('javacpp_version')}:windows-x86_64"
     runtimeDependencies "org.bytedeco:javacv:${rootProject.property('javacv_version')}"
     runtimeDependencies "org.bytedeco:ffmpeg:${rootProject.property('ffmpeg_version')}"
     runtimePlatforms.each { platform ->
@@ -18,6 +31,7 @@ dependencies {
         runtimeDependencies "org.bytedeco:ffmpeg:${rootProject.property('ffmpeg_version')}:${platform}"
     }
 }
+
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
 }
@@ -49,6 +63,35 @@ tasks.named('jar') {
     }
     from('src/main/resources')
     exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    doLast {
+        if (configuredPlatform == 'windows-x86_64') {
+            def names = zipTree(archiveFile.get().asFile).files*.path.collect { it.replace('\\', '/') }
+            def unexpected = supportedPlatforms.findAll { platform ->
+                platform != 'windows-x86_64' && names.any { it.contains("/ffmpeg/${platform}/") }
+            }
+            if (!unexpected.isEmpty()) {
+                throw new GradleException("Windows runtime contains unexpected native platforms: ${unexpected}")
+            }
+        }
+    }
+}
+
+tasks.register('nativeArchive', Zip) {
+    group = 'distribution'
+    description = "Packages native libraries for ${runtimePlatforms.join(', ')}."
+    archiveFileName = "mcedia-native-${runtimePlatforms[0]}-${rootProject.version}.zip"
+    destinationDirectory = layout.buildDirectory.dir('native-archives')
+    dependsOn('jar')
+    from(zipTree(tasks.named('jar').get().archiveFile)) {
+        include runtimePlatforms.collect { platform ->
+            ["org/bytedeco/javacpp/${platform}/**", "org/bytedeco/ffmpeg/${platform}/**"]
+        }.flatten()
+        eachFile { details ->
+            details.path = details.path.replaceFirst('^org/bytedeco/(javacpp|ffmpeg)/', '')
+        }
+        includeEmptyDirs = false
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 tasks.named('assemble') { dependsOn('jar') }

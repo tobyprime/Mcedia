@@ -38,6 +38,13 @@ public final class PlatformResolverBootstrap {
     private static final Logger LOGGER = LoggerFactory.getLogger(PlatformResolverBootstrap.class);
     private static final AtomicBoolean INITIALIZED = new AtomicBoolean(false);
     private static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
+    interface BilibiliHttpTransport {
+        HttpResponse<String> send(HttpRequest request) throws Exception;
+    }
+
+    private static final BilibiliHttpTransport DEFAULT_BILIBILI_HTTP_TRANSPORT = request ->
+            HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+    private static volatile BilibiliHttpTransport bilibiliHttpTransport = DEFAULT_BILIBILI_HTTP_TRANSPORT;
     private static final String BILIBILI_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     private static final String DOUYIN_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1";
     private static final String NETEASE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
@@ -55,6 +62,14 @@ public final class PlatformResolverBootstrap {
     private static final Pattern PURE_DIGIT_PATTERN = Pattern.compile("\\d+");
 
     private PlatformResolverBootstrap() {
+    }
+
+    static void setBilibiliHttpTransportForTests(BilibiliHttpTransport transport) {
+        bilibiliHttpTransport = transport == null ? DEFAULT_BILIBILI_HTTP_TRANSPORT : transport;
+    }
+
+    private static HttpResponse<String> sendBilibiliHttp(HttpRequest request) throws Exception {
+        return bilibiliHttpTransport.send(request);
     }
 
     public static void init() {
@@ -115,7 +130,7 @@ public final class PlatformResolverBootstrap {
                 .header("User-Agent", BILIBILI_UA)
                 .header("Referer", "https://www.bilibili.com/");
         addBilibiliCookie(viewRequestBuilder, viewApi);
-        var viewResponse = HTTP.send(viewRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        var viewResponse = sendBilibiliHttp(viewRequestBuilder.build());
         var viewJson = parseObject(viewResponse.body());
         if (optInt(viewJson, "code", -1) != 0) {
             throw new IllegalStateException(optString(viewJson, "message", "获取视频信息失败"));
@@ -185,7 +200,7 @@ public final class PlatformResolverBootstrap {
                 .header("User-Agent", BILIBILI_UA)
                 .header("Referer", "https://www.bilibili.com/");
         addBilibiliCookie(viewRequestBuilder, viewApi);
-        var viewResponse = HTTP.send(viewRequestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        var viewResponse = sendBilibiliHttp(viewRequestBuilder.build());
         var viewJson = parseObject(viewResponse.body());
         if (optInt(viewJson, "code", -1) != 0) {
             throw new IllegalStateException(optString(viewJson, "message", "获取番剧信息失败"));
@@ -672,7 +687,10 @@ public final class PlatformResolverBootstrap {
         for (int attempt = 0; attempt < candidates.length; attempt++) {
             int qn = candidates[attempt];
             var params = bilibiliPlayUrlParams(baseParams, qn);
-            HttpResponse<String> playResponse = sendPlayUrlRequest(playApiBase + "?" + buildQueryString(params));
+            String playUrl = qn >= BILIBILI_QN_4K
+                    ? wbiPlayApi(playApiBase, params)
+                    : playApiBase + "?" + buildQueryString(params);
+            HttpResponse<String> playResponse = sendPlayUrlRequest(playUrl);
             if (isBilibiliRiskControl(playResponse)) {
                 if (!buvidRefreshed && BilibiliCookie.refreshBuvid()) {
                     buvidRefreshed = true;
@@ -771,7 +789,7 @@ public final class PlatformResolverBootstrap {
                 .header("User-Agent", BILIBILI_UA)
                 .header("Referer", "https://www.bilibili.com/");
         addBilibiliCookie(requestBuilder, url);
-        return HTTP.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        return sendBilibiliHttp(requestBuilder.build());
     }
 
     private static String cookieOf(HttpResponse<String> response) {
@@ -930,7 +948,17 @@ public final class PlatformResolverBootstrap {
 
     private static JsonObject selectBestVideoTrack(JsonArray video, int maxHeight) {
         if (maxHeight <= 0) {
-            return video.get(0).getAsJsonObject();
+            JsonObject best = null;
+            for (int i = 0; i < video.size(); i++) {
+                var track = video.get(i).getAsJsonObject();
+                if (optInt(track, "height", 0) <= 0) {
+                    continue;
+                }
+                if (best == null || compareBilibiliVideoTrack(track, best) > 0) {
+                    best = track;
+                }
+            }
+            return best != null ? best : video.get(0).getAsJsonObject();
         }
 
         var threshold = (int) (maxHeight * 1.2f);
@@ -1025,7 +1053,9 @@ public final class PlatformResolverBootstrap {
             return false;
         }
         var lower = host.toLowerCase(Locale.ROOT);
-        return isTrustedBilibiliHost(lower) || lower.equals("bilivideo.com") || lower.endsWith(".bilivideo.com");
+        return isTrustedBilibiliHost(lower)
+                || lower.equals("bilivideo.com") || lower.endsWith(".bilivideo.com")
+                || lower.equals("bilivideo.cn") || lower.endsWith(".bilivideo.cn");
     }
 
     private static boolean isTrustedBilibiliHost(String host) {

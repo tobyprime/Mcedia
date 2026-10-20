@@ -2,10 +2,23 @@ package top.tobyprime.mcedia_platforms.media;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import top.tobyprime.mcedia.api.resolver.MediaResolverSettings;
+import top.tobyprime.mcedia_platforms.auth.BilibiliCookie;
 
 import java.lang.reflect.Method;
+import java.net.URI;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpClient;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import javax.net.ssl.SSLSession;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -21,6 +34,11 @@ class PlatformResolverBootstrapTest {
     private static Method parseBangumiSeasonIdFromUrl;
     private static Method parsePNumberFromUrl;
     private static Method normalizeBilibiliCoverUrl;
+    private static Method trustedBilibiliMediaCookie;
+    private static Method extractBilibiliPlayInfo;
+    private static Method resolveBilibiliInternal;
+    private static java.lang.reflect.Field wbiMixinKey;
+    private static java.lang.reflect.Field wbiCachedDay;
 
     @BeforeAll
     static void setUp() throws Exception {
@@ -51,6 +69,18 @@ class PlatformResolverBootstrapTest {
         normalizeBilibiliCoverUrl = PlatformResolverBootstrap.class.getDeclaredMethod(
                 "normalizeBilibiliCoverUrl", String.class);
         normalizeBilibiliCoverUrl.setAccessible(true);
+        trustedBilibiliMediaCookie = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "trustedBilibiliMediaCookie", String.class, String.class, String.class);
+        trustedBilibiliMediaCookie.setAccessible(true);
+        extractBilibiliPlayInfo = PlatformResolverBootstrap.class.getDeclaredMethod(
+                "extractBilibiliPlayInfo", JsonObject.class, java.util.Map.class, String.class, int.class, int.class);
+        extractBilibiliPlayInfo.setAccessible(true);
+        resolveBilibiliInternal = PlatformResolverBootstrap.class.getDeclaredMethod("resolveBilibiliInternal", String.class);
+        resolveBilibiliInternal.setAccessible(true);
+        wbiMixinKey = top.tobyprime.mcedia_platforms.auth.BilibiliWbiSign.class.getDeclaredField("cachedMixinKey");
+        wbiMixinKey.setAccessible(true);
+        wbiCachedDay = top.tobyprime.mcedia_platforms.auth.BilibiliWbiSign.class.getDeclaredField("cachedDay");
+        wbiCachedDay.setAccessible(true);
     }
 
     private JsonObject invokeSelect(JsonArray video, int maxHeight) throws Exception {
@@ -89,6 +119,14 @@ class PlatformResolverBootstrapTest {
         return (String) normalizeBilibiliCoverUrl.invoke(null, input);
     }
 
+    private String invokeTrustedBilibiliMediaCookie(String cookie, String videoUrl, String audioUrl) throws Exception {
+        return (String) trustedBilibiliMediaCookie.invoke(null, cookie, videoUrl, audioUrl);
+    }
+
+    private Object invokeExtractBilibiliPlayInfo(JsonObject data, String cookie, int maxHeight, int requestedQn) throws Exception {
+        return extractBilibiliPlayInfo.invoke(null, data, java.util.Map.of("User-Agent", "fixture"), cookie, maxHeight, requestedQn);
+    }
+
     private static JsonArray videoTracks(JsonObject... tracks) {
         var array = new JsonArray();
         for (var track : tracks) {
@@ -105,6 +143,207 @@ class PlatformResolverBootstrapTest {
         object.addProperty("bandwidth", width * height * 10);
         object.addProperty("baseUrl", "https://example.com/" + id + ".m4s");
         return object;
+    }
+
+    private static JsonObject playurlTrack(String id, int width, int height, String url) {
+        var object = track(id, width, height);
+        object.addProperty("baseUrl", url);
+        object.addProperty("codecid", 7);
+        object.addProperty("frameRate", "60");
+        return object;
+    }
+
+    private static JsonObject realBilibiliViewResponse() {
+        var root = new JsonObject();
+        root.addProperty("code", 0);
+        var data = new JsonObject();
+        data.addProperty("title", "fixture BV1z73MzAEeb");
+        var owner = new JsonObject();
+        owner.addProperty("name", "fixture-owner");
+        data.add("owner", owner);
+        data.addProperty("pic", "https://i0.hdslb.com/bfs/archive/fixture.jpg");
+        data.addProperty("cid", 38501680872L);
+        root.add("data", data);
+        return root;
+    }
+
+    private static JsonObject limitedBilibiliPlayurlResponse() {
+        var root = new JsonObject();
+        root.addProperty("code", 0);
+        var data = new JsonObject();
+        data.addProperty("quality", 80);
+        var dash = new JsonObject();
+        var video = new JsonArray();
+        video.add(playurlTrack("80", 1920, 1080,
+                "https://upos-sz-estgoss.bilivideo.com/upgcxcode/72/08/38501680872/38501680872-1-30080.m4s"));
+        var audio = new JsonArray();
+        audio.add(playurlTrack("30280", 0, 0,
+                "https://upos-sz-estgoss.bilivideo.com/upgcxcode/72/08/38501680872/38501680872-1-30280.m4s"));
+        dash.add("video", video);
+        dash.add("audio", audio);
+        data.add("dash", dash);
+        root.add("data", data);
+        return root;
+    }
+
+    private static JsonObject realBilibiliDashResponse() {
+        var root = new JsonObject();
+        root.addProperty("code", 0);
+        var data = new JsonObject();
+        var dash = new JsonObject();
+        var video = new JsonArray();
+        video.add(playurlTrack("80", 1920, 1080,
+                "https://cn-zjjh-ct-04-05.bilivideo.com/upgcxcode/95/37/114787497285357/114787497285357-1-80.m4s"));
+        video.add(playurlTrack("120", 3840, 2160,
+                "https://cn-zjjh-ct-04-05.bilivideo.com/upgcxcode/95/37/114787497285357/114787497285357-1-120.m4s"));
+        var audio = new JsonArray();
+        audio.add(playurlTrack("30280", 0, 0,
+                "https://xy36x158x181x7xy.mcdn.bilivideo.cn/upgcxcode/95/37/114787497285357/114787497285357-1-30280.m4s"));
+        dash.add("video", video);
+        dash.add("audio", audio);
+        data.add("dash", dash);
+        root.add("data", data);
+        return root.getAsJsonObject("data");
+    }
+
+    private static final class FixtureResponse implements HttpResponse<String> {
+        private final HttpRequest request;
+        private final String body;
+
+        private FixtureResponse(HttpRequest request, String body) {
+            this.request = request;
+            this.body = body;
+        }
+
+        @Override public int statusCode() { return 200; }
+        @Override public HttpRequest request() { return request; }
+        @Override public Optional<HttpResponse<String>> previousResponse() { return Optional.empty(); }
+        @Override public HttpHeaders headers() { return HttpHeaders.of(Map.of(), (name, value) -> true); }
+        @Override public String body() { return body; }
+        @Override public Optional<SSLSession> sslSession() { return Optional.empty(); }
+        @Override public URI uri() { return request.uri(); }
+        @Override public HttpClient.Version version() { return HttpClient.Version.HTTP_1_1; }
+    }
+
+    private static String queryValue(URI uri, String key) {
+        for (var part : uri.getRawQuery().split("&")) {
+            var pair = part.split("=", 2);
+            if (pair.length == 2 && pair[0].equals(key)) {
+                return java.net.URLDecoder.decode(pair[1], java.nio.charset.StandardCharsets.UTF_8);
+            }
+        }
+        return null;
+    }
+
+    @Test
+    void usesExactModRequestsAndReproducesServerLimitedQuality() throws Exception {
+        var requests = new ArrayList<HttpRequest>();
+        PlatformResolverBootstrap.setBilibiliHttpTransportForTests(request -> {
+            requests.add(request);
+            var uri = request.uri();
+            if (uri.getPath().equals("/x/web-interface/view")) {
+                return new FixtureResponse(request, realBilibiliViewResponse().toString());
+            }
+            if (uri.getPath().equals("/x/player/wbi/playurl")) {
+                var qn = queryValue(uri, "qn");
+                if ("120".equals(qn)) {
+                    var root = new JsonObject();
+                    root.addProperty("code", 0);
+                    root.add("data", realBilibiliDashResponse());
+                    return new FixtureResponse(request, root.toString());
+                }
+                return new FixtureResponse(request, limitedBilibiliPlayurlResponse().toString());
+            }
+            assertEquals("/x/player/playurl", uri.getPath());
+            return new FixtureResponse(request, limitedBilibiliPlayurlResponse().toString());
+        });
+        try {
+            var properties = new java.util.Properties();
+            properties.setProperty("BILIBILI_COOKIES", "SESSDATA=fixture; DedeUserID=385677210");
+            properties.setProperty("BILIBILI_BUVID3", "fixture-buvid3");
+            properties.setProperty("BILIBILI_BUVID4", "fixture-buvid4");
+            BilibiliCookie.fromProperties(properties);
+            wbiMixinKey.set(null, "fixture-mixin-key");
+            wbiCachedDay.setLong(null, System.currentTimeMillis() / 86400_000);
+            MediaResolverSettings.setResolutionLimit(0);
+
+            var result = (PlatformMedia) resolveBilibiliInternal.invoke(null, "https://www.bilibili.com/video/BV1z73MzAEeb/");
+
+            assertEquals("https://api.bilibili.com/x/web-interface/view?bvid=BV1z73MzAEeb", requests.get(0).uri().toString());
+            assertEquals(List.of("/x/player/wbi/playurl", "/x/player/wbi/playurl"),
+                    requests.subList(1, requests.size()).stream().map(request -> request.uri().getPath()).toList());
+            assertEquals(List.of("127", "120"),
+                    requests.subList(1, requests.size()).stream()
+                            .map(request -> queryValue(request.uri(), "qn"))
+                            .toList());
+            var firstPlayurl = requests.get(1);
+            assertEquals("BV1z73MzAEeb", queryValue(firstPlayurl.uri(), "bvid"));
+            assertEquals("38501680872", queryValue(firstPlayurl.uri(), "cid"));
+            assertEquals("0", queryValue(firstPlayurl.uri(), "fnver"));
+            assertEquals("4048", queryValue(firstPlayurl.uri(), "fnval"));
+            assertEquals("1", queryValue(firstPlayurl.uri(), "fourk"));
+            assertEquals("1", queryValue(firstPlayurl.uri(), "try_look"));
+            assertEquals("1", queryValue(firstPlayurl.uri(), "voice_balance"));
+            assertEquals("pre-load", queryValue(firstPlayurl.uri(), "gaia_source"));
+            assertEquals("1550101", queryValue(firstPlayurl.uri(), "web_location"));
+            assertEquals("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    firstPlayurl.headers().firstValue("User-Agent").orElseThrow());
+            assertEquals("https://www.bilibili.com/",
+                    firstPlayurl.headers().firstValue("Referer").orElseThrow());
+            assertEquals("SESSDATA=fixture; DedeUserID=385677210; buvid3=fixture-buvid3; buvid4=fixture-buvid4",
+                    firstPlayurl.headers().firstValue("Cookie").orElseThrow());
+            assertEquals("3840x2160", result.getInfo().getExtraMetadata().get("bilibili.selected_width") + "x"
+                    + result.getInfo().getExtraMetadata().get("bilibili.selected_height"));
+            assertEquals("120", result.getInfo().getExtraMetadata().get("bilibili.selected_qn"));
+        } finally {
+            PlatformResolverBootstrap.setBilibiliHttpTransportForTests(null);
+        }
+    }
+
+    @Test
+    void resolvesRealBilibiliMember4kDashResponseWhenUnlimited() throws Exception {
+        var result = invokeExtractBilibiliPlayInfo(
+                realBilibiliDashResponse(),
+                "SESSDATA=fixture; DedeUserID=385677210",
+                0,
+                120);
+        var playInfoMethod = result.getClass().getDeclaredMethod("playInfo");
+        var diagnosticsMethod = result.getClass().getDeclaredMethod("diagnostics");
+        playInfoMethod.setAccessible(true);
+        diagnosticsMethod.setAccessible(true);
+        var playInfo = (top.tobyprime.mcedia.api.media.MediaPlayInfo) playInfoMethod.invoke(result);
+        @SuppressWarnings("unchecked")
+        var diagnostics = (java.util.Map<String, String>) diagnosticsMethod.invoke(result);
+
+        assertTrue(playInfo.getUrl().endsWith("-1-120.m4s"));
+        assertTrue(playInfo.getAudioUrl().contains("mcdn.bilivideo.cn"));
+        assertEquals("SESSDATA=fixture; DedeUserID=385677210", playInfo.getCookie());
+        assertEquals("120", diagnostics.get("bilibili.selected_qn"));
+        assertEquals("3840", diagnostics.get("bilibili.selected_width"));
+        assertEquals("2160", diagnostics.get("bilibili.selected_height"));
+    }
+
+    @Test
+    void preservesCookieForMcdnBilivideoAudioHostFromRealBilibiliPlayback() throws Exception {
+        var cookie = "SESSDATA=fixture; DedeUserID=385677210";
+        var videoUrl = "https://cn-zjjh-ct-04-05.bilivideo.com/upgcxcode/95/37/114787497285357/114787497285357-1-120.m4s";
+        var audioUrl = "https://xy36x158x181x7xy.mcdn.bilivideo.cn/upgcxcode/95/37/114787497285357/114787497285357-1-30280.m4s";
+
+        assertEquals(cookie, invokeTrustedBilibiliMediaCookie(cookie, videoUrl, audioUrl));
+    }
+
+    @Test
+    void selects4kTrackForTheRealBvVideoWhenUnlimited() throws Exception {
+        var video = videoTracks(
+                track("80", 1920, 1080),
+                track("120", 3840, 2160),
+                track("64", 1280, 720)
+        );
+
+        var result = invokeSelect(video, 0);
+
+        assertEquals("120", result.get("id").getAsString());
+        assertEquals(2160, result.get("height").getAsInt());
     }
 
     @Test

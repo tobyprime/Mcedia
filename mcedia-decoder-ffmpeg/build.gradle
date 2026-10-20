@@ -57,6 +57,7 @@ dependencies {
 
     implementation "org.bytedeco:ffmpeg:${project.ffmpeg_version}"
     implementation "org.bytedeco:javacv:${project.javacv_version}"
+    compileOnly "org.bytedeco:javacpp:${project.javacpp_version}"
     nativePlatforms.each { nativePlatform ->
         runtimeOnly "org.bytedeco:javacpp:${project.javacpp_version}:${nativePlatform}"
         runtimeOnly "org.bytedeco:ffmpeg:${project.ffmpeg_version}:${nativePlatform}"

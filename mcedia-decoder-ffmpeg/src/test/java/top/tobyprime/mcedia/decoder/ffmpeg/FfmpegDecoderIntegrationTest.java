@@ -2,11 +2,14 @@ package top.tobyprime.mcedia.decoder.ffmpeg;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.bytedeco.ffmpeg.avcodec.AVCodecContext;
+import org.bytedeco.javacv.FFmpegFrameGrabber;
 import top.tobyprime.mcedia.api.audio.AudioFrame;
 import top.tobyprime.mcedia.api.config.DecoderConfiguration;
 import top.tobyprime.mcedia.api.media.MediaPlayInfo;
 import top.tobyprime.mcedia.api.video.VideoFrame;
 
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.function.BooleanSupplier;
@@ -23,6 +26,40 @@ class FfmpegDecoderIntegrationTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void videoGrabberForcesSingleThreadedDecoding() throws Exception {
+        Path videoPath = TestMediaFactory.createVideoOnly(tempDir);
+        FfmpegDecoder decoder = new FfmpegDecoder(new MediaPlayInfo(videoPath.toString()), stableDecoderConfig());
+
+        decoder.open();
+        try {
+            FFmpegFrameGrabber grabber = (FFmpegFrameGrabber) field(decoder, "masterGrabber");
+            assertEquals("1", grabber.getVideoOptions().get("threads"));
+        } finally {
+            decoder.close();
+        }
+    }
+
+    @Test
+    void h264VideoGrabberDecodesWithSingleThread() throws Exception {
+        Path videoPath = TestMediaFactory.createH264VideoOnly(tempDir);
+        FfmpegDecoder decoder = new FfmpegDecoder(new MediaPlayInfo(videoPath.toString()), stableDecoderConfig());
+
+        decoder.open();
+        VideoFrame frame = null;
+        try {
+            FFmpegFrameGrabber grabber = (FFmpegFrameGrabber) field(decoder, "masterGrabber");
+            AVCodecContext codec = (AVCodecContext) field(grabber, "video_c");
+            assertEquals(1, codec.thread_count());
+            frame = awaitVideoFrame(decoder, FRAME_TIMEOUT);
+        } finally {
+            if (frame != null) {
+                frame.close();
+            }
+            decoder.close();
+        }
+    }
 
     @Test
     void openDecodesAtLeastOneRealVideoFrame() throws Exception {
@@ -197,6 +234,12 @@ class FfmpegDecoderIntegrationTest {
         }
         fail("Timed out waiting for " + label);
         return null;
+    }
+
+    private static Object field(Object target, String name) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
     }
 
     private static void awaitCondition(BooleanSupplier condition, Duration timeout, String message) throws InterruptedException {

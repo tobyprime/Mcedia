@@ -37,12 +37,34 @@ final class TestMediaFactory {
         return videoPath;
     }
 
+    static Path createH264VideoOnly(Path tempDir) throws Exception {
+        Path videoPath = tempDir.resolve("sample-h264-video-only.mp4");
+        writeH264Video(videoPath);
+        return videoPath;
+    }
+
     private static void writeVideo(Path outputPath) throws Exception {
         try (FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(outputPath.toFile(), VIDEO_WIDTH, VIDEO_HEIGHT, 0)) {
             recorder.setFormat("mp4");
             recorder.setFrameRate(VIDEO_FRAME_RATE);
             recorder.setVideoCodec(avcodec.AV_CODEC_ID_MPEG4);
             recorder.setPixelFormat(avutil.AV_PIX_FMT_YUV420P);
+            recorder.start();
+
+            Java2DFrameConverter converter = new Java2DFrameConverter();
+            for (int i = 0; i < VIDEO_FRAME_COUNT; i++) {
+                recorder.record(converter.convert(createFrameImage(i)));
+            }
+        }
+    }
+
+    private static void writeH264Video(Path outputPath) throws Exception {
+        try (FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(outputPath.toFile(), VIDEO_WIDTH, VIDEO_HEIGHT, 0)) {
+            recorder.setFormat("mp4");
+            recorder.setFrameRate(VIDEO_FRAME_RATE);
+            recorder.setVideoCodec(avcodec.AV_CODEC_ID_H264);
+            recorder.setPixelFormat(avutil.AV_PIX_FMT_YUV420P);
+            recorder.setVideoOption("strict", "-2");
             recorder.start();
 
             Java2DFrameConverter converter = new Java2DFrameConverter();
