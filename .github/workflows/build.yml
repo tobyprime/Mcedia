@@ -269,7 +269,7 @@ jobs:
           done
 
       - name: Build cross-version bundles
-        run: ./gradlew :mcedia-core-bundle:bundleJar :mcedia-cn-platforms-bundle:bundleJar
+        run: ./gradlew --configure-on-demand :mcedia-core-bundle:bundleJar :mcedia-cn-platforms-bundle:bundleJar
 
       - name: Upload final Core bundles
         uses: actions/upload-artifact@v4
