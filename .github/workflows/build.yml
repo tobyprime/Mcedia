@@ -99,7 +99,8 @@ jobs:
 
       - name: Build non-versioned modules (with tests)
         run: |
-          ./gradlew :mcedia-api:build \
+          ./gradlew --configure-on-demand \
+                    :mcedia-api:build \
                     :mcedia-player:build \
                     :mcedia-decoder-ffmpeg:build \
                     -Psupported_mc_versions=1.21.11
@@ -264,7 +265,7 @@ jobs:
           cp $(find runtime-publish -name 'mcedia-core-runtime-*.jar' -type f | head -1) build/bundle-input/core/mcedia-core-runtime.jar
           for mc in $(grep '^supported_mc_versions' gradle.properties | cut -d= -f2 | tr ',' ' '); do
             cp $(find inputs/mcedia-core-input-${mc} -name '*.jar' -type f | head -1) build/bundle-input/core/mcedia-core-${mc}.jar
-            cp $(find inputs/mcedia-cn-platforms-${mc} -name '*.jar' -type f | head -1) build/bundle-input/platforms/mcedia-platforms-${mc}.jar
+            cp $(find inputs/mcedia-cn-platforms-input-${mc} -name '*.jar' -type f | head -1) build/bundle-input/platforms/mcedia-platforms-${mc}.jar
           done
 
       - name: Build cross-version bundles
